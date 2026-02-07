@@ -1,0 +1,17 @@
+# Binaries (at root only; cmd/atak-dl is source)
+/atak-dl
+/atak-dl-*
+*.exe
+
+# Downloads
+downloads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
