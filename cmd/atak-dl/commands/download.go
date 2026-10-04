@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"context"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
@@ -85,7 +86,7 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
 
 	engine := download.NewEngine(cfg)
-	ctx, cancel := signal.NotifyContext(nil, os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	var lastPercent float64
