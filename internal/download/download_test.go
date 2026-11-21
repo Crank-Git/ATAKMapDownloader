@@ -137,7 +137,7 @@ func TestEngineDownloadsA3x3TileArea(t *testing.T) {
 			if len(tiles) != 9 {
 				t.Fatalf("output file holds %d tile rows, want 9", len(tiles))
 			}
-			for pair := range area.IterTiles() {
+			for pair := range area.IterTiles(t.Context()) {
 				checkTile(t, srv, tiles, pair[0], pair[1])
 			}
 		})
@@ -237,7 +237,7 @@ func TestEngineAcceptsASelfSignedCertificateWhenInsecure(t *testing.T) {
 	if len(tiles) != 9 {
 		t.Fatalf("output file holds %d tile rows, want 9", len(tiles))
 	}
-	for pair := range area.IterTiles() {
+	for pair := range area.IterTiles(t.Context()) {
 		checkTile(t, srv, tiles, pair[0], pair[1])
 	}
 }

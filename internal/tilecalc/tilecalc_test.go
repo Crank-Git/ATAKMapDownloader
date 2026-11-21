@@ -1,9 +1,53 @@
 package tilecalc
 
 import (
+	"context"
 	"math"
 	"testing"
+	"time"
 )
+
+func TestIterTilesClosesTheChannelWhenTheContextEnds(t *testing.T) {
+	tb := TileBounds{MinX: 0, MaxX: 99, MinY: 0, MaxY: 99, Zoom: 10}
+	ctx, cancel := context.WithCancel(t.Context())
+	tiles := tb.IterTiles(ctx)
+	<-tiles
+	cancel()
+
+	// The producer closes the channel when it returns, so a closed channel shows that no goroutine leaks.
+	timeout := time.After(time.Second)
+	for received := 0; ; received++ {
+		select {
+		case _, open := <-tiles:
+			if !open {
+				return
+			}
+			// A select picks a ready case at random, so the producer can send one more tile after the cancel.
+			if received > 0 {
+				t.Fatalf("IterTiles sent %d tiles after the cancel, want at most 1", received+1)
+			}
+		case <-timeout:
+			t.Fatal("IterTiles did not close its channel within 1 s of the cancel")
+		}
+	}
+}
+
+func TestIterTilesSendsEveryTileInRowOrder(t *testing.T) {
+	tb := TileBounds{MinX: 3, MaxX: 4, MinY: 7, MaxY: 8, Zoom: 5}
+	var got [][2]int
+	for pair := range tb.IterTiles(t.Context()) {
+		got = append(got, pair)
+	}
+	want := [][2]int{{3, 7}, {4, 7}, {3, 8}, {4, 8}}
+	if len(got) != len(want) {
+		t.Fatalf("IterTiles sent %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("IterTiles sent %v, want %v", got, want)
+		}
+	}
+}
 
 func TestGeographicBounds(t *testing.T) {
 	_, err := NewGeographicBounds(41, 40, -74, -73)
