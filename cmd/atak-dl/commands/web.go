@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/crank-git/atak-map-downloader/web"
@@ -160,18 +161,39 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
 	sources := h.parser.DiscoverSources(false)
-	list := []map[string]interface{}{}
+	list := []sourceItem{}
 	for _, name := range h.parser.ListSources() {
 		s := sources[name]
-		list = append(list, map[string]interface{}{
-			"name":     name,
-			"url":      s.URL,
-			"min_zoom": s.MinZoom,
-			"max_zoom": s.MaxZoom,
-			"format":   s.TileType,
+		p := policy.ForSource(s)
+		list = append(list, sourceItem{
+			Name:               name,
+			URL:                s.URL,
+			MinZoom:            s.MinZoom,
+			MaxZoom:            s.MaxZoom,
+			Format:             s.TileType,
+			PolicyClass:        string(p.PolicyClass),
+			PolicyReason:       p.Reason,
+			PolicyReferenceURL: p.ReferenceURL,
+			RequestsPerSecond:  p.RequestsPerSecond,
+			PolicyHost:         p.HostPattern,
 		})
 	}
 	writeJSON(w, list)
+}
+
+// sourceItem is one map source in the GET /api/sources response (FR-polite-downloading-16).
+// PolicyHost is the host pattern of the policy entry, so the web UI can name the host that the rate applies to.
+type sourceItem struct {
+	Name               string  `json:"name"`
+	URL                string  `json:"url"`
+	MinZoom            int     `json:"min_zoom"`
+	MaxZoom            int     `json:"max_zoom"`
+	Format             string  `json:"format"`
+	PolicyClass        string  `json:"policy_class"`
+	PolicyReason       string  `json:"policy_reason"`
+	PolicyReferenceURL string  `json:"policy_reference_url"`
+	RequestsPerSecond  float64 `json:"requests_per_second"`
+	PolicyHost         string  `json:"policy_host"`
 }
 
 func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {

@@ -115,6 +115,33 @@ func createTestXML(t *testing.T, dir, name, content string) {
 	}
 }
 
+func TestMapSourceHostsReturnsTheDistinctHosts(t *testing.T) {
+	tests := []struct {
+		name string
+		src  MapSource
+		want []string
+	}{
+		{"returns the host of a URL with no server parts", MapSource{URL: "https://example.com/{$z}/{$x}/{$y}.png"}, []string{"example.com"}},
+		{"returns one host per server part", MapSource{URL: "https://{$serverpart}.tile.opentopomap.org/{$z}/{$x}/{$y}.png", ServerParts: []string{"a", "b"}}, []string{"a.tile.opentopomap.org", "b.tile.opentopomap.org"}},
+		{"returns a shared host once", MapSource{URL: "https://example.com/{$serverpart}/{$z}/{$x}/{$y}.png", ServerParts: []string{"a", "b"}}, []string{"example.com"}},
+		{"drops the port and lowers the letter case", MapSource{URL: "https://MT1.Google.com:8443/{$z}/{$x}/{$y}.png"}, []string{"mt1.google.com"}},
+		{"returns no host for a URL with no host", MapSource{URL: "/{$z}/{$x}/{$y}.png"}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.src.Hosts()
+			if len(got) != len(tt.want) {
+				t.Fatalf("Hosts() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("Hosts() = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i <= len(s)-len(sub); i++ {
 		if s[i:i+len(sub)] == sub {

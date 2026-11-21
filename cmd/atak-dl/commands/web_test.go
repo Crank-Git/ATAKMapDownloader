@@ -141,6 +141,41 @@ func TestSourcesReturnsAnEmptyArray(t *testing.T) {
 	}
 }
 
+func TestSourcesReturnsThePolicyOfEachSource(t *testing.T) {
+	googleXML := strings.Replace(testSourceXML, "https://example.com/", "https://mt1.google.com/", 1)
+	googleXML = strings.Replace(googleXML, "Test Source", "Google Test", 1)
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "google.xml": googleXML})
+	rec := serve(h, http.MethodGet, "/api/sources", "")
+
+	var got []sourceItem
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]sourceItem{
+		"Google Test": {
+			PolicyClass:        "restricted",
+			PolicyReferenceURL: "https://developers.google.com/maps/documentation/tile/policies",
+			RequestsPerSecond:  1,
+			PolicyHost:         "*.google.com",
+		},
+		"Test Source": {
+			PolicyClass:       "conditional",
+			RequestsPerSecond: 4,
+			PolicyHost:        "example.com",
+		},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d sources, want %d", len(got), len(want))
+	}
+	for _, item := range got {
+		w := want[item.Name]
+		if item.PolicyClass != w.PolicyClass || item.PolicyReferenceURL != w.PolicyReferenceURL ||
+			item.RequestsPerSecond != w.RequestsPerSecond || item.PolicyHost != w.PolicyHost || item.PolicyReason == "" {
+			t.Errorf("source %q = %+v, want the policy fields of %+v and a reason", item.Name, item, w)
+		}
+	}
+}
+
 func TestPreviewRejectsInvertedBounds(t *testing.T) {
 	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
 	// The south value is above the north value.
