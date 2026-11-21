@@ -132,7 +132,8 @@ func backoffDelay(base time.Duration, refusals int, jitter float64) time.Duratio
 }
 
 // maxRetryAfterSeconds caps the parsed number of seconds, so the conversion to a duration cannot overflow.
-const maxRetryAfterSeconds = 1 << 31
+// Any value above 300 s stops the job, so the cap changes no result.
+const maxRetryAfterSeconds = 1_000_000
 
 // parseRetryAfter returns the wait that a Retry-After value asks for, as seconds or as an HTTP date.
 // A date in the past gives no wait.

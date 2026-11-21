@@ -404,7 +404,11 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiURL := h.geocodeURL + "?q=" + url.QueryEscape(req.Query) + "&format=json&limit=5&addressdetails=1"
-	hr, _ := http.NewRequest("GET", apiURL, nil)
+	hr, err := http.NewRequestWithContext(r.Context(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Geocoding failed: "+err.Error())
+		return
+	}
 	hr.Header.Set("User-Agent", h.userAgent)
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(hr)
