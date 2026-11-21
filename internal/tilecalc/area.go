@@ -90,22 +90,27 @@ func (a Area) Validate() error {
 // The producer goroutine closes the channel after the last tile, or when ctx ends.
 // Tiles does not run Validate, so call Validate first. An area of an unknown kind sends no tiles.
 func (a Area) Tiles(ctx context.Context, z int) <-chan [2]int {
+	return emitCover(ctx, a.cover(z), 1<<z)
+}
+
+// cover returns the tile columns of the area for each tile row at zoom level z.
+// An area of an unknown kind has no rows.
+func (a Area) cover(z int) cover {
 	n := 1 << z
 	switch a.Kind {
 	case AreaBounds:
 		b := a.Geometry.Bound()
 		geo := &GeographicBounds{MinLat: b.Min[1], MaxLat: b.Max[1], MinLon: b.Min[0], MaxLon: b.Max[0]}
-		return NewTileCalculator().CalculateTileBounds(geo, z).IterTiles(ctx)
+		tb := NewTileCalculator().CalculateTileBounds(geo, z)
+		return cover{minY: tb.MinY, maxY: tb.MaxY, spans: func(int) []span { return []span{{tb.MinX, tb.MaxX}} }}
 	case AreaPolygon:
 		polygons, _ := areaPolygons(a.Geometry) // Validate checked the type, and a wrong type gives no polygons.
-		return emitCover(ctx, newPolygonCover(polygons, n), n)
+		return newPolygonCover(polygons, n)
 	case AreaRouteBuffer:
 		lines, _ := areaLines(a.Geometry) // Validate checked the type, and a wrong type gives no lines.
-		return emitCover(ctx, newBufferCover(lines, a.BufferM, n), n)
+		return newBufferCover(lines, a.BufferM, n)
 	default:
-		ch := make(chan [2]int)
-		close(ch)
-		return ch
+		return cover{minY: 0, maxY: -1, spans: func(int) []span { return nil }}
 	}
 }
 

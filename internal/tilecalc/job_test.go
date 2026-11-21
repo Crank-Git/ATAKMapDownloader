@@ -87,35 +87,41 @@ func TestCountJobTilesCountsEachAreaAndTheUniqueTiles(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CountJobTiles(tt.areas)
-			tiles := collectJobTiles(t, tt.areas)
-			if got.Unique != len(tiles) {
-				t.Errorf("Unique = %d, want %d, the count of JobTiles", got.Unique, len(tiles))
-			}
-			perZoom := map[int]int{}
-			for _, tile := range tiles {
-				perZoom[tile.Z]++
-			}
-			for z, n := range perZoom {
-				if got.Zooms[z] != n {
-					t.Errorf("Zooms[%d] = %d, want %d", z, got.Zooms[z], n)
-				}
-			}
-			if len(got.Areas) != len(tt.areas) {
-				t.Fatalf("Areas has %d counts, want %d", len(got.Areas), len(tt.areas))
-			}
-			sum := 0
-			for i, a := range tt.areas {
-				own := len(collectJobTiles(t, []JobArea{a}))
-				if got.Areas[i] != own {
-					t.Errorf("Areas[%d] = %d, want %d, the tiles of the area alone", i, got.Areas[i], own)
-				}
-				sum += own
-			}
-			if len(tt.areas) > 1 && got.Unique >= sum {
-				t.Errorf("Unique = %d, want fewer than the sum %d, because the areas share tiles", got.Unique, sum)
-			}
+			checkJobCount(t, tt.areas)
 		})
+	}
+}
+
+// checkJobCount reports an error when CountJobTiles of areas does not match the tiles that JobTiles sends.
+func checkJobCount(t *testing.T, areas []JobArea) {
+	t.Helper()
+	got := CountJobTiles(areas)
+	tiles := collectJobTiles(t, areas)
+	if got.Unique != len(tiles) {
+		t.Errorf("Unique = %d, want %d, the count of JobTiles", got.Unique, len(tiles))
+	}
+	perZoom := map[int]int{}
+	for _, tile := range tiles {
+		perZoom[tile.Z]++
+	}
+	for z, n := range perZoom {
+		if got.Zooms[z] != n {
+			t.Errorf("Zooms[%d] = %d, want %d", z, got.Zooms[z], n)
+		}
+	}
+	if len(got.Areas) != len(areas) {
+		t.Fatalf("Areas has %d counts, want %d", len(got.Areas), len(areas))
+	}
+	sum := 0
+	for i, a := range areas {
+		own := len(collectJobTiles(t, []JobArea{a}))
+		if got.Areas[i] != own {
+			t.Errorf("Areas[%d] = %d, want %d, the tiles of the area alone", i, got.Areas[i], own)
+		}
+		sum += own
+	}
+	if len(areas) > 1 && got.Unique >= sum {
+		t.Errorf("Unique = %d, want fewer than the sum %d, because the areas share tiles", got.Unique, sum)
 	}
 }
 
