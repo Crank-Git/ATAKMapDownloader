@@ -8,6 +8,8 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -76,6 +78,19 @@ type Server struct {
 // A path that names no tile gets status 400.
 func New(t testing.TB, table Table) *Server {
 	t.Helper()
+	return start(t, table, false)
+}
+
+// NewTLS starts a tile server like New, but it serves HTTPS with a self-signed certificate.
+// A client that verifies TLS certificates rejects the server, because no trusted authority signed the certificate.
+func NewTLS(t testing.TB, table Table) *Server {
+	t.Helper()
+	return start(t, table, true)
+}
+
+// start starts the tile server for New and NewTLS, and stops it when the test ends.
+func start(t testing.TB, table Table, useTLS bool) *Server {
+	t.Helper()
 	s := &Server{
 		table:    table,
 		png:      encode(t, PNG),
@@ -83,7 +98,14 @@ func New(t testing.TB, table Table) *Server {
 		requests: make(map[Tile]int),
 	}
 	// NewTestServer uses an in-memory network, and a client with its own transport cannot reach it.
-	srv := httptest.NewServer(http.HandlerFunc(s.serveTile))
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(s.serveTile))
+	if useTLS {
+		// A rejected handshake is the expected result of a TLS test, so the server does not log it.
+		srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+		srv.StartTLS()
+	} else {
+		srv.Start()
+	}
 	t.Cleanup(srv.Close)
 	s.URL = srv.URL
 	return s

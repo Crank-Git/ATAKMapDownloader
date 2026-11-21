@@ -32,7 +32,13 @@ func loadFixture(t *testing.T, file string, srv *testtiles.Server) *xmlparser.Ma
 // areaBounds returns bounds that hold exactly the tiles of area.
 func areaBounds(t *testing.T) *tilecalc.GeographicBounds {
 	t.Helper()
-	edges := tilecalc.NewTileCalculator().TileBoundsToGeographic(&area)
+	return boundsOf(t, area)
+}
+
+// boundsOf returns bounds that hold exactly the tiles of tb.
+func boundsOf(t *testing.T, tb tilecalc.TileBounds) *tilecalc.GeographicBounds {
+	t.Helper()
+	edges := tilecalc.NewTileCalculator().TileBoundsToGeographic(&tb)
 	// The tile edges belong to the next tile, so the bounds move inside them.
 	const inset = 1e-6
 	bounds, err := tilecalc.NewGeographicBounds(edges.MinLat+inset, edges.MaxLat-inset, edges.MinLon+inset, edges.MaxLon-inset)
@@ -188,5 +194,50 @@ func TestEngineFailureTolerance(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// oneTile is the first tile of area. The TLS tests use one tile, because the engine retries
+// a failed handshake with waits of 1 s and 2 s.
+var oneTile = tilecalc.TileBounds{MinX: area.MinX, MaxX: area.MinX, MinY: area.MinY, MaxY: area.MinY, Zoom: area.Zoom}
+
+func TestEngineRejectsASelfSignedCertificateByDefault(t *testing.T) {
+	srv := testtiles.NewTLS(t, nil)
+	source := loadFixture(t, "xyz.xml", srv)
+	output := filepath.Join(t.TempDir(), "out.sqlite")
+
+	ok, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
+	if ok {
+		t.Errorf("DownloadTiles ok = true, want false")
+	}
+	if want := "failure rate 100.0% exceeds threshold 20.0%"; errorText(err) != want {
+		t.Errorf("DownloadTiles error = %q, want %q", errorText(err), want)
+	}
+	if rows := len(storedTiles(t, output)); rows != 0 {
+		t.Errorf("output file holds %d tile rows, want 0", rows)
+	}
+	// The handshake fails before the client sends a request, so the handler counts none.
+	if n := srv.TotalRequests(); n != 0 {
+		t.Errorf("server got %d tile requests, want 0", n)
+	}
+}
+
+func TestEngineAcceptsASelfSignedCertificateWhenInsecure(t *testing.T) {
+	srv := testtiles.NewTLS(t, nil)
+	source := loadFixture(t, "xyz.xml", srv)
+	output := filepath.Join(t.TempDir(), "out.sqlite")
+	cfg := testConfig()
+	cfg.VerifyTLS = false
+
+	ok, err := NewEngine(cfg).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+	if !ok || err != nil {
+		t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+	}
+	tiles := storedTiles(t, output)
+	if len(tiles) != 9 {
+		t.Fatalf("output file holds %d tile rows, want 9", len(tiles))
+	}
+	for pair := range area.IterTiles() {
+		checkTile(t, srv, tiles, pair[0], pair[1])
 	}
 }
