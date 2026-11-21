@@ -291,7 +291,7 @@ body.rv-open .layout { padding-right:21rem; }
     U-&gt;&gt;W: Select Start Download
     W-&gt;&gt;S: POST /api/jobs with source, bounds, zoom range and settings
     alt request not valid
-        S--&gt;&gt;W: 400 or 404 error shape
+        S--&gt;&gt;W: 400, 404 or 413 error shape
         W-&gt;&gt;U: Status log line Download error and the message
     else a job already runs
         S--&gt;&gt;W: 409 job_running
@@ -318,7 +318,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The web UI sends <code>POST /api/jobs</code> (<code>web/static/js/app.js:455</code>).
 </li>
-<li>If the request is not valid, the server returns 400 or 404 with the error shape.
+<li>If the request is not valid, the server returns 400, 404 or 413 with the error shape.
 </li>
 </ol>
 <p>The web UI logs <code>Download error: &lt;message&gt;</code> and resets the job controls.</p>

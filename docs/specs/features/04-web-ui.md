@@ -87,7 +87,7 @@ sequenceDiagram
     U->>W: Select Start Download
     W->>S: POST /api/jobs with source, bounds, zoom range and settings
     alt request not valid
-        S-->>W: 400 or 404 error shape
+        S-->>W: 400, 404 or 413 error shape
         W->>U: Status log line Download error and the message
     else a job already runs
         S-->>W: 409 job_running
@@ -113,7 +113,7 @@ sequenceDiagram
 
 1. The solo operator selects **Start Download**.
 2. The web UI sends `POST /api/jobs` (`web/static/js/app.js:455`).
-3. If the request is not valid, the server returns 400 or 404 with the error shape.
+3. If the request is not valid, the server returns 400, 404 or 413 with the error shape.
    The web UI logs `Download error: <message>` and resets the job controls.
 4. If a job already runs, the server returns 409 with `job_running`.
 5. The server starts the job and returns 202 with the job record. The web UI logs
