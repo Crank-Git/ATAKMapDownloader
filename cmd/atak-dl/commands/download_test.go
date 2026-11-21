@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -303,5 +304,47 @@ func checkOneRequestWithTheUserAgent(t *testing.T, srv *testtiles.Server) {
 	}
 	if log[0].UserAgent != testUserAgent {
 		t.Errorf("tile request has User-Agent %q, want %q", log[0].UserAgent, testUserAgent)
+	}
+}
+
+func TestDownloadWithNoOutputWritesToTheDataDirectory(t *testing.T) {
+	flagDir, envDir := t.TempDir(), t.TempDir()
+	tests := []struct {
+		name string
+		args []string
+		env  string
+		want string
+	}{
+		{"writes to ./downloads with no flag and no variable", nil, "", "downloads"},
+		{"writes to ATAKDL_DATA_DIR", nil, envDir, envDir},
+		{"writes to --data-dir", []string{"--data-dir", flagDir}, "", flagDir},
+		{"writes to --data-dir over ATAKDL_DATA_DIR", []string{"--data-dir", flagDir}, envDir, flagDir},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("ATAKDL_DATA_DIR", tt.env)
+			t.Chdir(t.TempDir())
+			srv := testtiles.New(t, nil)
+			root := &cobra.Command{Use: "atak-dl"}
+			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.PersistentFlags().String("data-dir", "", "")
+			root.AddCommand(NewDownloadCmd(testUserAgent))
+			root.SetOut(io.Discard)
+			root.SetArgs(append([]string{
+				"--mapsources-dir", writeSource(t, srv),
+				"download",
+				"--source", "Test TLS",
+				"--bbox", oneTileBBox(),
+				"--min-zoom", "10", "--max-zoom", "10",
+				"--concurrent", "1",
+				"--name", "hood",
+			}, tt.args...))
+			if err := root.Execute(); err != nil {
+				t.Fatalf("Execute() returned %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(tt.want, "hood.mbtiles")); err != nil {
+				t.Errorf("output file in %s: %v", tt.want, err)
+			}
+		})
 	}
 }

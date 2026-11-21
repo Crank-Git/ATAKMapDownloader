@@ -48,6 +48,12 @@ func newNamedJobServer(t *testing.T, table testtiles.Table, name string) *jobSer
 // newTypedJobServer starts a server whose one map source name has the tile type tileType and points at a tile server with table.
 func newTypedJobServer(t *testing.T, table testtiles.Table, name, tileType string) *jobServer {
 	t.Helper()
+	return newDataDirJobServer(t, table, name, tileType, t.TempDir())
+}
+
+// newDataDirJobServer starts a server like newTypedJobServer, with dataDir as the data directory.
+func newDataDirJobServer(t *testing.T, table testtiles.Table, name, tileType, dataDir string) *jobServer {
+	t.Helper()
 	tiles := testtiles.New(t, table)
 	xml := fmt.Sprintf(`<?xml version="1.0"?>
 <customMapSource>
@@ -57,15 +63,15 @@ func newTypedJobServer(t *testing.T, table testtiles.Table, name, tileType strin
     <tileType>%s</tileType>
     <url>%s</url>
 </customMapSource>`, name, tileType, tiles.URLTemplate())
-	h := newTestHandler(t, map[string]string{"tiles.xml": xml})
-	h.outputDir = t.TempDir()
 	// A 1000-tile job at the default rate of 4 per second takes minutes, so the test tile server gets a high rate.
+	// A job of jobs.jsonl can start in newDataDirHandler, so the policy changes before it.
 	original := sourcePolicy
 	sourcePolicy = func(*xmlparser.MapSource) policy.Entry {
 		return policy.Entry{HostPatterns: []string{"127.0.0.1"}, PolicyClass: policy.Open, RequestsPerSecond: 10000}
 	}
 	// The cleanup runs after srv.Close, so no job reads the policy during the restore.
 	t.Cleanup(func() { sourcePolicy = original })
+	h := newDataDirHandler(t, map[string]string{"tiles.xml": xml}, dataDir)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return &jobServer{handler: h, url: srv.URL, tiles: tiles}

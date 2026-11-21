@@ -25,6 +25,13 @@ const testSourceXML = `<?xml version="1.0"?>
 // newTestHandler returns a handler whose source catalog holds the given XML files.
 func newTestHandler(t *testing.T, sourceFiles map[string]string) *WebHandler {
 	t.Helper()
+	return newDataDirHandler(t, sourceFiles, t.TempDir())
+}
+
+// newDataDirHandler returns a handler like newTestHandler, with dataDir as the data directory.
+// The handler reads the jobs.jsonl file of dataDir before its workers start.
+func newDataDirHandler(t *testing.T, sourceFiles map[string]string, dataDir string) *WebHandler {
+	t.Helper()
 	dir := t.TempDir()
 	for name, content := range sourceFiles {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
@@ -32,6 +39,9 @@ func newTestHandler(t *testing.T, sourceFiles map[string]string) *WebHandler {
 		}
 	}
 	h := NewWebHandler(xmlparser.New(dir), tilecalc.NewTileCalculator(), dir, testUserAgent)
+	if err := h.useDataDir(dataDir); err != nil {
+		t.Fatal(err)
+	}
 	// One worker is the serve default (FR-team-server-2). The workers stop when the test ends.
 	h.queue.Start(t.Context(), 1)
 	return h
