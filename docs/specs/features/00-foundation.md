@@ -33,7 +33,7 @@ Audit of the Epic 0 items against the repository on 2026-11-21:
 
 ## Functional requirements
 
-- FR-foundation-1 — `go.mod` declares `go 1.26` and `toolchain go1.27.4`.
+- FR-foundation-1 — `go.mod` declares `go 1.26.0` and `toolchain go1.27.4`.
 - FR-foundation-2 — The output writer uses `modernc.org/sqlite`.
 - FR-foundation-3 — `CGO_ENABLED=0 go build ./cmd/atak-dl` succeeds for linux, darwin and windows on amd64 and arm64.
 - FR-foundation-4 — An output file written with the new driver is byte-compatible in schema with the current output file: the same tables, columns, indexes and metadata keys.

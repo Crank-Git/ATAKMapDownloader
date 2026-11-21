@@ -89,7 +89,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | TMS | noun | Tile Map Service row order: row 0 is at the south edge. | — |
 | XYZ | noun | Slippy-map row order: row 0 is at the north edge. | — |
 | WMS | noun | OGC Web Map Service. A map source that the project requests with bounds instead of a tile column and row. | — |
-| SSE | noun | Server-Sent Events: a one-way HTTP event stream (planned, feature 05). | — |
+| SSE | noun | Server-Sent Events: a one-way HTTP event stream. The job API sends job events over it (#76). | — |
 
 ## Goals
 
@@ -174,15 +174,15 @@ flowchart LR
 
 Per component:
 
-- **Language and runtime: Go.** Today `go.mod` says `go 1.21`, and the installed toolchain is 1.27.3. Epic 0 sets `go 1.26` with `toolchain go1.27.4`. Go 1.27.4 is the current stable release (https://go.dev/doc/devel/release, retrieved 2026-11-21). Go beat the alternatives because it gives one static binary and has a cross-compile story that a solo maintainer can keep. See [ADR 0001](../adr/0001-go-single-binary-cli.md).
+- **Language and runtime: Go.** `go.mod` declares `go 1.26.0` and `toolchain go1.27.4` (#63). Go 1.27.4 is the current stable release (https://go.dev/doc/devel/release, retrieved 2026-11-21). Go beat the alternatives because it gives one static binary and has a cross-compile story that a solo maintainer can keep. See [ADR 0001](../adr/0001-go-single-binary-cli.md).
 - **CLI: spf13/cobra.** Built. Cobra is kept because it already defines every command.
-- **SQLite driver: modernc.org/sqlite (planned).** It replaces `mattn/go-sqlite3`, which needs CGO. modernc is at v1.62.0 (https://pkg.go.dev/modernc.org/sqlite?tab=versions, retrieved 2026-11-21). It is about 1.6 times slower than mattn at bulk inserts (https://github.com/cvilsmeier/go-sqlite-bench). The network is the bottleneck, so the difference is small. ncruces/go-sqlite3 is pre-1.0 and is the fallback. See [ADR 0005](../adr/0005-pure-go-sqlite.md).
-- **Server: net/http.** The Go 1.22 method-and-path patterns replace the hand-written router in `cmd/atak-dl/commands/web.go:52-75`. `http.CrossOriginProtection` (Go 1.25, https://go.dev/doc/go1.25) blocks requests from other web pages. `os.Root` (Go 1.24) limits file serving to the output directory.
-- **Progress channel: SSE (planned).** SSE replaces `gorilla/websocket`, which has had no release since v1.5.3 in June 2024 (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions). Progress goes from the server to the browser only, and browser commands become POST requests. See [ADR 0006](../adr/0006-sse-job-api.md).
+- **SQLite driver: modernc.org/sqlite.** Built (#63). It replaced `mattn/go-sqlite3`, which needs CGO. modernc is at v1.62.0 (https://pkg.go.dev/modernc.org/sqlite?tab=versions, retrieved 2026-11-21). It is about 1.6 times slower than mattn at bulk inserts (https://github.com/cvilsmeier/go-sqlite-bench). The network is the bottleneck, so the difference is small. ncruces/go-sqlite3 is pre-1.0 and is the fallback. See [ADR 0005](../adr/0005-pure-go-sqlite.md).
+- **Server: net/http.** The job routes use the Go 1.22 method-and-path patterns (`cmd/atak-dl/commands/jobs.go:244-258`, #76). The other routes still use the hand-written router in `cmd/atak-dl/commands/web.go:87-100`. `http.CrossOriginProtection` (Go 1.25, https://go.dev/doc/go1.25) blocks requests from other web pages (#77). Planned: `os.Root` (Go 1.24) limits file serving to the output directory.
+- **Progress channel: SSE.** Built (#76, #78). SSE replaced `gorilla/websocket`, which has had no release since v1.5.3 in June 2024 (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions). Progress goes from the server to the browser only, and browser commands are `POST` and `DELETE` requests. See [ADR 0006](../adr/0006-sse-job-api.md).
 - **Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman (planned), embedded with `embed.FS`.** Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
 - **Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).** Today there is a copied folder of 33 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See [ADR 0004](../adr/0004-mobac-xml-sources.md) and [ADR 0008](../adr/0008-embedded-source-snapshot.md).
-- **Release: GoReleaser v2 on GitHub Actions (planned).** Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
-- **Lint: golangci-lint v2 (planned).** Version v2.15.0, with the complexity linters enabled (https://github.com/golangci/golangci-lint/releases).
+- **Release: GoReleaser v2 on GitHub Actions.** Built (#65, #70, #73). Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
+- **Lint: golangci-lint v2.** Built (#64). Version v2.15.0, pinned with a `tool` directive in `go.mod`, with the complexity linters enabled (https://github.com/golangci/golangci-lint/releases).
 
 Repository layout (current, plus planned additions in italics):
 
@@ -295,13 +295,13 @@ Per entity:
 - **SOURCE_FILE** (built). A MOBAC XML file in the source directory. Planned: `origin` is `snapshot` or `user` (feature 09).
 - **SKIPPED_SOURCE** (planned, feature 09). An in-memory record of a source file that did not load, with its reason. Today the parser drops these with no record.
 - **SOURCE_POLICY** (planned, feature 06). A table embedded in the binary, keyed by a host pattern such as `*.google.com`. `policy_class` is `open`, `conditional` or `restricted`. `requests_per_second` is the rate limit for that host.
-- **JOB** (built as one in-memory record, `cmd/atak-dl/commands/web.go:30-34`). The state is `idle` or `downloading`. Planned (features 05 and 12): an `id`, the states in the state diagram below, and a persistent record in the data directory.
+- **JOB** (built as one in-memory record, `cmd/atak-dl/commands/jobs.go:62-78`, #76). It has an `id`, and its state is `running`, `complete`, `failed` or `cancelled`. The server keeps only the last job (`web.go:29-35`). Planned (feature 12): the `queued` state and a persistent record in the data directory.
 - **AREA** (built as bounds only). Planned: polygon and route buffer geometry as GeoJSON, with a zoom range for each area (feature 11).
 - **OUTPUT_FILE** (built). Path: `./downloads/<name>_z<min>-<max>.sqlite`. An existing file at that path is deleted first, and the file is deleted again on cancel. Planned: an extension per output format, no silent delete, and resume (features 07 and 10).
-- **TILE** (built, `internal/mbtiles/mbtiles.go:29-34`). `UNIQUE (zoom_level, tile_column, tile_row)`. `tile_row` is TMS: `(1<<z)-1-y`. `tile_data` holds the bytes the server returned, with no check.
+- **TILE** (built, `internal/mbtiles/mbtiles.go:34-37`). `UNIQUE (zoom_level, tile_column, tile_row)`. `tile_row` is TMS: `(1<<z)-1-y`. `tile_data` holds the bytes the server returned, with no check.
 - **METADATA_ENTRY** (built). Keys: `name`, `type`, `version`, `description`, `format`, `bounds`, `minzoom`, `maxzoom`. Planned: `center` and `attribution` (feature 10).
 - **FAILED_TILE** (planned, feature 07). A table `atakdl_failed_tiles` in the output file. ATAK reads only the `tiles` and `metadata` tables, so an extra table is safe. This is inferred from ATAK-CIV `TilesetInfo.java` and is a risk item.
-- **JOB_EVENT** (planned). An SSE message: `progress`, `state` or `log`.
+- **JOB_EVENT** (built in memory, #76). An SSE message: `progress`, `state` or `log`. The server does not store it.
 
 Job lifecycle (planned, features 05, 07 and 12):
 
@@ -320,15 +320,18 @@ stateDiagram-v2
 
 ## Cross-cutting concerns
 
-- **Authentication and authorization.** Today there is none, and that is acceptable only on loopback. Planned (feature 12): if the server binds to an address that is not loopback, every request must carry the token. The token comes from `--token` or `ATAKDL_TOKEN`. If neither is set, the server generates one and prints it once at start.
-- **Cross-origin requests.** Today the server sends `Access-Control-Allow-Origin: *`, and the websocket accepts any origin (`web.go:44,54`). Any web page that the user visits can start a job. Planned (feature 05): no CORS headers, and `http.CrossOriginProtection` on every state-changing route.
-- **TLS.** Today `InsecureSkipVerify` is true by default (`internal/download/download.go:42,100`). Planned (feature 05): verification is on by default, and `--insecure` turns it off for one job.
-- **Error handling.** Today handlers write hand-built JSON strings as `text/plain` (`web.go:179,352`). Planned (feature 05): every error response is `application/json` with the shape `{"error": {"code": "<snake_case>", "message": "<text>"}}`.
-- **Validation.** Planned limits:
-  - The zoom range is within the map source's zoom range.
-  - The tile count is at most `--max-tiles`, with a default of 500,000 (feature 07).
-  - A request body is at most 1 MiB.
-  - Concurrency is from 1 to 32.
+- **Authentication and authorization.** Today there is none, and that is acceptable only on loopback. If the host in `--addr` is not a loopback address, `serve` prints a warning to stderr that the server has no authentication (`serve.go:49-54`, #81). Planned (feature 12): if the server binds to an address that is not loopback, every request must carry the token. The token comes from `--token` or `ATAKDL_TOKEN`. If neither is set, the server generates one and prints it once at start.
+- **Cross-origin requests.** The server sends no CORS header (#77). `newServerHandler` wraps every route with `http.CrossOriginProtection` (`cmd/atak-dl/commands/web.go:56-62`). A cross-origin browser request that is not `GET`, `HEAD` or `OPTIONS` gets 403 `cross_origin`. The websocket and `/ws` are removed (#78).
+- **TLS.** The engine verifies TLS certificates by default (`internal/download/download.go:43`, #75). `download --insecure` turns verification off for one job and prints a warning to stderr. The web UI shows **Verify TLS** checked by default (#78).
+- **Error handling.** Every error response is `application/json` with the shape `{"error": {"code": "<snake_case>", "message": "<text>"}}` (`writeError`, `web.go:443-447`, #74). Every JSON success response sets `Content-Type: application/json`. The error codes are in `05-security-hardening.md`. The CLI prints a limit error as `Error: <code>: <message>` and exits with code 1 (#81).
+- **Validation and limits.** Built (#81):
+  - The zoom range is within the map source's zoom range (`zoom_out_of_range`). The CLI and `POST /api/jobs` share `checkJobLimits` (`jobs.go:320-337`).
+  - Concurrency is from 1 to 32 (`invalid_concurrency`).
+  - A request body is at most 1 MiB (`body_too_large`, status 413, `web.go:64-79`).
+  - The server sets `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s and `IdleTimeout` 120 s, and no `WriteTimeout`, because an SSE stream stays open (`serve.go:91-99`).
+  - A geocode result with a coordinate that is not a number gives 500 `internal`.
+
+  Planned: the tile count is at most `--max-tiles`, with a default of 500,000 (feature 07).
 - **Logging.** `log/slog` with the text handler today. Planned: every job log line carries `job_id`, and every failed tile is logged at debug level with its URL and reason.
 - **Politeness.** Planned (feature 06):
   - The User-Agent is `atak-map-downloader/<version> (+https://github.com/Crank-Git/ATAKMapDownloader)`.
@@ -355,11 +358,11 @@ stateDiagram-v2
 | `ATAKDL_DATA_DIR` | 12 | The directory for output files and the job store. It has the same meaning as `--data-dir`. The default is `./downloads`. |
 
 - **CI secrets** (names only; see [docs/external.md](../external.md)): `GITHUB_TOKEN` (provided by Actions). No other secret is needed.
-- **Seed and demo data.** Epic 0 adds `testdata/` with three fixture source files (tile, quadkey and WMS) and a fake tile server for tests (`internal/testtiles`). The demo is `atak-dl download --source "OpenTopo - Opentopomap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12`, Mount Hood with about 60 tiles.
+- **Seed and demo data.** Epic 0 added `testdata/` with three fixture source files (tile, quadkey and WMS) and a fake tile server for tests (`internal/testtiles`). The demo is `atak-dl download --source "OpenTopo - Opentopomap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12`, Mount Hood with about 60 tiles.
 
 ## Testing strategy
 
-- **Unit tests.** `go test -race ./...`. Every package in `internal/` has table-driven tests. Today only `tilecalc` and `xmlparser` have tests (12 tests, all pass).
+- **Unit tests.** `go test -race ./...`. Every package in `internal/` and `cmd/atak-dl/` has tests (#66, #74–#78, #81).
 - **Integration tests.** The download engine and every output writer run against `internal/testtiles`, an `httptest` tile server. The test server can return 200, 404, 429 with `Retry-After`, 503, HTML bodies and slow responses. No test calls a real tile server.
 - **Conformance tests.** Each output format has a test that opens the output file and applies ATAK's format-detection rules from ATAK-CIV `TilesetInfo.java`: the `tiles` column set, the row order and the metadata keys. A device check is a manual, optional step, because the maintainer has no TAK client installed.
 - **HTTP tests.** The server handlers run under `httptest`. SSE and timeouts use `testing/synctest`.
@@ -406,14 +409,14 @@ After Epic 3, issue-flow may build Epics 4, 5 and 6 in parallel.
 
 Reconciliation of the existing documentation against the code (Phase 1):
 
-- **Contradicted — README cross-compile.** `README.md:37-46` tells users to cross-compile with `GOOS`/`GOARCH`. The `mattn/go-sqlite3` driver needs CGO, so those commands fail with no C cross-compiler. The code wins. Epic 0 fixes the driver and the README.
-- **Contradicted — "1:1 functionality matching the Python version".** `README.md:5`. No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim. Epic 0 removes it.
-- **Contradicted — "30+ map sources".** 33 files ship. 30 load. Three WMS source files are skipped with no log (`internal/xmlparser/xmlparser.go:129-132`).
+- **Resolved — README cross-compile.** The README told users to cross-compile with `GOOS`/`GOARCH`, and the `mattn/go-sqlite3` driver needed CGO. #63 replaced the driver, and the README now shows `CGO_ENABLED=0` builds (`README.md:65-77`).
+- **Resolved — "1:1 functionality matching the Python version".** No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim, and Epic 0 removed it from the README (#71).
+- **Contradicted — "30+ map sources".** 33 files ship. 30 load. Three WMS source files are skipped with no log (`internal/xmlparser/xmlparser.go:130-133`).
 - **Contradicted — "MBTiles output".** The output file has a `.sqlite` extension and lacks the `center` key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
-- **Contradicted — "Batch Delay".** The web UI offers a batch delay (`web/index.html:127`). The engine never reads `DelayBetweenBatches` (`internal/download/download.go:28`).
-- **Risk — the build fails on this machine today.** On 2026-11-21, `go run ./cmd/atak-dl` failed at the CGO link step on macOS 27 (`ld: … tapi error: malformed file … unknown architecture`). The prebuilt `./atak-dl` from February still runs. Epic 0 removes CGO (ADR 0005), so this is the first sub-issue to build.
-- **Risk — a late cancel is lost.** The engine checks the context only while it starts tile requests (`internal/download/download.go:171-184`). A SIGINT after the last request starts ends as a normal job, and the CLI can print "Download complete". Feature 07 fixes this (FR-robust-downloads-30).
-- **Risk — preview tiles can fail to show.** The preview overlays set `crossOrigin: 'anonymous'` (`web/static/js/app.js`), so a tile server that sends no CORS header blocks the image. Feature 08 owns the preview rendering.
+- **Resolved — "Batch Delay".** The web UI offered a batch delay that the engine never read. #78 removed the control and `DelayBetweenBatches`.
+- **Resolved — the build failed on this machine.** On 2026-11-21, `go run ./cmd/atak-dl` failed at the CGO link step on macOS 27 (`ld: … tapi error: malformed file … unknown architecture`). #63 removed CGO (ADR 0005), and `CGO_ENABLED=0` builds pass in CI (#69).
+- **Risk — a late cancel is lost.** The engine checks the context only while it starts tile requests (`internal/download/download.go:160-165`). A SIGINT after the last request starts ends as a normal job, and the CLI can print "Download complete". Feature 07 fixes this (FR-robust-downloads-30).
+- **Risk — preview tiles can fail to show.** The preview overlays set `crossOrigin: 'anonymous'` (`web/static/js/app.js:349`), so a tile server that sends no CORS header blocks the image. Feature 08 owns the preview rendering.
 - **Risk — ATAK format handling is inferred, not tested.** The public ATAK-CIV source is archived at 4.6.0.5 (October 2024). No public source exists for ATAK 5.x, iTAK, WinTAK or TAK Aware. Each output format can fail on a newer client. Mitigation: conformance tests, plus an optional device check before v0.5.0.
 - **Risk — restricted map sources.** Google and Esri terms prohibit bulk download and offline caching. Google: https://developers.google.com/maps/documentation/tile/policies. Esri: https://www.esri.com/content/dam/arcgisonline/docs/tou_summary.pdf. The OSM tile policy says "Offline use is not permitted" (https://operations.osmfoundation.org/policies/tiles/). Microsoft says direct Bing tile URLs are "not allowed" (https://learn.microsoft.com/en-us/bingmaps/rest-services/directly-accessing-the-bing-maps-tiles). The project warns and rate-limits, and the user decides. Bing tile endpoints can stop working at any time.
 - **Risk — the ATAK-Maps v2 rename.** ATAK-Maps v2.0.0 renamed every map source (https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md). Scripts that pass `--source "Google - Satellite Only"` break after Epic 5. Mitigation: an alias table from old names to new names for one release.
@@ -510,3 +513,4 @@ FR coverage (each sub-issue and the requirements it quotes):
   - The PM added #68, so release archives include `mapsources/` until Epic 5 embeds the source files.
   - The PM ruled that a function extracted to meet the lint complexity limits may have a single caller (`.claude/rules/quality.md`).
   - The engine tests run with one download slot until #25 fixes the Progress data race.
+- 2026-11-21: Updated the built features 01–04, the cross-cutting concerns, the architecture and the risks to match Epics 0 and 1 (#80). FR-foundation-1 now says `go 1.26.0` (#62). The PM accepted the error codes `invalid_query`, `not_found` and `method_not_allowed` at the #74 gate.

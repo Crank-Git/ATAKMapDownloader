@@ -355,7 +355,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li>The source picker <code>&lt;select id="mapSourceSelect"&gt;</code> in <code>web/index.html:36</code>, filled by
 </li>
 </ul>
-<p><code>populateSourceSelect</code> in <code>web/static/js/app.js:200</code>. Loading state: <code>Loading sources...</code>. Populated state: one option per map source as <code>name (format) - Zoom min-max</code>. Error state: a status log line only. See <code>04-web-ui.md</code>.</p>
+<p><code>populateSourceSelect</code> in <code>web/static/js/app.js:186</code>. Loading state: <code>Loading sources...</code>. Populated state: one option per map source as <code>name (format) - Zoom min-max</code>. Error state: a status log line only. See <code>04-web-ui.md</code>.</p>
 <h3 id="map-sources-behaviour-rules">Behaviour rules</h3>
 <ul>
 <li>The source catalog holds one map source per name. When two source files have the same
@@ -382,7 +382,7 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li><code>tileUpdate</code> and <code>backgroundColor</code> are display values only. No other code reads them.
 </li>
-<li>The <code>serve</code> command defines its own <code>--mapsources-dir</code> flag (<code>serve.go:21</code>). That flag
+<li>The <code>serve</code> command defines its own <code>--mapsources-dir</code> flag (<code>serve.go:24</code>). That flag
 </li>
 </ul>
 <p>hides the root flag, so <code>atak-dl --mapsources-dir=X serve</code> uses <code>mapsources</code>.</p>
@@ -421,18 +421,20 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td><code>atak-dl validate-source</code></td><td><code>--source</code> (required)</td><td>See Flow 2</td><td>0 valid, 1 not found or invalid</td></tr>
 </table></div>
 <h4 id="map-sources-http">HTTP</h4>
-<p><code>GET /api/sources</code> (<code>cmd/atak-dl/commands/web.go:136</code>). Any method is accepted.</p>
+<p><code>GET /api/sources</code> (<code>cmd/atak-dl/commands/web.go:161-175</code>). Any method is accepted.</p>
 <pre class="code"><code>[{"name": "Google - Satellite Only", "url": "https://...{$x}...", "min_zoom": 0,
   "max_zoom": 20, "format": "jpg"}]</code></pre>
-<p>The response has no <code>Content-Type: application/json</code> header. With an empty source catalog, the body is <code>null</code>.</p>
-<p><code>POST /api/validate-source</code> (<code>web.go:231</code>). Request: <code>{"source_name": "&lt;name&gt;"}</code>.</p>
+<p>The response has the header <code>Content-Type: application/json</code>. With an empty source catalog, the body is <code>[]</code> (#74).</p>
+<p><code>POST /api/validate-source</code> (<code>web.go:254-279</code>). Request: <code>{"source_name": "&lt;name&gt;"}</code>.</p>
 <div class="table-wrap"><table>
 <tr><th>Status</th><th>Body</th></tr>
 <tr><td>200</td><td><code>{"valid": bool, "source_name", "url", "zoom_range": [min, max], "format", "issues": [string] or null}</code></td></tr>
-<tr><td>400</td><td><code>{"error":"Invalid request"}</code> as <code>text/plain</code></td></tr>
-<tr><td>404</td><td><code>{"error":"Source not found"}</code> as <code>text/plain</code></td></tr>
-<tr><td>405</td><td><code>Method not allowed</code> as <code>text/plain</code></td></tr>
+<tr><td>400</td><td><code>invalid_json</code></td></tr>
+<tr><td>404</td><td><code>unknown_source</code></td></tr>
+<tr><td>405</td><td><code>method_not_allowed</code></td></tr>
+<tr><td>413</td><td><code>body_too_large</code> (#81)</td></tr>
 </table></div>
+<p>Every error body has the error shape <code>{"error": {"code": "&lt;code&gt;", "message": "&lt;text&gt;"}}</code> and <code>Content-Type: application/json</code> (#74).</p>
 <p>The web UI does not call this route.</p>
 <h4 id="map-sources-module-contract">Module contract</h4>
 <p><code>internal/xmlparser</code>:</p>
@@ -475,7 +477,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li><strong>WMS source files are dropped with no message.</strong> <code>xml.Unmarshal</code> fails on
 </li>
 </ul>
-<p><code>&lt;customWmsMapSource&gt;</code>. The error text contains <code>customMapSource</code>, so the walk does not log it at all (<code>xmlparser.go:129-132</code>). Three shipped source files are affected:</p>
+<p><code>&lt;customWmsMapSource&gt;</code>. The error text contains <code>customMapSource</code>, so the walk does not log it at all (<code>xmlparser.go:130-133</code>). Three shipped source files are affected:</p>
 <ul>
 <li><code>GRG/grg_FEMA_NFHL_Flood_Hazard_Zones.xml</code>
 <ul>
@@ -508,9 +510,9 @@ body.rv-open .layout { padding-right:21rem; }
 <li><strong>The cache is not safe for concurrent use.</strong> Every server request calls
 </li>
 </ul>
-<p><code>DiscoverSources</code>, and the cache map has no lock (<code>xmlparser.go:93-97</code>).</p>
+<p><code>DiscoverSources</code>, and the cache map has no lock (<code>xmlparser.go:93-97</code>, <code>:116</code>, <code>:143-144</code>).</p>
 <ul>
-<li><strong><code>filepath.WalkDir</code> errors are ignored</strong> (<code>xmlparser.go:123</code>). An unreadable
+<li><strong><code>filepath.WalkDir</code> errors are ignored</strong> (<code>xmlparser.go:124-125</code>). An unreadable
 </li>
 </ul>
 <p>directory looks the same as an empty one.</p>

@@ -1,7 +1,7 @@
 # 0003 — Local server with no authentication
 
 Date: 2026-11-21
-Status: accepted
+Status: superseded by 0006 for the CORS and websocket parts (#77, #78). The no-authentication part stays accepted.
 
 ## Context
 

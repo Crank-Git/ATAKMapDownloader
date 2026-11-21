@@ -356,10 +356,10 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>three sample URLs.</p>
 <ul>
-<li>The web UI estimate panel <code>#estimationResult</code> (<code>web/index.html:179</code>), filled by
+<li>The web UI estimate panel <code>#estimationResult</code> (<code>web/index.html:169</code>), filled by
 </li>
 </ul>
-<p><code>displayEstimation</code> (<code>web/static/js/app.js:423</code>). It shows the tile count, the size in MB or GB, the zoom range and a time at a fixed 10 tiles per second. It adds a warning above 10,000 tiles and a stronger warning above 100,000 tiles. Error state: a status log line only.</p>
+<p><code>displayEstimation</code> (<code>web/static/js/app.js:409-434</code>). It shows the tile count, the size in MB or GB, the zoom range and a time at a fixed 10 tiles per second. It adds a warning above 10,000 tiles and a stronger warning above 100,000 tiles. Error state: a status log line only.</p>
 <h3 id="area-estimate-behaviour-rules">Behaviour rules</h3>
 <ul>
 <li>The <code>estimate</code> command requires <code>--source</code>, but the tile count does not depend on the
@@ -410,15 +410,17 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td></td><td><code>--zoom</code></td><td>10</td><td>Marked required</td></tr>
 </table></div>
 <h4 id="area-estimate-http">HTTP</h4>
-<p><code>POST /api/estimate</code> (<code>cmd/atak-dl/commands/web.go:152</code>).</p>
+<p><code>POST /api/estimate</code> (<code>cmd/atak-dl/commands/web.go:177-224</code>).</p>
 <p>Request: <code>{"bounds": [west, south, east, north], "min_zoom": int, "max_zoom": int}</code>.</p>
 <div class="table-wrap"><table>
 <tr><th>Status</th><th>Body</th></tr>
 <tr><td>200</td><td><code>{"total_tiles", "estimated_size_mb", "zoom_breakdown": {"&lt;z&gt;": count}, "bounds", "zoom_range": [min, max]}</code></td></tr>
-<tr><td>400</td><td><code>{"error":"Invalid request"}</code>, <code>{"error":"Invalid bounds format"}</code>, or <code>{"error":"&lt;bounds error&gt;"}</code> as <code>text/plain</code></td></tr>
-<tr><td>405</td><td><code>Method not allowed</code></td></tr>
+<tr><td>400</td><td><code>invalid_json</code>, or <code>invalid_bounds</code> with the bounds error as the message</td></tr>
+<tr><td>405</td><td><code>method_not_allowed</code></td></tr>
+<tr><td>413</td><td><code>body_too_large</code> (#81)</td></tr>
 </table></div>
-<p><code>POST /api/tile-info</code> (<code>web.go:202</code>). Request: <code>{"lat", "lon", "zoom"}</code>. A <code>zoom</code> of 0 becomes 10. Response: <code>{"tile_x", "tile_y", "zoom", "bounds": [west, south, east, north], "coordinate": [lat, lon]}</code>. The web UI does not call this route.</p>
+<p>Every error body has the error shape <code>{"error": {"code": "&lt;code&gt;", "message": "&lt;text&gt;"}}</code> and <code>Content-Type: application/json</code> (#74).</p>
+<p><code>POST /api/tile-info</code> (<code>web.go:226-252</code>). Request: <code>{"lat", "lon", "zoom"}</code>. A <code>zoom</code> of 0 becomes 10. Response: <code>{"tile_x", "tile_y", "zoom", "bounds": [west, south, east, north], "coordinate": [lat, lon]}</code>. The web UI does not call this route.</p>
 <h4 id="area-estimate-module-contract">Module contract</h4>
 <p><code>internal/tilecalc</code>:</p>
 <ul>
@@ -462,7 +464,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li><strong>A bad <code>--zoom-range</code> becomes zoom level 0.</strong> <code>strconv.Atoi</code> errors are ignored
 </li>
 </ul>
-<p>(<code>estimate.go:70-71</code>), so <code>--zoom-range a-b</code> gives <code>0-0</code>.</p>
+<p>(<code>estimate.go:55-56</code>), so <code>--zoom-range a-b</code> gives <code>0-0</code>.</p>
 <ul>
 <li><strong>The size estimate ignores the map source.</strong> It uses a fixed size per tile, and the
 </li>
@@ -474,15 +476,10 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>bounds.</p>
 <ul>
-<li><strong><code>/api/estimate</code> error strings are built by string concatenation</strong>
-</li>
-</ul>
-<p>(<code>web.go:179</code>), so an error message that holds a quote gives JSON that does not parse.</p>
-<ul>
 <li><strong>The time shown in the web UI assumes 10 tiles per second</strong>
 </li>
 </ul>
-<p>(<code>app.js:435</code>). It does not use the concurrency setting.</p>
+<p>(<code>app.js:421</code>). It does not use the concurrency setting.</p>
 <ul>
 <li><strong>The estimate panel colour does not apply.</strong> The JavaScript sets the class <code>success</code>,
 </li>
@@ -493,7 +490,6 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><th>Defect</th><th>Repaired by</th></tr>
 <tr><td>No tile-count cap and no output file split</td><td><code>robust-downloads</code> (07)</td></tr>
 <tr><td>Two different fixed sizes per tile</td><td><code>robust-downloads</code> (07)</td></tr>
-<tr><td>Error JSON built by string concatenation</td><td><code>security-hardening</code> (05)</td></tr>
 <tr><td>Estimate colour classes and the fixed time rate</td><td><code>offline-web-ui</code> (08)</td></tr>
 <tr><td>Rectangle bounds only, with no polygon</td><td><code>area-selection</code> (11)</td></tr>
 <tr><td>Bad <code>--zoom-range</code> silently becomes 0</td><td><code>robust-downloads</code> (07)</td></tr>
