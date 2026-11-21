@@ -77,7 +77,8 @@ flowchart TD
   B -->|invalid file| X[Error banner: cannot read KML, line N]
   B -->|no polygon or line| Y[Error banner: file has no area]
   B -->|ok| C[Add areas to the area list, zoom range = sidebar default]
-  C --> D[User sets zoom range per area]
+  C --> M[Move the map to the new areas]
+  M --> D[User sets zoom range per area]
   D --> E[POST /api/estimate with areas]
   E --> F{Unique tiles > max-tiles?}
   F -->|yes| Z[Estimate card warning, Start disabled]
@@ -89,10 +90,11 @@ flowchart TD
 2. If the file is invalid, the web UI shows the parse error.
 3. If the file has no polygon and no line, the web UI says that the file has no area.
 4. The web UI adds one area per feature to the area list.
-5. The user sets the zoom range of each area.
-6. The web UI requests an estimate.
-7. If the unique tile count is above the tile cap, the web UI disables **Start**.
-8. The user selects **Start**, and the web UI sends the job with the areas.
+5. The web UI moves the map to show the new areas. A draw with a tool does not move the map.
+6. The user sets the zoom range of each area.
+7. The web UI requests an estimate.
+8. If the unique tile count is above the tile cap, the web UI disables **Start**.
+9. The user selects **Start**, and the web UI sends the job with the areas.
 
 ### Flow 2 — A route buffer from the CLI
 

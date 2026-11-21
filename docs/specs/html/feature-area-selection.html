@@ -253,7 +253,8 @@ body.rv-open .layout { padding-right:21rem; }
   B --&gt;|invalid file| X[Error banner: cannot read KML, line N]
   B --&gt;|no polygon or line| Y[Error banner: file has no area]
   B --&gt;|ok| C[Add areas to the area list, zoom range = sidebar default]
-  C --&gt; D[User sets zoom range per area]
+  C --&gt; M[Move the map to the new areas]
+  M --&gt; D[User sets zoom range per area]
   D --&gt; E[POST /api/estimate with areas]
   E --&gt; F{Unique tiles &gt; max-tiles?}
   F --&gt;|yes| Z[Estimate card warning, Start disabled]
@@ -267,6 +268,8 @@ body.rv-open .layout { padding-right:21rem; }
 <li>If the file has no polygon and no line, the web UI says that the file has no area.
 </li>
 <li>The web UI adds one area per feature to the area list.
+</li>
+<li>The web UI moves the map to show the new areas. A draw with a tool does not move the map.
 </li>
 <li>The user sets the zoom range of each area.
 </li>

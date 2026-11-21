@@ -64,6 +64,8 @@ This file describes the behavior that exists today.
   sources. They are the first three, by name, whose zoom range includes the zoom level.
 - FR-area-estimate-19 — `POST /api/tile-info` returns the XYZ tile and the tile bounds
   for one coordinate as JSON.
+- FR-area-estimate-20 — If `source` names an old map source, `POST /api/estimate` returns
+  the estimate for the new name and the deprecation warning in `warning` (FR-source-sync-16).
 
 ## User flows
 
