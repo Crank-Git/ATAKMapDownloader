@@ -2,7 +2,7 @@
 id: output-formats
 feature: Output formats
 epic: "Epic 6: Output formats"
-status: issued
+status: built
 issues: [43, 44, 45, 46, 47, 48, 49]
 mockups: [mockups/03-export-options.html]
 ---

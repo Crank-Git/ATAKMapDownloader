@@ -846,6 +846,24 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 </ul>
 </li>
+<li>2026-11-21: Epic 6 merged into <code>develop</code> (#130). Decisions at its gates:
+<ul>
+<li>The <code>--resume</code> criterion for <code>.gpkg</code> moved from #44 to #47, where the GeoPackage writer lives (decomposition error).
+</li>
+<li>A user map source gets its bare file name as the MBTiles <code>attribution</code>, HTML-escaped. The full path can hold the operator's home directory (#45 rework).
+</li>
+<li>OSMDroid allows zoom 27 at most. The key fits up to zoom 29, but ATAK's <code>getOSMDroidSQLiteZoomLevel</code> rejects 28 and above (ADR 0011, #46).
+</li>
+<li>GeoPackage refuses a map source with tile type <code>webp</code> or <code>gif</code> (<code>unsupported_tile_type</code>), because GeoPackage 1.3.1 allows only PNG and JPEG tiles (batch fix).
+</li>
+<li>The three writers share one queue in <code>internal/output/sqlitequeue</code> (batch fix).
+</li>
+<li><code>--resume --data-package</code> reads the output file back out of the zip (batch fix). The job API does not do this yet (#129).
+</li>
+<li>CI installs GDAL and requires the <code>ogrinfo</code> test to run (#47).
+</li>
+</ul>
+</li>
 </ul><nav class="pager">
 <span></span>
 <a href="html/feature-foundation.html">Feature: Foundation &rarr;</a>

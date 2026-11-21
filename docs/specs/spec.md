@@ -562,3 +562,11 @@ FR coverage (each sub-issue and the requirements it quotes):
   - An area holds at most 20,000 vertices, and a job at most 50,000. The cap keeps the self-intersection check bounded (batch fix, FR-area-selection-30 and -31).
   - The map shades an area only below 5,000 squares, as FR-area-selection-24 says (#54).
   - The old-name repair for `/api/estimate` is now #123.
+- 2026-11-21: Epic 6 merged into `develop` (#130). Decisions at its gates:
+  - The `--resume` criterion for `.gpkg` moved from #44 to #47, where the GeoPackage writer lives (decomposition error).
+  - A user map source gets its bare file name as the MBTiles `attribution`, HTML-escaped. The full path can hold the operator's home directory (#45 rework).
+  - OSMDroid allows zoom 27 at most. The key fits up to zoom 29, but ATAK's `getOSMDroidSQLiteZoomLevel` rejects 28 and above (ADR 0011, #46).
+  - GeoPackage refuses a map source with tile type `webp` or `gif` (`unsupported_tile_type`), because GeoPackage 1.3.1 allows only PNG and JPEG tiles (batch fix).
+  - The three writers share one queue in `internal/output/sqlitequeue` (batch fix).
+  - `--resume --data-package` reads the output file back out of the zip (batch fix). The job API does not do this yet (#129).
+  - CI installs GDAL and requires the `ogrinfo` test to run (#47).
