@@ -441,7 +441,7 @@ Created by spec-to-issues on 2026-11-21. Features 01–04 are `built` and have n
 | Epic | Epic issue | Sub-issues |
 |---|---|---|
 | Foundation | #4 | #5, #6, #7, #8, #9, #10, #68 |
-| Security hardening | #11 | #12, #13, #14, #15, #16, #17 |
+| Security hardening | #11 | #12, #13, #14, #15, #16, #17, #80 |
 | Polite downloading | #18 | #19, #20, #21, #22, #23 |
 | Robust downloads | #24 | #25, #26, #27, #28, #29 |
 | Offline web UI | #30 | #31, #32, #33, #34, #35 |
@@ -514,3 +514,10 @@ FR coverage (each sub-issue and the requirements it quotes):
   - The PM ruled that a function extracted to meet the lint complexity limits may have a single caller (`.claude/rules/quality.md`).
   - The engine tests run with one download slot until #25 fixes the Progress data race.
 - 2026-11-21: Updated the built features 01–04, the cross-cutting concerns, the architecture and the risks to match Epics 0 and 1 (#80). FR-foundation-1 now says `go 1.26.0` (#62). The PM accepted the error codes `invalid_query`, `not_found` and `method_not_allowed` at the #74 gate.
+- 2026-11-21: Epic 1 merged into `develop` (#83). Decisions at its gates:
+  - The PM accepted the error codes `invalid_query`, `not_found` and `method_not_allowed` (#74).
+  - Every 404, not only `/api/` errors, uses the JSON error shape (#74, FR-security-hardening-22).
+  - The PM added #80 to bring the built feature specs up to date, and it closed #62.
+  - A batch-gate fix keeps a stalled SSE client from blocking a job (3bd39f2).
+  - The `tls` failure reason waits for the Epic 3 failure-reason field.
+- 2026-11-21: Hotfix #72 pinned `sigstore/cosign-installer` to `v4.1.3` (#73). Pre-release `v0.2.0-rc.1` was published and verified.
