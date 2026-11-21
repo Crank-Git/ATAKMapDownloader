@@ -17,7 +17,6 @@ const (
 )
 
 // Formats lists the valid values of --format and output_format, with the default first.
-// A valid format can still have no registered writer, and Registered reports that.
 var Formats = []string{MBTiles, OSMDroid, GeoPackage}
 
 // extensions maps each output format to its file extension (FR-output-formats-2).
@@ -103,12 +102,6 @@ func Register(name string, detect Detector, open Opener, read TileReader) {
 		panic("output: format " + name + " is registered twice")
 	}
 	registry[name] = format{detect: detect, open: open, read: read}
-}
-
-// Registered reports whether the output format name has a registered writer.
-func Registered(name string) bool {
-	_, ok := registry[name]
-	return ok
 }
 
 // Extension returns the file extension of the output format name, with the dot.

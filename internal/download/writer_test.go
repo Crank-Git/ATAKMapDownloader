@@ -97,9 +97,10 @@ func TestEngineRejectsAnOutputFormatThatIsNotRegistered(t *testing.T) {
 	srv := testtiles.New(t, nil)
 	source := loadFixture(t, "xyz.xml", srv)
 	cfg := testConfig()
-	cfg.Format = output.OSMDroid
+	// The name is in no registry, so the test does not depend on the formats that the build registers.
+	cfg.Format = "not-a-format"
 
-	_, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, areasOf(t, area), filepath.Join(t.TempDir(), "out.sqlite"), nil)
+	_, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, areasOf(t, area), filepath.Join(t.TempDir(), "out"), nil)
 	if !errors.Is(err, output.ErrNotRegistered) {
 		t.Errorf("DownloadTiles error = %v, want ErrNotRegistered", err)
 	}

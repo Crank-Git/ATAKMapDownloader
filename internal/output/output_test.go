@@ -102,23 +102,6 @@ func TestOpenRejectsAFormatThatIsNotRegistered(t *testing.T) {
 	}
 }
 
-func TestRegisteredReportsOnlyTheRegisteredFormats(t *testing.T) {
-	tests := []struct {
-		format string
-		want   bool
-	}{
-		{textFormat, true},
-		{"kmz", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.format, func(t *testing.T) {
-			if got := Registered(tt.format); got != tt.want {
-				t.Errorf("Registered(%q) = %v, want %v", tt.format, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestReadInfoNamesTheFormatThatTheDetectorFinds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.txt")
 	if err := os.WriteFile(path, textHeader, 0o600); err != nil {
