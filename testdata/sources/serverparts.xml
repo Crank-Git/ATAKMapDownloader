@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customMapSource>
+    <name>Test Server Parts</name>
+    <minZoom>0</minZoom>
+    <maxZoom>18</maxZoom>
+    <tileType>png</tileType>
+    <tileUpdate>None</tileUpdate>
+    <serverParts>a,b,c</serverParts>
+    <url>http://{$serverpart}.tiles.test/{$z}/{$x}/{$y}.png</url>
+    <backgroundColor>#000000</backgroundColor>
+</customMapSource>

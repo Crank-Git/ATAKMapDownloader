@@ -139,6 +139,10 @@ type job struct {
 	// done closes after the event goroutine sends the final state event.
 	done chan struct{}
 
+	// warning is the deprecation warning of a v0.1 map source name, or empty.
+	// Each subscriber gets it as a log event, so the job record keeps its shape.
+	warning string
+
 	mu     sync.Mutex
 	record jobRecord
 }
@@ -175,8 +179,11 @@ func (j *job) sendEvents() {
 			}
 		case s := <-j.subscribe:
 			subs[s] = struct{}{}
-			// A new subscriber has an empty buffer, so this send does not block.
+			// A new subscriber has an empty buffer, so these sends do not block.
 			s.events <- sseMessage{"state", j.snapshot()}
+			if j.warning != "" {
+				s.events <- sseMessage{"log", logEvent{Level: "warning", Message: j.warning}}
+			}
 		case res := <-j.result:
 			if pending {
 				j.applyProgress(latest)
@@ -276,7 +283,7 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	source, areas, ok := h.checkJobRequest(w, req)
+	source, areas, warning, ok := h.checkJobRequest(w, &req)
 	if !ok {
 		return
 	}
@@ -295,6 +302,7 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	j := h.newJob(req, areas, outputFile, cancel)
+	j.warning = warning
 	h.dlState.downloading = true
 	h.dlState.job = j
 	h.dlState.Unlock()
@@ -327,43 +335,50 @@ func (h *WebHandler) checkOutput(w http.ResponseWriter, req jobRequest, source *
 }
 
 // checkJobRequest returns the map source and the areas of req.
+// When req names a v0.1 map source, it sets req.Source to the v2 name and returns the deprecation warning.
 // It writes the error response and returns false when req is not valid.
-func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xmlparser.MapSource, []tilecalc.JobArea, bool) {
+func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*xmlparser.MapSource, []tilecalc.JobArea, string, bool) {
 	if req.Source == "" {
 		writeError(w, http.StatusBadRequest, "unknown_source", "Source name is required")
-		return nil, nil, false
+		return nil, nil, "", false
 	}
 	areas, code, message := requestAreas(req.Bounds, req.MinZoom, req.MaxZoom, req.Areas)
 	if code != "" {
 		writeError(w, http.StatusBadRequest, code, message)
-		return nil, nil, false
+		return nil, nil, "", false
 	}
-	source := h.parser.GetSource(req.Source)
+	source, warning, err := findSource(h.parser, req.Source)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "unknown_source", err.Error())
+		return nil, nil, "", false
+	}
 	if source == nil {
 		writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
-		return nil, nil, false
+		return nil, nil, "", false
 	}
+	// The job record, the output file name and the job all use the v2 name.
+	req.Source = source.Name
 	if code, message := checkJobLimits(source, areas, req.engineConfig().MaxConcurrent, h.maxTiles); code != "" {
 		writeError(w, http.StatusBadRequest, code, message)
-		return nil, nil, false
+		return nil, nil, "", false
 	}
 	// Zero rate_limit keeps the policy rate in the engine, so the API rejects it with the negative values.
 	if req.RateLimit != nil && *req.RateLimit <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid_rate_limit", fmt.Sprintf("rate_limit %g is not above 0", *req.RateLimit))
-		return nil, nil, false
+		return nil, nil, "", false
 	}
 	switch req.IfExists {
 	case "", ifExistsFail, ifExistsResume, ifExistsOverwrite:
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_if_exists", fmt.Sprintf("if_exists %q is not fail, resume or overwrite", req.IfExists))
-		return nil, nil, false
+		return nil, nil, "", false
 	}
 	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
 		writeError(w, http.StatusForbidden, "terms_not_accepted", fmt.Sprintf(
 			"%s (%s); send \"accept_terms\": true to accept the terms", entry.Reason, entry.ReferenceURL))
-		return nil, nil, false
+		return nil, nil, "", false
 	}
-	return source, areas, true
+	return source, areas, warning, true
 }
 
 // maxConcurrency is the highest concurrency that a job accepts (FR-security-hardening-20).
@@ -512,6 +527,10 @@ func (h *WebHandler) streamJob(w http.ResponseWriter, r *http.Request) {
 	case j.subscribe <- s:
 	case <-j.done:
 		// The job ended, so its event goroutine is gone and the record is final.
+		// The final state event comes last, because the client reads the last event as the result.
+		if j.warning != "" && writeEvent(w, rc, sseMessage{"log", logEvent{Level: "warning", Message: j.warning}}) != nil {
+			return // The client left.
+		}
 		_ = writeEvent(w, rc, sseMessage{"state", j.snapshot()}) // A failed write means that the client left.
 		return
 	case <-r.Context().Done():

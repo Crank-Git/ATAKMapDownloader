@@ -187,7 +187,8 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>map source</td><td>noun</td><td>One tile provider definition: name, URL template, zoom range, tile type. Code: <code>xmlparser.MapSource</code>.</td><td>provider, layer, map</td></tr>
 <tr><td>source file</td><td>noun</td><td>One MOBAC XML file that defines one map source.</td><td>config, definition</td></tr>
 <tr><td>source catalog</td><td>noun</td><td>The set of map sources that the project loaded.</td><td>library, source list</td></tr>
-<tr><td>snapshot</td><td>noun</td><td>The pinned copy of ATAK-Maps source files embedded in the binary (planned, feature 09).</td><td>bundle, vendor copy</td></tr>
+<tr><td>snapshot</td><td>noun</td><td>The pinned copy of ATAK-Maps source files embedded in the binary (feature 09).</td><td>bundle, vendor copy</td></tr>
+<tr><td>user source directory</td><td>noun</td><td>The directory that <code>--mapsources-dir</code> names. Its map sources replace snapshot map sources with the same name (feature 09).</td><td>override folder, mapsources folder</td></tr>
 <tr><td>overlay</td><td>noun</td><td>A map source with transparent tiles, drawn on top of another map source.</td><td>layer</td></tr>
 <tr><td>policy class</td><td>noun</td><td>The terms-of-use class of a map source: <code>open</code>, <code>conditional</code> or <code>restricted</code> (planned, feature 06).</td><td>license, tier</td></tr>
 <tr><td>rate limit</td><td>noun</td><td>The maximum number of requests per second that the project sends to one host.</td><td>throttle</td></tr>
@@ -209,6 +210,8 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>failure rate</td><td>noun</td><td>Failed tiles divided by processed tiles in one job.</td><td>error rate</td></tr>
 <tr><td>failure tolerance</td><td>noun</td><td>The highest failure rate at which a job still succeeds. Code: <code>MaxFailureRate</code>.</td><td>error budget</td></tr>
 <tr><td>failure reason</td><td>noun</td><td>The word that names why one tile failed, for example <code>not_image</code> or <code>http_404</code>. Code: <code>download.Reason</code>.</td><td>error code, cause</td></tr>
+<tr><td>URL placeholder</td><td>noun</td><td>A <code>{$…}</code> string in the <code>url</code> of a source file that the engine replaces for each tile, for example <code>{$x}</code> (feature 09).</td><td>variable, template field</td></tr>
+<tr><td>server part</td><td>noun</td><td>One value of <code>serverParts</code> that the engine puts in <code>{$serverpart}</code>. The tile column plus the tile row selects it (feature 09).</td><td>subdomain, mirror</td></tr>
 <tr><td>placeholder image</td><td>noun</td><td>One image that a map source sends for many tiles in place of real map data.</td><td>dummy tile, filler</td></tr>
 <tr><td>server</td><td>noun</td><td>The HTTP process that <code>atak-dl serve</code> starts.</td><td>backend, daemon</td></tr>
 <tr><td>web UI</td><td>noun</td><td>The browser page that the server sends from the binary.</td><td>frontend, dashboard, web app</td></tr>
@@ -267,16 +270,16 @@ body.rv-open .layout { padding-right:21rem; }
 <h2 id="feature-map">Feature map</h2>
 <div class="table-wrap"><table>
 <tr><th>Feature set</th><th>Spec file</th><th>Epic</th><th>Status</th><th>Mockups</th></tr>
-<tr><td>Foundation</td><td><a href="html/feature-foundation.html">features/00-foundation.md</a></td><td>Epic 0: Foundation</td><td>planned</td><td>—</td></tr>
+<tr><td>Foundation</td><td><a href="html/feature-foundation.html">features/00-foundation.md</a></td><td>Epic 0: Foundation</td><td>built</td><td>—</td></tr>
 <tr><td>Map source catalog</td><td><a href="html/feature-map-sources.html">features/01-map-sources.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Area estimate and tile info</td><td><a href="html/feature-area-estimate.html">features/02-area-estimate.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Tile download and output file</td><td><a href="html/feature-tile-download.html">features/03-tile-download.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Web UI and server</td><td><a href="html/feature-web-ui.html">features/04-web-ui.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
-<tr><td>Security hardening</td><td><a href="html/feature-security-hardening.html">features/05-security-hardening.md</a></td><td>Epic 1: Security hardening</td><td>planned</td><td>—</td></tr>
-<tr><td>Polite downloading</td><td><a href="html/feature-polite-downloading.html">features/06-polite-downloading.md</a></td><td>Epic 2: Polite downloading</td><td>planned</td><td>04-source-policy-warning</td></tr>
-<tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>planned</td><td>—</td></tr>
-<tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>planned</td><td>01-workspace</td></tr>
-<tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>planned</td><td>—</td></tr>
+<tr><td>Security hardening</td><td><a href="html/feature-security-hardening.html">features/05-security-hardening.md</a></td><td>Epic 1: Security hardening</td><td>built</td><td>—</td></tr>
+<tr><td>Polite downloading</td><td><a href="html/feature-polite-downloading.html">features/06-polite-downloading.md</a></td><td>Epic 2: Polite downloading</td><td>built</td><td>04-source-policy-warning</td></tr>
+<tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>built</td><td>—</td></tr>
+<tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>built</td><td>01-workspace</td></tr>
+<tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>built, except WMS (#41)</td><td>—</td></tr>
 <tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>planned</td><td>03-export-options</td></tr>
 <tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>planned</td><td>02-area-tools</td></tr>
 <tr><td>Team server</td><td><a href="html/feature-team-server.html">features/12-team-server.md</a></td><td>Epic 8: Team server</td><td>planned</td><td>05-jobs</td></tr>
@@ -289,7 +292,7 @@ body.rv-open .layout { padding-right:21rem; }
     Server["Server: net/http (built, reworked)"]
     WebUI["Web UI: embedded page (built, reworked)"]
     Catalog["Source catalog: xmlparser (built)"]
-    Snapshot["Snapshot: embedded ATAK-Maps (planned)"]
+    Snapshot["Snapshot: embedded ATAK-Maps (built)"]
     Policy["Source policy table (planned)"]
     TileCalc["tilecalc: tile math (built)"]
     Engine["Download engine (built, reworked)"]
@@ -323,7 +326,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><strong>Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman 2.20.8, embedded with <code>embed.FS</code>.</strong> Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
 </li>
-<li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Today there is a copied folder of 33 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
+<li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Built (Epic 5). The binary embeds a snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). <code>atak-dl sources sync</code> writes a newer release to <code>&lt;user source directory&gt;/atak-maps/</code>. See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
 </li>
 <li><strong>Release: GoReleaser v2 on GitHub Actions.</strong> Built (#65, #70, #73). Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
 </li>
@@ -341,7 +344,8 @@ internal/policy/        planned: source policy table and rate limits
 internal/jobs/          planned: job queue and job store
 internal/server/        planned: HTTP handlers moved out of commands/web.go
 web/                    embedded web UI
-mapsources/             source files (replaced by the embedded snapshot in Epic 5)
+internal/snapshot/      embedded ATAK-Maps source files, VERSION and name aliases (built)
+internal/sourcesync/    the sources sync command (built)
 docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <h2 id="data-model">Data model</h2>
 <div class="diagram"><pre class="mermaid">erDiagram
@@ -365,16 +369,16 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
     string background_color
     bool ignore_errors
     string_list server_parts
-    string kind "tile or wms (planned)"
-    bool invert_y "planned"
+    string kind "tile or wms, wms waits for #41"
+    bool invert_y
   }
   SOURCE_FILE {
     string path PK
-    string origin "snapshot or user (planned)"
+    string origin "snapshot or user"
   }
   SKIPPED_SOURCE {
     string path FK
-    string reason "planned"
+    string reason
     string detail
   }
   SOURCE_POLICY {
@@ -430,11 +434,11 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
   }</pre></div>
 <p>Per entity:</p>
 <ul>
-<li><strong>MAP_SOURCE</strong> (built, <code>internal/xmlparser/xmlparser.go:16-26</code>). The parser loads it from a <code>&lt;customMapSource&gt;</code> source file. <code>name</code> is the key. If two source files have the same name, the last file loaded wins with no warning. Defaults: if both zooms are 0, <code>max_zoom</code> is 18. <code>tile_type</code> is <code>png</code>, <code>tile_update</code> is <code>None</code> and <code>background_color</code> is <code>#000000</code>. Planned: <code>kind</code> (<code>tile</code> or <code>wms</code>) and <code>invert_y</code> (feature 09).
+<li><strong>MAP_SOURCE</strong> (built, <code>internal/xmlparser/xmlparser.go:16-26</code>). The parser loads it from a <code>&lt;customMapSource&gt;</code> source file. <code>name</code> is the key. A map source of a later layer replaces one of the same name: the snapshot, then <code>atak-maps/</code>, then the user's own files (FR-source-sync-5). Defaults: if both zooms are 0, <code>max_zoom</code> is 18. <code>tile_type</code> is <code>png</code>, <code>tile_update</code> is <code>None</code> and <code>background_color</code> is <code>#000000</code>. It has <code>kind</code> (<code>tile</code>, and <code>wms</code> when #41 lands) and <code>invert_y</code> (feature 09).
 </li>
-<li><strong>SOURCE_FILE</strong> (built). A MOBAC XML file in the source directory. Planned: <code>origin</code> is <code>snapshot</code> or <code>user</code> (feature 09).
+<li><strong>SOURCE_FILE</strong> (built). A MOBAC XML file in the snapshot or in the user source directory. <code>origin</code> is <code>snapshot</code> or <code>user</code> (feature 09).
 </li>
-<li><strong>SKIPPED_SOURCE</strong> (planned, feature 09). An in-memory record of a source file that did not load, with its reason. Today the parser drops these with no record.
+<li><strong>SKIPPED_SOURCE</strong> (built, feature 09). An in-memory record of a source file that did not load, with its path, reason and detail (#38).
 </li>
 <li><strong>SOURCE_POLICY</strong> (planned, feature 06). A table embedded in the binary, keyed by a host pattern such as <code>*.google.com</code>. <code>policy_class</code> is <code>open</code>, <code>conditional</code> or <code>restricted</code>. <code>requests_per_second</code> is the rate limit for that host.
 </li>
@@ -617,7 +621,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>Resolved — "1:1 functionality matching the Python version".</strong> No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim, and Epic 0 removed it from the README (#71).
 </li>
-<li><strong>Contradicted — "30+ map sources".</strong> 33 files ship. 30 load. Three WMS source files are skipped with no log (<code>internal/xmlparser/xmlparser.go:130-133</code>).
+<li><strong>Resolved — "30+ map sources".</strong> The snapshot holds 53 source files, and 47 load. <code>list-sources --skipped</code> reports the other 6 with reason <code>parse_error</code>: 5 WMS files, which wait for #41, and 1 multi-layer file (#37, #38).
 </li>
 <li><strong>Contradicted — "MBTiles output".</strong> The output file has a <code>.sqlite</code> extension and lacks the <code>center</code> key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
 </li>
@@ -807,6 +811,20 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <li>FR-offline-web-ui-28 now also requires an accessible name on the progress bar.
 </li>
 <li>The PM checked the web UI with Playwright and axe-core: 0 critical violations (#30).
+</li>
+</ul>
+</li>
+<li>2026-11-21: Epic 5 merged into <code>develop</code> (#111) <strong>without WMS (#41)</strong>. #41 waits on a maintainer question about the CRS of the FEMA source, and the PM shipped the rest because it stands alone. Decisions at its gates:
+<ul>
+<li>Source precedence is the snapshot, then the synced <code>atak-maps/</code>, then the user's own files. The user's own file always wins (batch fix, FR-source-sync-5).
+</li>
+<li><code>sources sync</code> changes only <code>&lt;user source directory&gt;/atak-maps/</code> (cross-check amendment, #105).
+</li>
+<li>OpenRailwayMap (#101) and CyclOSM (batch fix) are <code>restricted</code>, because their terms ban bulk use. Waymarked Trails only discourages bulk use, so it stays conditional.
+</li>
+<li>Commas also split <code>serverParts</code>. This is a superset of ATAK's whitespace split (#42).
+</li>
+<li>Pending repair: <code>/api/estimate</code> does not resolve old map source names yet.
 </li>
 </ul>
 </li>

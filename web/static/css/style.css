@@ -561,6 +561,26 @@ option.policy-restricted {
     background: rgba(20, 24, 22, 0.55);
 }
 
+/* The skipped source list (FR-source-sync-30) is information, not a warning, so its border is neutral. */
+.skipped-dialog {
+    width: calc(100% - 2rem);
+    max-width: 560px;
+    padding: 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 0.6rem;
+    background: var(--panel);
+    color: var(--ink);
+}
+
+.skipped-dialog h3 {
+    margin: 0 0 0.5rem;
+    font-size: 16px;
+}
+
+.skipped-dialog::backdrop {
+    background: rgba(20, 24, 22, 0.55);
+}
+
 .policy-reason {
     padding: 0.5rem 0.65rem;
     border-radius: 0.4rem;

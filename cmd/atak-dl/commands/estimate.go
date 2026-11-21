@@ -42,11 +42,8 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 		return errors.New("--bbox or --area is required")
 	}
 
-	sourceName, _ := cmd.Flags().GetString("source")
-	source := parser.GetSource(sourceName)
-	if source == nil {
-		exitErr("Source '" + sourceName + "' not found")
-	}
+	source := sourceFlag(cmd, parser)
+	sourceName := source.Name
 	if areaFile != "" {
 		return estimateAreaFile(cmd, areaFile, sourceName, source.TileType)
 	}

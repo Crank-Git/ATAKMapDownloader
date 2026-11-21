@@ -17,7 +17,7 @@ Design lives in `docs/specs/`. Read `docs/specs/spec.md` and the relevant `docs/
 | `internal/mbtiles/` | The MBTiles writer (becomes `internal/output/` in Epic 6) |
 | `internal/policy/`, `internal/jobs/`, `internal/server/`, `internal/testtiles/` | Planned packages. See `spec.md` § Architecture & stack |
 | `web/` | The embedded web UI. Vendor every asset here. Load nothing from a CDN |
-| `mapsources/` | Source files (replaced by the embedded snapshot in Epic 5) |
+| `internal/snapshot/` | The embedded ATAK-Maps v2.3.1 source files, `VERSION`, `LICENSE` and `NOTICE.md` |
 | `docs/specs/`, `docs/adr/` | The spec and the decision records |
 
 ## Commands

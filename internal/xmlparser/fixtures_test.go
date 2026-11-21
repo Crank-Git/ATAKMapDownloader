@@ -18,7 +18,7 @@ func TestParseFileReadsTheFixtureSourceFiles(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			source, err := New("").ParseFile(filepath.Join("..", "..", "testdata", "sources", tt.file))
+			source, err := ParseFile(filepath.Join("..", "..", "testdata", "sources", tt.file))
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("ParseFile(%s) returned no error", tt.file)

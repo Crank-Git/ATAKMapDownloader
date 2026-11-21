@@ -63,11 +63,7 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 
 func runDownload(cmd *cobra.Command, userAgent string) error {
 	parser := getParser(cmd)
-	sourceName, _ := cmd.Flags().GetString("source")
-	source := parser.GetSource(sourceName)
-	if source == nil {
-		exitErr("Source '" + sourceName + "' not found")
-	}
+	source := sourceFlag(cmd, parser)
 
 	output, _ := cmd.Flags().GetString("output")
 	areas, err := downloadAreas(cmd, output)
@@ -97,7 +93,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 
 	customName, _ := cmd.Flags().GetString("name")
 	if output == "" {
-		output = filepath.Join(download.DownloadsDir(), jobOutputFile(sourceName, areas, customName))
+		output = filepath.Join(download.DownloadsDir(), jobOutputFile(source.Name, areas, customName))
 	}
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {

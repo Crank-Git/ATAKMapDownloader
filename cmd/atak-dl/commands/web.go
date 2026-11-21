@@ -173,6 +173,8 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/sources":
 		h.apiSources(w, r)
+	case "/api/sources/skipped":
+		h.apiSkippedSources(w, r)
 	case "/api/estimate":
 		h.apiEstimate(w, r)
 	case "/api/areas/parse":
@@ -199,7 +201,7 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
-	sources := h.parser.DiscoverSources(false)
+	sources := h.parser.DiscoverSources()
 	list := []sourceItem{}
 	for _, name := range h.parser.ListSources() {
 		s := sources[name]
@@ -215,9 +217,30 @@ func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
 			PolicyReferenceURL: p.ReferenceURL,
 			RequestsPerSecond:  p.RequestsPerSecond,
 			PolicyHost:         p.Hosts(),
+			Kind:               s.Kind,
+			Origin:             s.Origin,
 		})
 	}
 	writeJSON(w, list)
+}
+
+func (h *WebHandler) apiSkippedSources(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		return
+	}
+	list := []skippedItem{}
+	for _, s := range h.parser.SkippedSources() {
+		list = append(list, skippedItem{Path: s.Path, Reason: s.Reason, Detail: s.Detail})
+	}
+	writeJSON(w, list)
+}
+
+// skippedItem is one source file in the GET /api/sources/skipped response (FR-source-sync-29).
+type skippedItem struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+	Detail string `json:"detail"`
 }
 
 // sourceItem is one map source in the GET /api/sources response (FR-polite-downloading-16).
@@ -233,6 +256,8 @@ type sourceItem struct {
 	PolicyReferenceURL string  `json:"policy_reference_url"`
 	RequestsPerSecond  float64 `json:"requests_per_second"`
 	PolicyHost         string  `json:"policy_host"`
+	Kind               string  `json:"kind"`
+	Origin             string  `json:"origin"`
 }
 
 // apiEstimate returns the tile count and the size of a job (feature 02).
@@ -356,15 +381,14 @@ func (h *WebHandler) apiValidateSource(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	source := h.parser.GetSource(req.SourceName)
-	if source == nil {
-		writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
+	source, ok := h.findWebSource(w, req.SourceName)
+	if !ok {
 		return
 	}
 	errors := h.parser.ValidateSource(source)
 	writeJSON(w, map[string]interface{}{
 		"valid":       len(errors) == 0,
-		"source_name": req.SourceName,
+		"source_name": source.Name,
 		"url":         source.URL,
 		"zoom_range":  []int{source.MinZoom, source.MaxZoom},
 		"format":      source.TileType,
@@ -394,9 +418,8 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_bounds", "Bounds must hold four numbers: west, south, east, north")
 		return
 	}
-	source := h.parser.GetSource(req.Source)
-	if source == nil {
-		writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
+	source, ok := h.findWebSource(w, req.Source)
+	if !ok {
 		return
 	}
 	if req.MinZoom == 0 {
@@ -444,7 +467,7 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"tiles":       tiles,
 		"zoom":        previewZoom,
-		"source":      req.Source,
+		"source":      source.Name,
 		"total_tiles": len(tiles),
 		"bounds":      req.Bounds,
 	})
