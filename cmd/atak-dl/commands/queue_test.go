@@ -255,13 +255,22 @@ func TestAQueuedJobChecksIfExistsAgainWhenItStarts(t *testing.T) {
 
 func TestAQueuedOverwriteJobKeepsTheFileUntilItStarts(t *testing.T) {
 	s := newJobServer(t, slowTable(slowArea, 100*time.Millisecond))
+	finished := s.startJob(t, jobBody(otherArea))
+	if final := s.finalRecord(t, finished.ID); final.State != jobComplete {
+		t.Fatalf("first job state = %q, want complete", final.State)
+	}
+	path := filepath.Join(s.handler.outputDir, finished.OutputFile)
+	before := readFile(t, path)
 	running := s.startJob(t, jobBody(slowArea))
 	s.waitState(t, running.ID, jobRunning)
 
-	// The queued job names the output file of the running job, so a delete at submit would remove a file in use.
-	queued := s.startJob(t, strings.TrimSuffix(jobBody(slowArea), "}")+`,"if_exists":"overwrite"}`)
-	if _, err := os.Stat(filepath.Join(s.handler.outputDir, running.OutputFile)); err != nil {
-		t.Errorf("output file of the running job after the submit: %v, want it kept", err)
+	// The running job holds the worker, so the overwrite job stays queued with the finished file.
+	queued := s.startJob(t, strings.TrimSuffix(jobBody(otherArea), "}")+`,"if_exists":"overwrite"}`)
+	if queued.OutputFile != finished.OutputFile {
+		t.Fatalf("output file of the queued job = %q, want %q", queued.OutputFile, finished.OutputFile)
+	}
+	if after, err := os.ReadFile(path); err != nil || string(after) != string(before) { //nolint:gosec // The test reads the file in its own temporary directory.
+		t.Errorf("finished file after the submit: %d bytes, %v, want it unchanged", len(after), err)
 	}
 	s.cancelAndWait(t, queued.ID)
 	s.cancelAndWait(t, running.ID)

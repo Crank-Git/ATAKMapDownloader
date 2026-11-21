@@ -19,6 +19,7 @@ func runListSourcesCmd(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	root := &cobra.Command{Use: "atak-dl"}
 	root.PersistentFlags().String("mapsources-dir", dir, "")
+	root.PersistentFlags().String("data-dir", "", "")
 	root.PersistentFlags().Bool("no-snapshot", false, "")
 	root.AddCommand(NewListSourcesCmd())
 	var out bytes.Buffer

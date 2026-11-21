@@ -49,6 +49,8 @@ type WebHandler struct {
 	jobMu sync.Mutex
 	// jobs holds every job of the server by id. A job stays after it ends, so GET can read its result.
 	jobs map[string]*job
+	// store is the jobs.jsonl file of the data directory. useDataDir opens it.
+	store *jobs.Store
 }
 
 // NewWebHandler creates a new web handler.

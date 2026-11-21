@@ -1,4 +1,4 @@
-// Package jobs holds the job queue of the team server (feature 12).
+// Package jobs holds the job queue and the job store of the team server (feature 12).
 // It knows only job ids, so it has no HTTP code and no engine code.
 package jobs
 

@@ -41,6 +41,7 @@ func newRootCmd(version, commit, date string) *cobra.Command {
 
 	root.PersistentFlags().String("mapsources-dir", defaultSourcesDir(), "User source directory, loaded after the embedded snapshot")
 	root.PersistentFlags().Bool("no-snapshot", false, "Load only the user source directory, without the embedded snapshot")
+	root.PersistentFlags().String("data-dir", "", "Directory of the output files and jobs.jsonl. The default is ATAKDL_DATA_DIR, else ./downloads")
 
 	root.AddCommand(commands.NewListSourcesCmd())
 	root.AddCommand(commands.NewEstimateCmd())

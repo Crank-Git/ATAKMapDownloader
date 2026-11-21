@@ -35,6 +35,7 @@ func runDownloadOf(ctx context.Context, t *testing.T, srv *testtiles.Server, tb 
 	t.Helper()
 	root := &cobra.Command{Use: "atak-dl"}
 	root.PersistentFlags().String("mapsources-dir", "", "")
+	root.PersistentFlags().String("data-dir", "", "")
 	root.AddCommand(NewDownloadCmd(testUserAgent))
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)

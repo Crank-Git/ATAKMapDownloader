@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -88,15 +90,22 @@ func runServeOnce(t *testing.T, args ...string) (string, string) {
 // executeServe runs serve like runServeOnce, and returns the error of Execute too.
 func executeServe(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
+	return executeRoot(t, append([]string{"serve"}, args...)...)
+}
+
+// executeRoot runs the root command with serve, with args after --mapsources-dir and a cancelled context.
+func executeRoot(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
 	// serve makes the downloads directory in the working directory.
 	t.Chdir(t.TempDir())
 	root := &cobra.Command{Use: "atak-dl"}
 	root.PersistentFlags().String("mapsources-dir", "", "")
+	root.PersistentFlags().String("data-dir", "", "")
 	root.AddCommand(NewServeCmd(testUserAgent))
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs(append([]string{"--mapsources-dir", t.TempDir(), "serve"}, args...))
+	root.SetArgs(append([]string{"--mapsources-dir", t.TempDir()}, args...))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := root.ExecuteContext(ctx)
@@ -163,6 +172,66 @@ func TestServePrintsAGeneratedTokenForANonLoopbackAddress(t *testing.T) {
 			}
 			if tt.print && strings.Contains(stdout+logs.String(), matches[0][1]) {
 				t.Errorf("stdout %q or the log %q holds the generated token", stdout, logs.String())
+			}
+		})
+	}
+}
+
+func TestServeReadsTheDataDirectory(t *testing.T) {
+	flagDir, envDir := t.TempDir(), t.TempDir()
+	tests := []struct {
+		name string
+		args []string
+		env  string
+		want string
+	}{
+		{"uses ./downloads with no flag and no variable", nil, "", "downloads"},
+		{"uses ATAKDL_DATA_DIR", nil, envDir, envDir},
+		{"uses --data-dir", []string{"--data-dir", flagDir}, "", flagDir},
+		{"uses --data-dir over ATAKDL_DATA_DIR", []string{"--data-dir", flagDir}, envDir, flagDir},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("ATAKDL_DATA_DIR", tt.env)
+			// --data-dir is a flag of the root command, so it comes before serve.
+			stdout, stderr, err := executeRoot(t, append(tt.args, "serve")...)
+			if err != nil {
+				t.Fatalf("Execute() returned %v; stdout %q, stderr %q", err, stdout, stderr)
+			}
+			if _, err := os.Stat(filepath.Join(tt.want, "jobs.jsonl")); err != nil {
+				t.Errorf("jobs.jsonl in %s: %v", tt.want, err)
+			}
+		})
+	}
+}
+
+func TestServeExitsWithCode1WhenTheDataDirectoryIsNotWritable(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	readOnly := filepath.Join(t.TempDir(), "read-only")
+	if err := os.Mkdir(readOnly, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		dir  string
+	}{
+		{"refuses a directory below a regular file", filepath.Join(file, "data")},
+		{"refuses a directory with no write permission", readOnly},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.dir == readOnly && os.Geteuid() == 0 {
+				t.Skip("root writes to a directory with no write permission")
+			}
+			_, _, err := executeRoot(t, "--data-dir", tt.dir, "serve")
+			if got := ExitCode(err); got != 1 {
+				t.Errorf("exit code = %d, want 1", got)
+			}
+			if want := "data directory is not writable: " + tt.dir; err == nil || !strings.HasPrefix(err.Error(), want) {
+				t.Errorf("Execute() returned %v, want the message %q", err, want)
 			}
 		})
 	}

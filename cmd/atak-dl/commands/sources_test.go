@@ -65,6 +65,7 @@ func runSourcesSync(t *testing.T, dir string, body []byte) (string, error) {
 
 	root := &cobra.Command{Use: "atak-dl", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().String("mapsources-dir", dir, "")
+	root.PersistentFlags().String("data-dir", "", "")
 	root.AddCommand(NewSourcesCmd("atak-map-downloader/test"))
 	var out bytes.Buffer
 	root.SetOut(&out)
