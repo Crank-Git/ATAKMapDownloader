@@ -82,7 +82,7 @@ function fakeLayer(geometry) {
         setStyle() { return this; },
         bringToFront() { return this; },
         getBounds() { return { isValid: () => true }; },
-        toGeoJSON() { return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry }] }; }
+        toGeoJSON() { return { type: 'Feature', geometry }; }
     };
 }
 
@@ -100,7 +100,7 @@ const map = {
 };
 
 const L = {
-    geoJSON: (geometry) => fakeLayer(geometry),
+    geoJSON: (geometry) => ({ getLayers: () => [fakeLayer(geometry)] }),
     layerGroup: () => ({ addTo() { return this; } }),
     rectangle: () => fakeLayer(null),
     latLngBounds: () => ({ isValid: () => true })

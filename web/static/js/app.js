@@ -212,7 +212,7 @@ class ATAKDownloader {
         if (!kind) return;
         const added = this.addArea({
             kind: kind,
-            geometry: this.layerGeometry(e.layer),
+            geometry: e.layer.toGeoJSON().geometry,
             bufferM: kind === 'route_buffer' ? this.routeBufferM() : null,
             name: KIND_LABEL[kind] + ' ' + this.nextAreaId
         }, e.layer);
@@ -559,12 +559,6 @@ class ATAKDownloader {
         this.logStatus('Selection cleared');
     }
 
-    // layerGeometry returns the GeoJSON geometry of a drawn layer or of an imported layer group.
-    layerGeometry(layer) {
-        const json = layer.toGeoJSON();
-        return json.type === 'FeatureCollection' ? json.features[0].geometry : json.geometry;
-    }
-
     // routeBufferM returns the route buffer of the sidebar in meters. An empty field gives the default 500 (FR-area-selection-20).
     routeBufferM() {
         return parseFloat(document.getElementById('routeBuffer').value) || 500;
@@ -576,9 +570,11 @@ class ATAKDownloader {
     addArea(spec, layer) {
         if (this.areas.length >= MAX_AREAS) {
             if (layer) this.map.removeLayer(layer);
-            this.showError('areas', 'A job holds at most ' + MAX_AREAS + ' areas. Remove an area first.', null);
+            this.showError('areaLimit', 'A job holds at most ' + MAX_AREAS + ' areas. Remove an area first.', null);
             return false;
         }
+        // L.geoJSON returns a group, and Geoman edits and removes the layer inside it, so the area keeps that layer.
+        const drawn = layer || L.geoJSON(spec.geometry, { style: { color: '#3498db', weight: 2, fillOpacity: 0.2 } }).getLayers()[0];
         const area = {
             id: this.nextAreaId++,
             kind: spec.kind,
@@ -588,11 +584,11 @@ class ATAKDownloader {
             minZoom: spec.minZoom ?? parseInt(document.getElementById('minZoom').value),
             maxZoom: spec.maxZoom ?? parseInt(document.getElementById('maxZoom').value),
             tiles: null,
-            layer: layer || L.geoJSON(spec.geometry, { style: { color: '#3498db', weight: 2, fillOpacity: 0.2 } }).addTo(this.map)
+            layer: drawn.addTo(this.map)
         };
         // Edit mode and drag mode move the area, so the geometry follows each change.
         const follow = () => {
-            area.geometry = this.layerGeometry(area.layer);
+            area.geometry = area.layer.toGeoJSON().geometry;
             this.areasChanged();
         };
         area.layer.on('pm:edit', follow);
@@ -608,6 +604,7 @@ class ATAKDownloader {
         if (!area || this.isDownloading) return;
         this.map.removeLayer(area.layer);
         this.areas = this.areas.filter(a => a !== area);
+        this.hideError('areaLimit');
         if (this.selectedAreaId === id) {
             this.selectedAreaId = this.areas.length > 0 ? this.areas[this.areas.length - 1].id : null;
         }
