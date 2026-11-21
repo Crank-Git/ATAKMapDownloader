@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Robust downloads</h1>
-<p class="meta">Epic 3: Robust downloads &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 3: Robust downloads &nbsp; <span class="badge">built</span></p>
 <h3 id="robust-downloads-purpose">Purpose</h3>
 <p>Today a job deletes an existing output file at the same path with no warning (<code>internal/mbtiles/mbtiles.go:18-22</code>). A cancelled job deletes its own output file, so every downloaded tile is lost (<code>internal/download/download.go:235-237</code>). The engine stores whatever bytes the server returns, which includes HTML error pages. The engine also has a data race on its progress fields (<code>download.go:191-212</code>), and it writes one autocommit insert per tile from many goroutines. Progress counts only successful tiles, so a job with failures never shows 100%.</p>
 <p>This feature makes every job safe to stop and resume, and it keeps bad tiles out of the output file.</p>
@@ -341,6 +341,12 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>Tile attempts: 3 in the main pass and 1 in the retry pass.
 </li>
+<li>If a cancel or a refusal stop ends a tile before it uses its attempts, the tile counts as neither downloaded nor failed. A resume requests it again.
+</li>
+<li>The progress percentage stops at 100. The retry pass of a resume can store a failed tile from outside the bounds, so the processed count can be above the total.
+</li>
+<li>When the writer closes, it runs <code>PRAGMA wal_checkpoint(TRUNCATE)</code> and then <code>PRAGMA journal_mode=DELETE</code>. The output file is then one file with no <code>-wal</code> or <code>-shm</code> file, so ATAK can open it read-only.
+</li>
 <li>The tile key set for <code>--resume</code> loads into memory. 500,000 keys take about 12 MB.
 </li>
 <li>A job with <code>--ignore-errors</code> succeeds whatever its failure rate is. It still records failed tiles.
@@ -393,6 +399,16 @@ body.rv-open .layout { padding-right:21rem; }
 <li>If the process is killed with SIGKILL, at most 500 tiles are lost. WAL mode keeps the file consistent.
 </li>
 <li>If <code>--resume</code> opens a file with no <code>atakdl_source</code> key (a file from v0.1), the CLI accepts it only with <code>--resume --force</code>.
+</li>
+<li>If <code>POST /api/jobs</code> resumes into a file with no <code>atakdl_source</code> key, the server accepts it. The API has no <code>force</code> field.
+</li>
+<li>If <code>--resume</code> or <code>"if_exists": "resume"</code> finds a file that is not SQLite or has no <code>metadata</code> table, the CLI exits with code 3 and the API returns 409 <code>output_exists</code>. The message starts with "not an output file".
+</li>
+<li><code>--overwrite</code> also deletes the <code>-wal</code> and <code>-shm</code> files of the output file, because they belong to the old file.
+</li>
+<li>The CLI deletes a file for <code>--overwrite</code> only after every other flag is valid.
+</li>
+<li>If the writer fails after a cancel, the job ends with <code>write_failed</code> and exit code 1, not 130. The cancel line counts the tiles as stored, but the output file lost them.
 </li>
 <li>If a server returns a valid image for a missing tile (for example a "no data" tile), validation passes. A blocked-image hash catches only known images.
 </li>

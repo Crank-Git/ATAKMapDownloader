@@ -155,10 +155,22 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Team server</h1>
-<p class="meta">Epic 8: Team server &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 8: Team server &nbsp; <span class="badge">built</span></p>
 <h3 id="team-server-purpose">Purpose</h3>
-<p>Today the server holds one job in memory, and it rejects a second job with "Download already in progress" (<code>cmd/atak-dl/commands/web.go:479-484</code>). A job is lost when the server restarts. The server has no authentication, so binding it to a LAN address exposes it to every device on the network.</p>
-<p>The user wants the project to serve small teams from one LAN machine or a container. This feature adds a job queue, a persistent job store, a jobs page and a shared token for every address that is not loopback.</p>
+<p>Before this feature, the server held one job in memory, and it rejected a second job with "Download already in progress". A restart lost the job. The server had no authentication, so a LAN address exposed it to every device on the network.</p>
+<p>The user wants the project to serve small teams from one LAN machine or a container. This feature adds these parts:</p>
+<ul>
+<li>A queue of jobs and a fixed count of workers (<code>serve --workers</code>).
+</li>
+<li>A job store, <code>jobs.jsonl</code> in the data directory, that keeps every job after a restart.
+</li>
+<li>A Jobs page that lists the jobs, and cancels and resumes them.
+</li>
+<li>A shared token for every address that is not loopback, with a sign-in page.
+</li>
+<li>The health route <code>GET /healthz</code> for a container health check.
+</li>
+</ul>
 <h3 id="team-server-user-stories">User stories</h3>
 <ul>
 <li>As a server operator, I want to run the project in Docker on a LAN box, so that the team shares one downloader.
@@ -358,7 +370,17 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h3 id="team-server-data-touched">Data touched</h3>
 <ul>
-<li>JOB becomes persistent in <code>jobs.jsonl</code> and gains <code>queued</code> state, <code>label</code>, <code>started_at</code>, <code>finished_at</code> and <code>reason</code>.
+<li>JOB becomes persistent in <code>jobs.jsonl</code>. It gains these fields:
+<ul>
+<li>The <code>queued</code> state.
+</li>
+<li><code>label</code>, <code>area_name</code>, <code>started_at</code>, <code>finished_at</code> and <code>reason</code>.
+</li>
+<li><code>position</code>, which a read computes for a queued job.
+</li>
+</ul>
+</li>
+<li>Each line of <code>jobs.jsonl</code> holds the job record and the stored request, so a queued job runs after a restart. The stored request has no token.
 </li>
 <li>New file <code>&lt;data dir&gt;/jobs.jsonl</code>.
 </li>
@@ -375,6 +397,10 @@ body.rv-open .layout { padding-right:21rem; }
 </table></div>
 <ul>
 <li>CLI: <code>serve --workers &lt;n&gt;</code> (1 to 8), <code>--data-dir &lt;dir&gt;</code> and <code>--token &lt;token&gt;</code>.
+</li>
+<li><code>GET /api/config</code> adds <code>version</code>, <code>addr</code>, <code>data_dir</code> and <code>workers</code>. The server footer of the Jobs page shows them (#59).
+</li>
+<li>The job record adds <code>area_name</code>, the name of the first area. The Jobs page shows it when the job has no label (#59).
 </li>
 <li><code>crypto/subtle.ConstantTimeCompare</code>: https://pkg.go.dev/crypto/subtle.
 </li>

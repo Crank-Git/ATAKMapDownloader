@@ -1,108 +1,191 @@
 package commands
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/jobs"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/crank-git/atak-map-downloader/web"
-	"github.com/gorilla/websocket"
+	"golang.org/x/time/rate"
 )
 
 // WebHandler serves the web interface and API.
 type WebHandler struct {
-	parser   *xmlparser.XMLParser
-	calc     *tilecalc.TileCalculator
-	mapsDir  string
-	upgrader websocket.Upgrader
-	dlState  struct {
-		sync.Mutex
-		downloading bool
-		cancel      context.CancelFunc
-	}
+	parser  *xmlparser.XMLParser
+	calc    *tilecalc.TileCalculator
+	mapsDir string
+	// outputDir is the directory of the output files of job API jobs.
+	outputDir string
+	// maxTiles is the tile cap of a job API job (FR-robust-downloads-27).
+	maxTiles  int
+	jobRoutes *http.ServeMux
+	// userAgent is the User-Agent of every tile request and every geocode request (FR-polite-downloading-14).
+	userAgent string
+	// version is the version of the binary that GET /healthz reports (FR-team-server-29).
+	version string
+	// geocodeURL is the Nominatim search endpoint. A test points it at a fake Nominatim.
+	geocodeURL string
+	// geocodeOff removes the /api/geocode route (FR-polite-downloading-26).
+	geocodeOff bool
+	// geocodeClient is shared, so the geocode requests reuse one connection pool.
+	geocodeClient *http.Client
+	// geocodeLimiter is one limiter for every client of the server (FR-polite-downloading-22).
+	geocodeLimiter *rate.Limiter
+	// geocodeWait is the longest wait for the limiter. A test makes it short.
+	geocodeWait  time.Duration
+	geocodeCache *geocodeCache
+	// auth is the token check of FR-team-server-17. It is nil on loopback.
+	auth *tokenAuth
+	// queue holds the queued jobs and starts them on its workers (FR-team-server-1, -2, -3).
+	queue *jobs.Queue
+	// jobMu guards jobs.
+	jobMu sync.Mutex
+	// jobs holds every job of the server by id. A job stays after it ends, so GET can read its result.
+	jobs map[string]*job
+	// store is the jobs.jsonl file of the data directory. useDataDir opens it.
+	store *jobs.Store
+	// addr and workers are the --addr and --workers values of serve. The footer of the Jobs page shows them.
+	addr    string
+	workers int
 }
 
 // NewWebHandler creates a new web handler.
-func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir string) *WebHandler {
-	return &WebHandler{
-		parser:  parser,
-		calc:   calc,
-		mapsDir: mapsDir,
-		upgrader: websocket.Upgrader{
-			CheckOrigin:     func(r *http.Request) bool { return true },
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-		},
+// Every tile request and every geocode request of the handler sends userAgent.
+func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir, userAgent string) *WebHandler {
+	h := &WebHandler{
+		parser:     parser,
+		calc:       calc,
+		mapsDir:    mapsDir,
+		outputDir:  download.DownloadsDir(),
+		maxTiles:   defaultMaxTiles,
+		jobRoutes:  http.NewServeMux(),
+		userAgent:  userAgent,
+		geocodeURL: defaultGeocoderURL + "/search",
+		// The Nominatim usage policy allows at most 1 request per second (https://operations.osmfoundation.org/policies/nominatim/).
+		geocodeLimiter: rate.NewLimiter(1, 1),
+		geocodeClient:  &http.Client{Timeout: 10 * time.Second},
+		geocodeWait:    geocodeWait,
+		geocodeCache:   newGeocodeCache(),
+		jobs:           map[string]*job{},
 	}
+	h.queue = jobs.NewQueue(h.startJob)
+	h.routeJobs(h.jobRoutes)
+	return h
+}
+
+// newServerHandler returns the handler that serve gives to the HTTP server.
+// It rejects a cross-origin POST or DELETE with status 403 and the error code cross_origin
+// (FR-security-hardening-2, FR-security-hardening-3).
+// It passes a request with no Sec-Fetch-Site header and no Origin header, because curl and other clients send neither.
+// Every request without the token of h.auth gets the response of tokenAuth.handler.
+// Every request body goes through limitBody.
+func newServerHandler(h *WebHandler) http.Handler {
+	cop := http.NewCrossOriginProtection()
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeError(w, http.StatusForbidden, "cross_origin", "Cross-origin request rejected")
+	}))
+	return cop.Handler(h.auth.handler(limitBody(h)))
+}
+
+// maxBodyBytes is the largest request body that the server reads (FR-security-hardening-17).
+const maxBodyBytes = 1 << 20
+
+// areaRoutes are the paths whose request body carries areas.
+var areaRoutes = map[string]bool{"/api/areas/parse": true, "/api/areas/tiles": true, "/api/estimate": true, "/api/jobs": true}
+
+// limitBody returns a handler that rejects a request body larger than maxBodyBytes (FR-security-hardening-17).
+// A route in areaRoutes has the larger limit areaBodyBytes, because its areas can come from a 5 MiB file.
+// A body with a larger Content-Length gets 413 body_too_large at once.
+// A body with no Content-Length gets the limit on read, and the handler writes the 413.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit := int64(maxBodyBytes)
+		if areaRoutes[r.URL.Path] {
+			limit = areaBodyBytes
+		}
+		if r.ContentLength > limit {
+			writeBodyTooLarge(w, limit)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeBodyTooLarge writes the 413 body_too_large error response for a body above limit bytes.
+func writeBodyTooLarge(w http.ResponseWriter, limit int64) {
+	writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("Request body is larger than %d bytes", limit))
 }
 
 // ServeHTTP implements http.Handler.
 func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Add CORS headers for all responses (avoids 403 on cross-origin requests)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
 	switch {
 	case r.URL.Path == "/":
 		h.serveIndex(w, r)
-	case r.URL.Path == "/ws":
-		h.serveWebSocket(w, r)
+	case r.URL.Path == "/healthz":
+		h.serveHealth(w, r)
+	case r.URL.Path == "/jobs":
+		servePage(w, web.JobsHTML())
+	case r.URL.Path == "/signin":
+		servePage(w, web.SigninHTML())
+	case r.URL.Path == "/api/jobs" || strings.HasPrefix(r.URL.Path, "/api/jobs/"):
+		h.jobRoutes.ServeHTTP(w, r)
+	case r.URL.Path == "/api/session":
+		h.apiSession(w, r)
+	case r.URL.Path == "/api/files" || strings.HasPrefix(r.URL.Path, "/api/files/"):
+		h.serveFiles(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		h.serveAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/static/"):
 		h.serveStatic(w, r)
 	default:
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "Route not found")
 	}
 }
 
-func (h *WebHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
+func (h *WebHandler) serveIndex(w http.ResponseWriter, _ *http.Request) {
+	servePage(w, web.IndexHTML())
+}
+
+// servePage writes the HTML page.
+func servePage(w http.ResponseWriter, page []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(web.IndexHTML())
+	_, _ = w.Write(page) // A failed write means that the client closed the connection.
 }
 
 func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	fs, err := web.StaticFS()
 	if err != nil {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	localPath := strings.TrimPrefix(r.URL.Path, "/static/")
 	if localPath == "" {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	f, err := fs.Open(localPath)
 	if err != nil {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // The file is read-only, so a close error loses nothing.
 	stat, err := f.Stat()
 	if err != nil {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	if stat.IsDir() {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	// Set content type for common files
@@ -111,15 +194,21 @@ func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	} else if strings.HasSuffix(localPath, ".js") {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	}
-	io.Copy(w, f)
+	_, _ = io.Copy(w, f) // A failed copy means that the client closed the connection.
 }
 
 func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/sources":
 		h.apiSources(w, r)
+	case "/api/sources/skipped":
+		h.apiSkippedSources(w, r)
 	case "/api/estimate":
 		h.apiEstimate(w, r)
+	case "/api/areas/parse":
+		h.apiAreasParse(w, r)
+	case "/api/areas/tiles":
+		h.apiAreaTiles(w, r)
 	case "/api/tile-info":
 		h.apiTileInfo(w, r)
 	case "/api/validate-source":
@@ -127,81 +216,171 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 	case "/api/preview":
 		h.apiPreview(w, r)
 	case "/api/geocode":
+		if h.geocodeOff {
+			writeError(w, http.StatusNotFound, "not_found", "Route not found")
+			return
+		}
 		h.apiGeocode(w, r)
+	case "/api/config":
+		h.apiConfig(w, r)
 	default:
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "Route not found")
 	}
 }
 
-func (h *WebHandler) apiSources(w http.ResponseWriter, r *http.Request) {
-	sources := h.parser.DiscoverSources(false)
-	var list []map[string]interface{}
+func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
+	sources := h.parser.DiscoverSources()
+	list := []sourceItem{}
 	for _, name := range h.parser.ListSources() {
 		s := sources[name]
-		list = append(list, map[string]interface{}{
-			"name":     name,
-			"url":      s.URL,
-			"min_zoom": s.MinZoom,
-			"max_zoom": s.MaxZoom,
-			"format":   s.TileType,
+		p := sourcePolicy(s)
+		list = append(list, sourceItem{
+			Name:               name,
+			URL:                s.URL,
+			MinZoom:            s.MinZoom,
+			MaxZoom:            s.MaxZoom,
+			Format:             s.TileType,
+			PolicyClass:        string(p.PolicyClass),
+			PolicyReason:       p.Reason,
+			PolicyReferenceURL: p.ReferenceURL,
+			RequestsPerSecond:  p.RequestsPerSecond,
+			PolicyHost:         p.Hosts(),
+			Kind:               s.Kind,
+			Origin:             s.Origin,
 		})
 	}
-	json.NewEncoder(w).Encode(list)
+	writeJSON(w, list)
 }
 
+func (h *WebHandler) apiSkippedSources(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		return
+	}
+	list := []skippedItem{}
+	for _, s := range h.parser.SkippedSources() {
+		list = append(list, skippedItem{Path: s.Path, Reason: s.Reason, Detail: s.Detail})
+	}
+	writeJSON(w, list)
+}
+
+// skippedItem is one source file in the GET /api/sources/skipped response (FR-source-sync-29).
+type skippedItem struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+	Detail string `json:"detail"`
+}
+
+// sourceItem is one map source in the GET /api/sources response (FR-polite-downloading-16).
+// PolicyHost lists the host patterns of the policy entry, so the web UI can name the hosts that the rate applies to.
+type sourceItem struct {
+	Name               string  `json:"name"`
+	URL                string  `json:"url"`
+	MinZoom            int     `json:"min_zoom"`
+	MaxZoom            int     `json:"max_zoom"`
+	Format             string  `json:"format"`
+	PolicyClass        string  `json:"policy_class"`
+	PolicyReason       string  `json:"policy_reason"`
+	PolicyReferenceURL string  `json:"policy_reference_url"`
+	RequestsPerSecond  float64 `json:"requests_per_second"`
+	PolicyHost         string  `json:"policy_host"`
+	Kind               string  `json:"kind"`
+	Origin             string  `json:"origin"`
+}
+
+// apiEstimate returns the tile count and the size of a job (feature 02).
+// The request holds an area list, or the legacy bounds and zoom range of one bounds area (FR-area-selection-25, -26).
+// The response counts each area and the unique tiles over all areas, and total_tiles is the unique count (FR-area-selection-9, -10).
 func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
 		return
 	}
 	var req struct {
-		Bounds  []float64 `json:"bounds"`
-		MinZoom int       `json:"min_zoom"`
-		MaxZoom int       `json:"max_zoom"`
+		// Source is optional. With no source, the estimate uses the size per tile of an unknown tile type.
+		Source  string        `json:"source"`
+		Areas   []areaRequest `json:"areas"`
+		Bounds  []float64     `json:"bounds"`
+		MinZoom int           `json:"min_zoom"`
+		MaxZoom int           `json:"max_zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if len(req.Bounds) != 4 {
-		http.Error(w, `{"error":"Invalid bounds format"}`, http.StatusBadRequest)
-		return
-	}
-	west, south, east, north := req.Bounds[0], req.Bounds[1], req.Bounds[2], req.Bounds[3]
+	// The legacy request has zoom defaults and accepts an inverted zoom range, as feature 02 defines it.
 	if req.MinZoom == 0 {
 		req.MinZoom = 1
 	}
 	if req.MaxZoom == 0 {
 		req.MaxZoom = 18
 	}
-	bounds, err := tilecalc.NewGeographicBounds(south, north, west, east)
-	if err != nil {
-		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
-		return
-	}
 	if req.MinZoom > req.MaxZoom {
 		req.MinZoom, req.MaxZoom = req.MaxZoom, req.MinZoom
 	}
-	var totalTiles int
-	zoomBreakdown := make(map[int]int)
-	for z := req.MinZoom; z <= req.MaxZoom; z++ {
-		tb := h.calc.CalculateTileBounds(bounds, z)
-		totalTiles += tb.TileCount()
-		zoomBreakdown[z] = tb.TileCount()
+	areas, code, message := requestAreas(req.Bounds, req.MinZoom, req.MaxZoom, req.Areas)
+	if code == "" {
+		code, message = checkAreas(areas)
 	}
-	estMB := float64(totalTiles*20) / 1024
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"total_tiles":       totalTiles,
-		"estimated_size_mb": estMB,
-		"zoom_breakdown":    zoomBreakdown,
-		"bounds":            req.Bounds,
-		"zoom_range":        []int{req.MinZoom, req.MaxZoom},
+	if code != "" {
+		writeError(w, http.StatusBadRequest, code, message)
+		return
+	}
+	tileType, warning := "", ""
+	if req.Source != "" {
+		source, oldNameWarning, err := findSource(h.parser, req.Source)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "unknown_source", err.Error())
+			return
+		}
+		if source == nil {
+			writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
+			return
+		}
+		tileType, warning = source.TileType, oldNameWarning
+	}
+	count := tilecalc.CountJobTiles(areas)
+	perArea := make([]areaEstimate, len(areas))
+	for i, a := range areas {
+		perArea[i] = areaEstimate{Name: a.Name, Tiles: count.Areas[i]}
+	}
+	b := tilecalc.JobBound(areas)
+	minZoom, maxZoom := tilecalc.JobZoomRange(areas)
+	writeJSON(w, estimateResult{
+		TotalTiles:      count.Unique,
+		EstimatedSizeMB: float64(count.Unique) * tilecalc.TileSizeKB(tileType) / 1024,
+		ZoomBreakdown:   count.Zooms,
+		Bounds:          []float64{b.Min[0], b.Min[1], b.Max[0], b.Max[1]},
+		ZoomRange:       []int{minZoom, maxZoom},
+		Areas:           perArea,
+		UniqueTiles:     count.Unique,
+		Warning:         warning,
 	})
+}
+
+// estimateResult is the POST /api/estimate response.
+// ZoomBreakdown maps each zoom level to its count of unique tiles. TotalTiles and UniqueTiles hold the same count.
+type estimateResult struct {
+	TotalTiles      int            `json:"total_tiles"`
+	EstimatedSizeMB float64        `json:"estimated_size_mb"`
+	ZoomBreakdown   map[int]int    `json:"zoom_breakdown"`
+	Bounds          []float64      `json:"bounds"`
+	ZoomRange       []int          `json:"zoom_range"`
+	Areas           []areaEstimate `json:"areas"`
+	UniqueTiles     int            `json:"unique_tiles"`
+	// Warning is the deprecation warning of a v0.1 map source name (FR-area-estimate-20).
+	// The field is absent for a v2 name, so the response for a v2 name keeps its shape.
+	Warning string `json:"warning,omitempty"`
+}
+
+// areaEstimate is the tile count of one area alone in the POST /api/estimate response.
+type areaEstimate struct {
+	Name  string `json:"name"`
+	Tiles int    `json:"tiles"`
 }
 
 func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
 		return
 	}
 	var req struct {
@@ -209,8 +388,7 @@ func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
 		Lon  float64 `json:"lon"`
 		Zoom int     `json:"zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.Zoom == 0 {
@@ -219,7 +397,7 @@ func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
 	tileX, tileY := h.calc.LatLonToTile(req.Lat, req.Lon, req.Zoom)
 	topLat, leftLon := h.calc.TileToLatLon(tileX, tileY, req.Zoom)
 	botLat, rightLon := h.calc.TileToLatLon(tileX+1, tileY+1, req.Zoom)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"tile_x":     tileX,
 		"tile_y":     tileY,
 		"zoom":       req.Zoom,
@@ -230,25 +408,23 @@ func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebHandler) apiValidateSource(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
 		return
 	}
 	var req struct {
 		SourceName string `json:"source_name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
-	source := h.parser.GetSource(req.SourceName)
-	if source == nil {
-		http.Error(w, `{"error":"Source not found"}`, http.StatusNotFound)
+	source, ok := h.findWebSource(w, req.SourceName)
+	if !ok {
 		return
 	}
 	errors := h.parser.ValidateSource(source)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"valid":       len(errors) == 0,
-		"source_name": req.SourceName,
+		"source_name": source.Name,
 		"url":         source.URL,
 		"zoom_range":  []int{source.MinZoom, source.MaxZoom},
 		"format":      source.TileType,
@@ -258,26 +434,28 @@ func (h *WebHandler) apiValidateSource(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
 		return
 	}
 	var req struct {
-		Source   string    `json:"source"`
-		Bounds   []float64 `json:"bounds"`
-		MinZoom  int       `json:"min_zoom"`
-		MaxZoom  int       `json:"max_zoom"`
+		Source  string    `json:"source"`
+		Bounds  []float64 `json:"bounds"`
+		MinZoom int       `json:"min_zoom"`
+		MaxZoom int       `json:"max_zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request"}`, http.StatusBadRequest)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.Source == "" || len(req.Bounds) != 4 {
-		http.Error(w, `{"error":"Source name and bounds required"}`, http.StatusBadRequest)
+	if req.Source == "" {
+		writeError(w, http.StatusBadRequest, "unknown_source", "Source name is required")
 		return
 	}
-	source := h.parser.GetSource(req.Source)
-	if source == nil {
-		http.Error(w, `{"error":"Source not found"}`, http.StatusNotFound)
+	if len(req.Bounds) != 4 {
+		writeError(w, http.StatusBadRequest, "invalid_bounds", "Bounds must hold four numbers: west, south, east, north")
+		return
+	}
+	source, ok := h.findWebSource(w, req.Source)
+	if !ok {
 		return
 	}
 	if req.MinZoom == 0 {
@@ -287,7 +465,11 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 		req.MaxZoom = 18
 	}
 	west, south, east, north := req.Bounds[0], req.Bounds[1], req.Bounds[2], req.Bounds[3]
-	bounds, _ := tilecalc.NewGeographicBounds(south, north, west, east)
+	bounds, err := tilecalc.NewGeographicBounds(south, north, west, east)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_bounds", err.Error())
+		return
+	}
 	previewZoom := req.MaxZoom
 	tb := h.calc.CalculateTileBounds(bounds, previewZoom)
 	maxPerSide := 4
@@ -318,264 +500,57 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"tiles":       tiles,
 		"zoom":        previewZoom,
-		"source":      req.Source,
+		"source":      source.Name,
 		"total_tiles": len(tiles),
 		"bounds":      req.Bounds,
 	})
 }
 
-func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		Query string `json:"query"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request"}`, http.StatusBadRequest)
-		return
-	}
-	if len(strings.TrimSpace(req.Query)) == 0 {
-		http.Error(w, `{"error":"Query is required"}`, http.StatusBadRequest)
-		return
-	}
-	apiURL := "https://nominatim.openstreetmap.org/search?q=" + url.QueryEscape(req.Query) + "&format=json&limit=5&addressdetails=1"
-	hr, _ := http.NewRequest("GET", apiURL, nil)
-	hr.Header.Set("User-Agent", "ATAK-Map-Downloader/1.0")
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(hr)
-	if err != nil {
-		http.Error(w, `{"error":"Geocoding failed: `+err.Error()+`"}`, http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-	var results []struct {
-		DisplayName string `json:"display_name"`
-		Lat         string `json:"lat"`
-		Lon         string `json:"lon"`
-		Boundingbox []string `json:"boundingbox"`
-		Type        string `json:"type"`
-		Class       string `json:"class"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		http.Error(w, `{"error":"Geocoding failed"}`, http.StatusInternalServerError)
-		return
-	}
-	var locations []map[string]interface{}
-	for _, r := range results {
-		var lat, lon float64
-		fmt.Sscanf(r.Lat, "%f", &lat)
-		fmt.Sscanf(r.Lon, "%f", &lon)
-		locations = append(locations, map[string]interface{}{
-			"display_name": r.DisplayName,
-			"lat":          lat,
-			"lon":          lon,
-			"boundingbox":  r.Boundingbox,
-			"type":         r.Type,
-			"class":        r.Class,
-		})
-	}
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"query":  req.Query,
-		"results": locations,
-		"count":   len(locations),
-	})
+// writeJSON encodes v as a JSON response body with status 200.
+// A failed write means that the client closed the connection, so the error is not used.
+func writeJSON(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
 }
 
-func (h *WebHandler) serveWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := h.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	conn.WriteJSON(map[string]interface{}{"type": "status", "message": "Connected to ATAK Downloader"})
-
-	for {
-		var msg struct {
-			Type string                 `json:"type"`
-			Data map[string]interface{} `json:"data"`
-		}
-		if err := conn.ReadJSON(&msg); err != nil {
-			break
-		}
-		switch msg.Type {
-		case "start_download":
-			go h.handleStartDownload(conn, msg.Data)
-		case "cancel_download":
-			h.handleCancelDownload(conn)
-		case "get_download_status":
-			h.handleGetStatus(conn)
-		}
-	}
+// apiError is the body of every error response from the /api/ routes.
+// It encodes as {"error":{"code":"<code>","message":"<text>"}} (FR-security-hardening-22).
+type apiError struct {
+	Error apiErrorDetail `json:"error"`
 }
 
-func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]interface{}) {
-	sourceName, _ := data["source"].(string)
-	boundsRaw, _ := data["bounds"].([]interface{})
-	if sourceName == "" || len(boundsRaw) != 4 {
-		conn.WriteJSON(map[string]interface{}{"type": "download_error", "message": "Missing required parameters"})
-		return
-	}
-	source := h.parser.GetSource(sourceName)
-	if source == nil {
-		conn.WriteJSON(map[string]interface{}{"type": "download_error", "message": "Source not found"})
-		return
-	}
-	west := toFloat(boundsRaw[0])
-	south := toFloat(boundsRaw[1])
-	east := toFloat(boundsRaw[2])
-	north := toFloat(boundsRaw[3])
-	minZoom := int(toFloat(data["min_zoom"]))
-	maxZoom := int(toFloat(data["max_zoom"]))
-	if minZoom == 0 {
-		minZoom = 1
-	}
-	if maxZoom == 0 {
-		maxZoom = 15
-	}
-	bounds, err := tilecalc.NewGeographicBounds(south, north, west, east)
-	if err != nil {
-		conn.WriteJSON(map[string]interface{}{"type": "download_error", "message": err.Error()})
-		return
-	}
-	adv, _ := data["advanced_settings"].(map[string]interface{})
-	maxConcurrent := int(toFloat(adv["max_concurrent"]))
-	if maxConcurrent == 0 {
-		maxConcurrent = 5
-	}
-	delay := toFloat(adv["delay_between_batches"])
-	if delay == 0 {
-		delay = 0.2
-	}
-	failureTol := toFloat(adv["failure_tolerance"])
-	if failureTol == 0 {
-		failureTol = 0.3
-	}
-	ignoreErrors, _ := adv["ignore_errors"].(bool)
-	verifySSL, _ := adv["verify_ssl"].(bool)
-
-	customName, _ := data["custom_name"].(string)
-	outputFilename := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
-	outputPath := filepath.Join(download.DownloadsDir(), outputFilename)
-	os.MkdirAll(download.DownloadsDir(), 0755)
-
-	var zoomLevels []int
-	for z := minZoom; z <= maxZoom; z++ {
-		zoomLevels = append(zoomLevels, z)
-	}
-
-	cfg := download.DefaultConfig()
-	cfg.MaxConcurrent = maxConcurrent
-	cfg.DelayBetweenBatches = time.Duration(delay * float64(time.Second))
-	cfg.MaxFailureRate = failureTol
-	cfg.IgnoreErrors = ignoreErrors
-	cfg.VerifySSL = verifySSL
-
-	h.dlState.Lock()
-	if h.dlState.downloading {
-		h.dlState.Unlock()
-		conn.WriteJSON(map[string]interface{}{"type": "download_error", "message": "Download already in progress"})
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	h.dlState.cancel = cancel
-	h.dlState.downloading = true
-	h.dlState.Unlock()
-
-	conn.WriteJSON(map[string]interface{}{
-		"type":        "download_started",
-		"message":     fmt.Sprintf("Starting download of %s", sourceName),
-		"output_file": outputFilename,
-	})
-
-	engine := download.NewEngine(cfg)
-	success, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
-		conn.WriteJSON(map[string]interface{}{
-			"type": "download_progress",
-			"progress":   p.ProgressPercent(),
-			"downloaded": p.Downloaded,
-			"total":      p.TotalTiles,
-			"failed":     p.Failed,
-			"rate":       p.TilesPerSecond(),
-			"eta":        p.ETASeconds(),
-			"message":    fmt.Sprintf("Downloaded %d/%d tiles (%.1f%%)", p.Downloaded, p.TotalTiles, p.ProgressPercent()),
-		})
-		return ctx.Err() == nil
-	})
-
-	h.dlState.Lock()
-	h.dlState.downloading = false
-	h.dlState.cancel = nil
-	h.dlState.Unlock()
-
-	if ctx.Err() != nil {
-		os.Remove(outputPath)
-		conn.WriteJSON(map[string]interface{}{"type": "download_cancelled", "message": "Download cancelled by user."})
-		return
-	}
-	if success {
-		conn.WriteJSON(map[string]interface{}{
-			"type": "download_progress",
-			"progress": 100, "message": "Download completed successfully!",
-		})
-		conn.WriteJSON(map[string]interface{}{
-			"type":    "download_complete",
-			"message": "Download complete! Saved to " + outputFilename,
-			"filename": outputFilename,
-			"path":    outputPath,
-		})
-	} else {
-		conn.WriteJSON(map[string]interface{}{
-			"type": "download_error",
-			"message": "Download failed - too many tile errors. Try reducing concurrent downloads or enabling Ignore Errors.",
-		})
-	}
+// apiErrorDetail holds a code that a client can match and a message for a person.
+type apiErrorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
-func (h *WebHandler) handleCancelDownload(conn *websocket.Conn) {
-	h.dlState.Lock()
-	if h.dlState.downloading && h.dlState.cancel != nil {
-		h.dlState.cancel()
-		h.dlState.Unlock()
-		conn.WriteJSON(map[string]interface{}{"type": "download_cancelled", "message": "Cancellation requested."})
-	} else {
-		h.dlState.Unlock()
-		conn.WriteJSON(map[string]interface{}{"type": "download_cancelled", "message": "No active download."})
-	}
+// writeError writes an error response with the given status, error code and message.
+// The code is one of the error codes in docs/specs/features/05-security-hardening.md.
+// A failed write means that the client closed the connection, so the error is not used.
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(apiError{Error: apiErrorDetail{Code: code, Message: message}})
 }
 
-func (h *WebHandler) handleGetStatus(conn *websocket.Conn) {
-	h.dlState.Lock()
-	downloading := h.dlState.downloading
-	h.dlState.Unlock()
-	if downloading {
-		conn.WriteJSON(map[string]interface{}{"type": "status", "message": "Download in progress"})
-	} else {
-		conn.WriteJSON(map[string]interface{}{"type": "status", "message": "No active download"})
+// decodeJSON decodes the request body into v.
+// It returns false when it wrote an error response:
+//   - 413 body_too_large when the body is larger than the limit of limitBody.
+//   - 400 invalid_json when the body is not valid JSON.
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	err := json.NewDecoder(r.Body).Decode(v)
+	var tooLarge *http.MaxBytesError
+	switch {
+	case err == nil:
+		return true
+	case errors.As(err, &tooLarge):
+		writeBodyTooLarge(w, tooLarge.Limit)
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
 	}
-}
-
-func toFloat(v interface{}) float64 {
-	switch x := v.(type) {
-	case float64:
-		return x
-	case int:
-		return float64(x)
-	case string:
-		var f float64
-		fmt.Sscanf(x, "%f", &f)
-		return f
-	}
-	return 0
-}
-
-var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9 _-]`)
-
-func safeFilename(s string) string {
-	return strings.TrimSpace(safeNameRe.ReplaceAllString(s, ""))
+	return false
 }

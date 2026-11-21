@@ -1,0 +1,27 @@
+{
+  "pluginVersion": "session-2026-11-21",
+  "forge": { "type": "github", "host": "github.com", "owner": "Crank-Git", "repo": "ATAKMapDownloader" },
+  "remote": "origin",
+  "branchModel": "dev-and-live",
+  "devBranch": "develop",
+  "liveBranch": "main",
+  "concurrency": 2,
+  "batchSize": 4,
+  "runLength": "until-backlog-empty",
+  "prGranularity": "batch",
+  "prAuthority": "autonomous",
+  "planReview": false,
+  "reviewWipLimit": 2,
+  "review": { "when": "never" },
+  "releaseTag": { "allowed": "v0.2.0-rc.1", "note": "Maintainer approved one pre-release tag push to verify #9 after Epic 0 merges." },
+  "practices": {
+    "tdd": "tests first for every logic change; the new tests fail on the pre-patch code",
+    "tests": "table-driven where more than two cases share one shape; go test -race ./... green",
+    "e2e": "scripts/smoke.sh once Epic 0 lands it",
+    "coverage": null,
+    "commitStyle": "imperative, sentence case, no prefix",
+    "docs": "STE for comments, docstrings, test names and PR bodies (.claude/rules/ste.md)"
+  },
+  "deploy": null,
+  "docsMcp": "none found; WebFetch against the official documentation"
+}

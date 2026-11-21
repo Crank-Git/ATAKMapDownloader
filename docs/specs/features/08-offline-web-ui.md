@@ -2,7 +2,7 @@
 id: offline-web-ui
 feature: Offline web UI
 epic: "Epic 4: Offline web UI"
-status: issued
+status: built
 issues: [30, 31, 32, 33, 34, 35]
 mockups: [mockups/01-workspace.html]
 ---
@@ -42,7 +42,7 @@ This feature vendors every asset, removes Bootstrap and Font Awesome, and adds a
 
 ### Local base map
 
-- FR-offline-web-ui-13 — `GET /api/files/{name}/tiles/{z}/{x}/{y}` returns one tile from an output file, with the TMS row converted from the XYZ request.
+- FR-offline-web-ui-13 — `GET /api/files/{name}/tiles/{z}/{x}/{y}` returns one tile from an output file through the tile reader of its output format, which reads the rows of that format (#126).
 - FR-offline-web-ui-14 — The tile route returns 204 for a tile that the output file does not hold.
 - FR-offline-web-ui-15 — The base map switcher offers "Online (OpenStreetMap)" and one entry per output file.
 - FR-offline-web-ui-16 — If the browser is offline at load time, the web UI selects the most recent output file as the base map.
@@ -63,7 +63,7 @@ This feature vendors every asset, removes Bootstrap and Font Awesome, and adds a
 - FR-offline-web-ui-25 — Every form control has a visible `<label>`.
 - FR-offline-web-ui-26 — Every icon-only button has an `aria-label`.
 - FR-offline-web-ui-27 — The job status region has `aria-live="polite"`.
-- FR-offline-web-ui-28 — The progress bar sets `aria-valuenow`, `aria-valuemin` and `aria-valuemax`.
+- FR-offline-web-ui-28 — The progress bar sets `aria-valuenow`, `aria-valuemin` and `aria-valuemax`. The progress bar has an accessible name (`aria-label`) (Epic 4 batch gate).
 - FR-offline-web-ui-29 — The theme follows `prefers-color-scheme` until the user selects a theme.
 - FR-offline-web-ui-30 — Dark mode does not invert map tiles or preview tiles.
 - FR-offline-web-ui-31 — The web UI inserts server strings and user strings as text, never as HTML.
@@ -162,13 +162,15 @@ Regions:
 | downloading | The job panel shows the progress bar and counts. Cancel is visible. The settings are read-only. |
 | complete | The job panel shows the summary. The new output file is highlighted in the list. |
 | error | The inline banner shows the message and Retry. |
-| offline | The indicator is offline and the base map falls back (Flow 1). Start is disabled. |
+| offline | The indicator is offline. Start is disabled. The base map does not change, because the local tiles come from the same server. |
 
 ## Behaviour rules
 
 - The web UI picks the size per tile from the map source's tile type: `jpg` 18 KB, `png` 25 KB, and any other type 20 KB. These values are assumptions. The CLI `estimate` uses the same table.
 - The output file list is sorted by modified time, newest first.
-- The vendored assets add at most 400 KB to the binary.
+- The base map falls back (Flow 1) when `navigator.onLine` is false or the first OpenStreetMap tile fails. The offline indicator does not change the base map, because it reports on the server that sends the local tiles.
+- While a job runs, Estimate, Start and the settings are read-only. A rejected start keeps the job panel and Cancel of the running job.
+- The vendored assets add at most 520 KB to the binary. The PM raised the budget from 400 KB at the #31 gate, because Leaflet and Geoman measure about 500 KB.
 - The connection indicator is "connected" while the event stream or the last request succeeded, "reconnecting" while `EventSource` reconnects, and "offline" after 3 failed attempts.
 
 ## Data touched
@@ -180,9 +182,9 @@ Regions:
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| GET | `/api/files` | 200 `[{name, size, modified, format, source, min_zoom, max_zoom, bounds}]` | — |
+| GET | `/api/files` | 200 `[{name, size, modified, format, output_format, source, min_zoom, max_zoom, bounds, in_progress}]`. `format` is the tile format, or `data_package` for a data package. `output_format` is the output format, and it is empty for a data package. | — |
 | GET | `/api/files/{name}` | 200 attachment, `Content-Disposition: attachment` | 404 `file_not_found` |
-| GET | `/api/files/{name}/tiles/{z}/{x}/{y}` | 200 image, or 204 | 404 |
+| GET | `/api/files/{name}/tiles/{z}/{x}/{y}` | 200 image, or 204 | 404 `file_not_found`, or 404 `not_found` for a tile outside its zoom level |
 
 - Leaflet 1.9.4: https://leafletjs.com/reference.html (1.9.4 reference). The release list is at https://github.com/Leaflet/Leaflet/releases.
 - Leaflet-Geoman v2.20.8: https://github.com/geoman-io/leaflet-geoman. Confirm the free-edition license before you vendor it.

@@ -10,8 +10,8 @@ mockups: []
 ## Purpose
 
 The `serve` command starts a local HTTP server. The server delivers a single-page web UI
-and a JSON API, plus a websocket that runs one job at a time. The web UI lets the map
-preparer do these tasks:
+and a JSON API. The job API runs one job at a time and sends its progress as an SSE
+stream (#76). The web UI lets the solo operator do these tasks:
 
 - select bounds on a base map,
 - choose a map source and a zoom range,
@@ -19,7 +19,8 @@ preparer do these tasks:
 - start, follow and cancel a job.
 
 The web UI and the server are embedded in the binary (`web/embed.go`). This file
-describes the behavior that exists today.
+describes the behavior that exists today. A statement that an Epic 0 or Epic 1 pull
+request changed names that pull request, for example (#76).
 
 ## User stories
 
@@ -37,15 +38,18 @@ describes the behavior that exists today.
   default is `localhost:5000`.
 - FR-web-ui-2 — The server returns the embedded `index.html` for `/`.
 - FR-web-ui-3 — The server returns embedded files under `/static/`.
-- FR-web-ui-4 — The server sends `Access-Control-Allow-Origin: *` on every response.
-- FR-web-ui-5 — The server answers every `OPTIONS` request with status 204.
-- FR-web-ui-6 — The server accepts a websocket upgrade on `/ws` from any origin.
-- FR-web-ui-7 — The server runs at most one job at a time, for all connections.
-- FR-web-ui-8 — The server rejects a `start_download` message while a job runs, with
-  the `download_error` message `Download already in progress`.
-- FR-web-ui-9 — Any websocket connection can cancel the running job.
-- FR-web-ui-10 — The server sends a `download_progress` message after each processed
-  tile.
+- FR-web-ui-4 — The server sends no `Access-Control-Allow-*` header (#77).
+- FR-web-ui-5 — The server rejects a cross-origin browser request with status 403 and
+  error code `cross_origin`, unless its method is `GET`, `HEAD` or `OPTIONS` (#77).
+- FR-web-ui-6 — The server serves the job API on `/api/jobs` (#76). See
+  `05-security-hardening.md`.
+- FR-web-ui-7 — The server runs at most `--workers` jobs at a time, for all clients
+  (FR-team-server-2).
+- FR-web-ui-8 — `POST /api/jobs` adds the job to the queue. If the queue is full, it
+  returns 429 with error code `queue_full` (FR-team-server-1, FR-team-server-6).
+- FR-web-ui-9 — Any client that knows the job id can cancel the job with
+  `DELETE /api/jobs/{id}` (#76).
+- FR-web-ui-10 — The server sends at most 4 `progress` events per second per job (#76).
 - FR-web-ui-11 — `POST /api/preview` returns the URLs of up to 6 × 6 tiles at the
   maximum zoom level, centered on the bounds.
 - FR-web-ui-12 — `POST /api/geocode` sends the query to Nominatim and returns up to 5
@@ -53,8 +57,8 @@ describes the behavior that exists today.
 - FR-web-ui-13 — The web UI shows an OpenStreetMap base map centered on the United
   States at zoom level 4.
 - FR-web-ui-14 — The web UI lets the solo operator draw one kind of shape, a rectangle.
-- FR-web-ui-15 — The web UI enables **Estimate Download** and **Preview** after the map
-  preparer draws a rectangle.
+- FR-web-ui-15 — The web UI enables **Estimate Download** and **Preview** after the
+  solo operator draws a rectangle.
 - FR-web-ui-16 — The web UI enables **Start Download** after a successful estimate.
 - FR-web-ui-17 — The web UI sets the zoom input limits to the zoom range of the selected
   map source.
@@ -63,8 +67,14 @@ describes the behavior that exists today.
 - FR-web-ui-19 — The web UI shows each preview tile as an image overlay at 0.8 opacity.
 - FR-web-ui-20 — The web UI shows a progress bar, the tile counts, the rate, the ETA and
   the failed count during a job.
-- FR-web-ui-21 — The web UI reconnects 2 seconds after the websocket closes.
+- FR-web-ui-21 — The web UI closes the SSE stream when it receives a final `state`
+  event (#78).
 - FR-web-ui-22 — The web UI saves the light or dark theme in `localStorage`.
+- FR-web-ui-23 — The server rejects a request body larger than 1 MiB with status 413
+  and error code `body_too_large` (#81). A route that carries areas has the larger limit
+  of FR-security-hardening-17.
+- FR-web-ui-24 — If the host in `--addr` is not a loopback address, every request needs
+  the token, apart from the health route and the sign-in page (FR-team-server-17).
 
 ## User flows
 
@@ -77,40 +87,54 @@ sequenceDiagram
     participant S as Server
     participant E as Engine
     U->>W: Select Start Download
-    W->>S: start_download with source, bounds, zoom range, advanced_settings
-    alt parameters missing, source not found, or bounds not valid
-        S-->>W: download_error
-    else a job already runs
-        S-->>W: download_error Download already in progress
+    W->>S: POST /api/jobs with source, bounds, zoom range and settings
+    alt request not valid
+        S-->>W: 400, 404 or 413 error shape
+        W->>U: Status log line Download error and the message
+    else the queue is full
+        S-->>W: 429 queue_full
     else accepted
-        S-->>W: download_started with output_file
+        S-->>W: 202 job record
+        W->>S: GET /api/jobs/{id}/events
+        S-->>W: event state running
         S->>E: DownloadTiles
-        loop each processed tile
-            E-->>S: progress callback
-            S-->>W: download_progress
+        loop at most 4 times per second
+            E-->>S: progress through a channel
+            S-->>W: event progress
         end
         alt success
-            S-->>W: download_progress at 100
-            S-->>W: download_complete with filename and path
+            S-->>W: event state complete
             W->>U: Download Complete panel with the file name
         else failure
-            S-->>W: download_error Download failed - too many tile errors
+            S-->>W: event log with level error
+            S-->>W: event state failed
         end
+        W->>W: Close the SSE stream
     end
 ```
 
 1. The solo operator selects **Start Download**.
-2. The web UI sends `start_download` on the websocket.
-3. If a parameter is missing, the map source is not found, or the bounds are not valid,
-   the server sends `download_error`.
-4. If a job already runs, the server sends `download_error` with
-   `Download already in progress`.
-5. The server sends `download_started` with the output file name.
-6. The engine processes the tiles. The server sends `download_progress` after each tile.
-7. If the job succeeds, the server sends a final `download_progress` at 100 and then
-   `download_complete`. The web UI shows the **Download Complete!** panel.
-8. If the job fails, the server sends `download_error` with
-   `Download failed - too many tile errors. Try reducing concurrent downloads or enabling Ignore Errors.`
+2. If a job runs, the web UI keeps Start disabled, so the solo operator cannot start a
+   second job from the same page.
+3. The web UI makes Estimate, Start and the settings read-only, and sends `POST /api/jobs`
+   (`web/static/js/app.js:883`).
+4. If the request is not valid, the server returns 400, 404 or 413 with the error shape.
+   The web UI logs `Download error: <message>` and resets the job controls. The reset
+   applies only when the job panel shows no job.
+5. If the queue is full, the server returns 429 with `queue_full`.
+6. The server starts the job and returns 202 with the job record. The web UI logs
+   `Output file: <name>`.
+7. The web UI opens `GET /api/jobs/{id}/events` with `EventSource` (`app.js:347`). The
+   first event is a `state` event.
+8. The server sends `progress` events, at most 4 per second (`jobs.go:135`).
+9. If the job succeeds, the server sends `state` with `complete`. The web UI shows the
+   **Download Complete!** panel with `Downloaded N of M tiles.` and the file name.
+10. If the job fails, the server sends a `log` event with level `error`, then `state`
+    with `failed`. The web UI logs the engine error, for example
+    `failure rate 35.0% exceeds threshold 30.0%` (#76, #78).
+11. The server ends the stream after the final `state` event. The web UI closes its
+    `EventSource` (`app.js:369-374`), because `EventSource` reconnects to an ended
+    stream (#78).
 
 ### Flow 2 — The solo operator cancels a job
 
@@ -121,22 +145,27 @@ sequenceDiagram
     participant S as Server
     participant E as Engine
     U->>W: Select Cancel
-    W->>S: cancel_download
-    S->>E: cancel the context
-    S-->>W: download_cancelled Cancellation requested.
-    W->>U: Reset the job controls
+    W->>W: Show Cancelling...
+    W->>S: DELETE /api/jobs/{id}
+    S->>E: Cancel the context
+    S-->>W: 202 job record, state still running
     E-->>S: DownloadTiles returns
-    S->>S: Delete the output file
-    S-->>W: download_cancelled Download cancelled by user.
+    E->>E: Delete the output file
+    S-->>W: event state cancelled
+    W->>U: Status log line Download cancelled, reset the job controls
 ```
 
 1. The solo operator selects **Cancel**.
-2. The web UI sends `cancel_download`.
-3. The server cancels the context of the job.
-4. The server sends `download_cancelled` with `Cancellation requested.`
-5. The web UI resets the job controls at once. The job is still stopping.
-6. When the engine returns, the server deletes the output file.
-7. The server sends `download_cancelled` with `Download cancelled by user.`
+2. The web UI logs `Cancelling download...` and shows `Cancelling...` on the button.
+3. The web UI sends `DELETE /api/jobs/{id}` (`app.js:987`).
+4. The server cancels the context of the job. It returns 202 with the job record, which
+   still shows `running` (#76).
+5. The engine commits the stored tiles and keeps the output file (#26).
+6. The server sends `state` with `cancelled` and ends the stream.
+7. The web UI closes the stream, logs `Download cancelled` and resets the job controls
+   (#78).
+8. If the `DELETE` request fails, the web UI logs `Cancel error: <message>` and shows
+   **Cancel** again.
 
 ### Flow 3 — The solo operator selects bounds and checks them
 
@@ -180,58 +209,61 @@ Sidebar sections, top to bottom:
 
 1. Title and theme toggle (`#themeToggle`).
 2. **Map Source**: `#mapSourceSelect`.
-3. **Area Selection**: geocode input `#addressSearch`, **Draw Rectangle**, **Clear**,
-   and `#selectionInfo`.
+3. **Area Selection**: geocode input `#addressSearch`, the area toolbar (**Rectangle**,
+   **Polygon**, **Route** and **Import**), `#routeBuffer`, the drop zone `#importDrop`,
+   the area list `#areaList` with the total `#areaTotal`, and **Clear** (feature 11).
 4. **Zoom Levels**: `#minZoom` (default 1) and `#maxZoom` (default 15), each 1–20, plus
    a zoom guide.
-5. **Download Options**: `#customName` and the collapsed **Advanced Settings**:
+5. **Download Options**: `#customName` and the collapsed **Advanced Settings**
+   (`web/index.html:115-152`):
    - **Concurrent Downloads**: 1, 3, 5, 8 or 10. The default is 5.
-   - **Batch Delay (seconds)**: 0.1 to 1.0. The engine does not use this value.
-   - **Failure Tolerance**: 10 % to 50 %. The default is 30 %.
-   - **Ignore Errors & Continue**.
-   - **Verify SSL Certificates**, unchecked.
+   - **Failure Tolerance**: 10 %, 20 %, 30 % or 50 %. The default is 30 %.
+   - **Ignore Errors & Continue**, unchecked.
+   - **Verify TLS**, checked (#75, #78).
+
+   The **Batch Delay** control is removed (#78).
 6. **Estimate Download** and **Preview**, then `#estimationResult`.
 7. **Start Download** and **Cancel**, then `#downloadProgress`.
-8. `#downloadResults`, which shows the file name and the fixed text `downloads/ folder`.
+8. `#downloadResults`, which shows `Downloaded N of M tiles.`, the file name and the fixed
+   text `downloads/ folder`.
 9. **Status**: `#statusLog`, at most 50 lines and 200 px high.
 
 | State | What the web UI shows today |
 |---|---|
 | Sources loading | The option `Loading sources...` |
 | Sources failed | A status log line only |
-| Empty source catalog | The server returns `null`. The JavaScript fails on `sources.length` and logs an error line |
+| Empty source catalog | The server returns `[]` (#74). The web UI logs `Loaded 0 map sources` and shows only the placeholder option |
 | No bounds | `Click "Draw Rectangle" to select an area on the map`. Estimate and Preview disabled |
-| Estimate or preview error | A status log line only |
-| Request in flight | Nothing. `#loadingModal` exists but no code shows it |
-| Job running | Spinner text `Downloading...`, progress bar, **Cancel** visible |
-| Job failed | A status log line, and the controls reset |
-| Job cancelled | A status log line, and the controls reset |
-| Job complete | **Download Complete!** panel with the file name |
-| Websocket closed | The status log line `Disconnected - reconnecting...` only |
+| Estimate or preview error | A status log line with the `message` of the error shape (#74) |
+| Request in flight | A spinner in the button of the request, and `Loading map sources` while the source list loads (FR-offline-web-ui-18) |
+| Job running | Spinner text `Downloading...`, progress bar, **Cancel** visible. Estimate, Start and the settings are read-only |
+| Job failed | A status log line with the engine error, and the controls reset (#78) |
+| Job cancelled | The status log line `Download cancelled`, and the controls reset (#78) |
+| Job complete | **Download Complete!** panel with the tile counts and the file name |
+| SSE stream lost | The status log line `Lost the job event stream`, and the controls reset (#78) |
 
 Accessibility signals:
 
 - Present:
-  - `<label for>` on the geocode input, the zoom inputs, the file name and the advanced
-    settings.
+  - `<label for>` on the source picker, the geocode input, the zoom inputs, the file
+    name and the advanced settings.
   - `aria-expanded` and `aria-controls` on the **Advanced Settings** toggle.
-  - `role="status"` with visually hidden text on the modal spinner.
-- Missing:
-  - A label on the source picker, which has only an `<h5>`.
+  - `role="status"` on the connection indicator.
   - `aria-label` on the icon-only theme and search buttons.
-  - `aria-valuenow` on the progress bar.
-  - `aria-live` on the status log.
+  - `aria-label="Job progress"` and `aria-valuenow` on the progress bar.
+  - `aria-live="polite"` on the status log.
+- Missing:
   - A keyboard path to draw bounds.
 
 Theme and layout:
 
-- The theme toggle sets `data-bs-theme`. The web UI does not read
-  `prefers-color-scheme`.
-- In dark mode, `style.css:107-113` puts a colour filter on `.leaflet-tile` and inverts
-  the map controls. The preview image overlays do not get the filter.
+- The theme toggle sets `data-theme`. The web UI follows `prefers-color-scheme` until
+  the solo operator selects a theme (FR-offline-web-ui-29).
+- In dark mode, no CSS filter applies to the map tiles or the preview tiles, so the
+  tiles show the colours of the output file (FR-offline-web-ui-30).
 - One breakpoint at 768 px stacks the sidebar and the map.
 
-External dependencies, all loaded at run time (`web/index.html:9-16`, `:241-243`):
+External dependencies, all loaded at run time (`web/index.html:9-16`, `:231-233`):
 
 | Asset | Version | Host |
 |---|---|---|
@@ -241,24 +273,48 @@ External dependencies, all loaded at run time (`web/index.html:9-16`, `:241-243`
 | Font Awesome | 6.4.0 | cdnjs.cloudflare.com |
 | Base map tiles | — | `{s}.tile.openstreetmap.org` |
 
+Feature 08 replaces these assets. Since #31, the binary embeds Leaflet and Leaflet-Geoman, and only the base map tiles come from another host.
+
 ## Behaviour rules
 
-- The server has no authentication.
-- The server has no read, write or idle timeouts (`http.ListenAndServe`, `serve.go:45`).
+- If the server is not on loopback, every request needs the token. See `12-team-server.md`.
+- The server sets these timeouts (`serve.go:91-99`, #81):
+  - `ReadHeaderTimeout` 10 s,
+  - `ReadTimeout` 30 s,
+  - `IdleTimeout` 120 s.
+
+  It sets no `WriteTimeout`, because an SSE stream stays open for the full job.
+- The server limits every request body to 1 MiB (`limitBody` in `web.go`, #81). A route that carries
+  areas reads 5 MiB plus 64 KiB: `POST /api/estimate`, `POST /api/jobs`, `POST /api/areas/parse`
+  and `POST /api/areas/tiles` (FR-security-hardening-17). It returns 413
+  `body_too_large` at once when `Content-Length` is larger. It returns the same error
+  when a body with no `Content-Length` grows past the limit.
+- `newServerHandler` applies the cross-origin check first and the body limit second
+  (`newServerHandler` in `web.go`, #77, #81).
 - The server creates `./downloads` at start and writes every output file there.
-- In `start_download`, a value of 0 means "use the default". So the web UI cannot set
-  0 for:
-  - `min_zoom` (default 1) or `max_zoom` (default 15),
-  - `max_concurrent` (default 5),
-  - `delay_between_batches` (default 0.2),
-  - `failure_tolerance` (default 0.3).
+- In `POST /api/jobs`, an optional setting that the client does not send gets the engine
+  default (`jobs.go:20-50`, #76):
+  - `concurrency` 5,
+  - `failure_tolerance` 0.2,
+  - `ignore_errors` false,
+  - `verify_tls` true.
+
+  The web UI always sends all four settings. Its failure tolerance default is 0.3.
+- `POST /api/jobs` and the `download` command check the zoom range and the concurrency
+  with the same function, `checkJobLimits` (`jobs.go:320-337`, #81):
+  - If `min_zoom` is above `max_zoom`, the error code is `zoom_out_of_range`.
+  - If the zoom range is outside the zoom range of the map source, the error code is
+    `zoom_out_of_range`.
+  - If the concurrency is below 1 or above 32, the error code is `invalid_concurrency`.
 - `POST /api/preview` replaces a `min_zoom` of 0 with 1 and a `max_zoom` of 0 with 18.
   It uses only the maximum zoom level.
 - The preview grid has a maximum number of tiles per side:
   - 6 at zoom level 10 or less,
   - 4 from zoom level 11 to 15,
   - 3 above zoom level 15.
-- The preview uses the first server part for every tile.
+- The preview uses the server part of the tile key for each tile (FR-source-sync-23).
+- `POST /api/preview` accepts an old map source name and returns the new name in
+  `source`. The server log gets the deprecation warning (FR-source-sync-16).
 - The web UI changes a maximum zoom level that is not above the minimum to the minimum
   plus 1.
 - On a source change, the web UI sets the zoom inputs to `max(1, source min)` and
@@ -267,100 +323,135 @@ External dependencies, all loaded at run time (`web/index.html:9-16`, `:241-243`
   `https://nominatim.openstreetmap.org/search` with `limit=5`, the User-Agent
   `ATAK-Map-Downloader/1.0` and a 10-second timeout. The server does not limit the
   request rate.
+- If a geocode result has a `lat` or `lon` that is not a number, the server returns 500
+  `internal` (`web.go:398-404`, #81).
 
 ## Data touched
 
-- Writes output files under `./downloads`. See `03-tile-download.md`.
-- In memory: one `dlState` per server, holding `downloading bool` and `cancel`, behind a
-  mutex (`web.go:30-34`). Nothing survives a restart.
+- Writes output files in the data directory, `./downloads` by default. See `03-tile-download.md`.
+- In memory: the job map of the server, behind `jobMu` (`web.go:50-51`). It holds every
+  job of the job store, so `GET /api/jobs/{id}` can read the result of an ended job.
+- The job store `jobs.jsonl` in the data directory keeps every job after a restart. See
+  `12-team-server.md`.
 - Browser: `localStorage.theme`.
 
 ## Interfaces
 
 ### HTTP routes
 
-All routes are in `cmd/atak-dl/commands/web.go:52-134`. Success responses do not set
-`Content-Type: application/json`. Error responses come from `http.Error`, so their
-`Content-Type` is `text/plain`, and their JSON is built by string concatenation.
+The router is in `cmd/atak-dl/commands/web.go:87-100`. The job routes use method and
+path patterns on a separate `http.ServeMux` (`jobs.go:244-258`, #76).
+
+Every JSON success response sets `Content-Type: application/json` (`web.go:423-426`,
+#74). Every error response uses the error shape from `writeError` (#74):
+
+```json
+{"error": {"code": "<code>", "message": "<text>"}}
+```
 
 | Method | Path | Request | Success response | Errors |
 |---|---|---|---|---|
 | GET | `/` | — | `index.html` | — |
-| GET | `/static/*` | — | Embedded file | 404 |
+| GET | `/static/*` | — | Embedded file | 404 `not_found` |
 | any | `/api/sources` | — | See `01-map-sources.md` | — |
-| POST | `/api/estimate` | See `02-area-estimate.md` | | 400, 405 |
-| POST | `/api/tile-info` | See `02-area-estimate.md` | | 400, 405 |
-| POST | `/api/validate-source` | See `01-map-sources.md` | | 400, 404, 405 |
-| POST | `/api/preview` | `{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}` | `{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}` | 400, 404, 405 |
-| POST | `/api/geocode` | `{"query"}` | `{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}` | 400, 405, 500 |
-| GET | `/ws` | Websocket upgrade | See below | — |
-| OPTIONS | any | — | 204 | — |
+| POST | `/api/estimate` | See `02-area-estimate.md`, and `areas` in feature 11 | `warning` for an old map source name (FR-area-estimate-20) | 400 `invalid_json`, `invalid_bounds`, `invalid_area`, `zoom_out_of_range`; 404 `unknown_source`; 405 `method_not_allowed`; 413 |
+| POST | `/api/tile-info` | See `02-area-estimate.md` | | 400 `invalid_json`; 405; 413 |
+| POST | `/api/validate-source` | See `01-map-sources.md` | | 400 `invalid_json`; 404 `unknown_source`; 405; 413 |
+| POST | `/api/preview` | `{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}` | `{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}` | 400 `invalid_json`, `unknown_source`, `invalid_bounds`; 404 `unknown_source`; 405; 413 |
+| POST | `/api/geocode` | `{"query"}` | `{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}` | 400 `invalid_json`, `invalid_query`; 405; 413; 500 `internal` |
+| POST | `/api/jobs` | See Job API | 202 job record | 400, 404 `unknown_source`, 413, 429 `queue_full` |
+| POST | `/api/areas/parse` | A multipart form with the field `file`, or the file itself. Query: `min_zoom`, `max_zoom`, `buffer_m` | `{"areas": [{"kind", "geometry", "min_zoom", "max_zoom", "buffer_m", "name"}], "warnings"}` | 400 `invalid_area_file`, `invalid_query`; 405; 413 `body_too_large` |
+| POST | `/api/areas/tiles` | `{"area": {"kind", "geometry", "buffer_m"}, "zoom"}` | `{"tiles": [[x, y]]}` | 400 `invalid_json`, `invalid_area`, `zoom_out_of_range`; 405; 413 `body_too_large`, or 413 `too_many_tiles` at 5,000 tiles or more |
+| GET | `/api/jobs/{id}` | — | 200 job record | 404 `job_not_found` |
+| GET | `/api/jobs/{id}/events` | — | 200 `text/event-stream` | 404 `job_not_found` |
+| DELETE | `/api/jobs/{id}` | — | 202 job record | 404 `job_not_found` |
+| any other | any other `/api/` path | — | — | 404 `not_found`, or 405 `method_not_allowed` for a job path |
 
-The web UI calls `/api/sources`, `/api/estimate`, `/api/preview`, `/api/geocode` and
-`/ws`. It does not call `/api/tile-info` or `/api/validate-source`.
+Any route returns 403 `cross_origin` for a cross-origin browser request that is not
+`GET`, `HEAD` or `OPTIONS` (#77). A path that matches no route returns 404 `not_found`
+(#74).
 
-### Websocket protocol
+The web UI calls `/api/sources`, `/api/estimate`, `/api/preview`, `/api/geocode`,
+`/api/areas/parse`, `/api/areas/tiles` and the job API. It does not call `/api/tile-info`, `/api/validate-source` or
+`GET /api/jobs/{id}`.
 
-Messages are JSON. Each client message has the form `{"type", "data"}`.
+### Job API
 
-Client to server:
+The job API replaces the websocket protocol and the `/ws` route (#76, #78).
+`05-security-hardening.md` holds the requirements. This section records what is built.
 
-| `type` | `data` |
-|---|---|
-| `start_download` | `{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom", "custom_name", "advanced_settings": {"max_concurrent", "delay_between_batches", "failure_tolerance", "ignore_errors", "verify_ssl"}}` |
-| `cancel_download` | none |
-| `get_download_status` | none |
+`POST /api/jobs` request (`jobs.go:20-32`):
 
-Server to client:
+```json
+{"source", "areas": [{"kind", "geometry", "min_zoom", "max_zoom", "buffer_m", "name"}],
+ "bounds": [w, s, e, n], "min_zoom", "max_zoom", "name",
+ "concurrency", "failure_tolerance", "ignore_errors", "verify_tls"}
+```
 
-| `type` | Fields | When |
+A request holds `areas` or the legacy `bounds`, `min_zoom` and `max_zoom`, not both.
+The legacy fields give one `bounds` area (FR-area-selection-25, -26).
+
+The job record (`jobs.go:62-78`):
+
+```json
+{"id", "source", "bounds", "min_zoom", "max_zoom", "state", "output_file",
+ "total", "downloaded", "skipped", "failed", "created_at", "error"}
+```
+
+- `id` is 12 lowercase hex characters from `crypto/rand`.
+- `state` is `running`, `complete`, `failed` or `cancelled`.
+- `skipped` counts the tiles that the output file already holds. Only `"if_exists": "resume"`
+  makes it above 0 (#26).
+
+SSE events on `GET /api/jobs/{id}/events`:
+
+| `event` | `data` | When |
 |---|---|---|
-| `status` | `message` | On connect: `Connected to ATAK Downloader`. Reply to `get_download_status`: `Download in progress` or `No active download` |
-| `download_started` | `message`, `output_file` | The job starts |
-| `download_progress` | `progress`, `downloaded`, `total`, `failed`, `rate`, `eta`, `message` | After each processed tile, and once at 100 on success |
-| `download_complete` | `message`, `filename`, `path` | The job succeeds. `path` is the path on the server |
-| `download_error` | `message` | Rejected request, or failed job |
-| `download_cancelled` | `message` | `Cancellation requested.`, `No active download.`, or `Download cancelled by user.` |
+| `state` | The job record | First on every stream, and once at the end of the job |
+| `progress` | `{"downloaded", "skipped", "failed", "total", "rate", "eta_seconds"}` | At most 4 per second |
+| `log` | `{"level", "message"}` | Before the final `state` of a failed job, with level `error` |
+
+One goroutine per job sends the events (`jobs.go:145-176`). Engine goroutines send
+progress to it through a channel.
 
 ## Edge cases & failures
 
 What the code handles:
 
-- A second `start_download` while a job runs gets a clear error.
-- A closed websocket makes the web UI reconnect.
+- A `POST /api/jobs` while a job runs adds the job to the queue. A full queue gets 429
+  `queue_full` (FR-team-server-6).
+- If the server is not on loopback, a request with no valid token gets 401 `unauthorized`
+  (FR-team-server-23).
+- If the browser closes the SSE stream, the job continues. A new stream gets a `state`
+  event with the current job record first (#76).
+- A stream for a job that ended gets one `state` event, and then the stream ends (#76).
+- The web UI waits for the final `state` event before it resets the job controls (#78).
+- A cross-origin `POST` or `DELETE` from a browser gets 403 `cross_origin` (#77).
+- A request with no `Sec-Fetch-Site` header and no `Origin` header passes the
+  cross-origin check, so `curl` works (#77).
+- `/api/preview` with bounds that are not valid returns 400 `invalid_bounds`
+  (`web.go:315-319`, #74).
+- A request body larger than 1 MiB gets 413 `body_too_large` (#81). A route that carries areas reads 5 MiB plus 64 KiB.
 - The `/static/` route uses `fs.Sub` on an `embed.FS`, which rejects `..` paths.
-- The output file name keeps only safe characters, so `custom_name` cannot leave
-  `./downloads`.
+- The output file name keeps only safe characters, so `name` cannot leave `./downloads`.
+- The status log writes text through `textContent` (`app.js:960`, #78).
+- The geocode popup writes `display_name` through `textContent` (`app.js:752`).
 
 What the code does not handle:
 
-- **Any web page can drive the server.** CORS is `*` and `CheckOrigin` returns true
-  (`web.go:44`, `:54`). A page the solo operator visits can start jobs that write files
-  to disk, or use the geocode route.
-- **`--addr 0.0.0.0:5000` exposes the server to the network** with no authentication.
-- **Concurrent websocket writes.** Every engine goroutine calls `conn.WriteJSON` through
-  the progress callback, and the read loop writes too. gorilla/websocket allows only one
-  concurrent writer, so frames can break or the server can panic.
 - **The finished output file cannot be fetched from the browser.** No route serves
   `./downloads`. The web UI shows only the file name.
-- **A closed websocket orphans the job.** The job keeps running and writes to the dead
-  connection. A new connection cannot see its progress. `get_download_status` returns
-  only text.
-- **The first `download_cancelled` resets the web UI before the job stops.** An
-  immediate **Start Download** then gets `Download already in progress`.
-- **`sendWS` drops a message when the socket is not open.** **Start Download** then
-  stays on `Downloading...` with no job.
-- **Every failed job reports "too many tile errors"**, including a failure to create the
-  output file and `no tiles processed`.
-- **`/api/preview` ignores the bounds error** (`web.go:290`). Bounds that are not valid
-  give a nil pointer, and the handler panics. `net/http` recovers it and drops the
-  connection.
+- **The server keeps only the last job.** `GET /api/jobs/{id}` for an earlier job returns
+  404 `job_not_found` (`jobs.go:400-409`).
+- **A restart loses the job.** The output file stays on disk. The `EventSource` then gets
+  404, and the web UI logs `Lost the job event stream`.
+- **A late cancel keeps the output file.** If the cancel arrives after the progress
+  callback of the last tile, the engine does not see it. The job state is `cancelled`,
+  but the output file stays (`jobs.go:369-397`).
 - **Preview tiles can fail to show.** The overlays set `crossOrigin: 'anonymous'`
-  (`app.js:363`), so a tile server that sends no CORS header blocks the image.
+  (`app.js:621`), so a tile server that sends no CORS header blocks the image.
 - **The web UI needs the internet.** Every library and the base map come from public
   hosts, so the page does not work on a disconnected machine.
-- **`logStatus` writes server and user text through `innerHTML`** (`app.js:559`). The
-  geocode popup does the same with `display_name` (`app.js:412`).
 - **The geocode route breaks the Nominatim usage policy.** It has no rate limit, no cache
   and no contact detail in the User-Agent
   ([Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/),
@@ -369,36 +460,35 @@ What the code does not handle:
   identifying User-Agent and forbids offline bulk use
   ([OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/),
   retrieved 2026-11-21). The browser sends its own User-Agent.
-- **gorilla/websocket v1.5.3 is the last release**, from June 2024
-  ([pkg.go.dev versions](https://pkg.go.dev/github.com/gorilla/websocket?tab=versions),
-  retrieved 2026-11-21).
-- **Unused code:** `safeFilename`, `safeNameRe` and the `mapsDir` field (`web.go:28`,
-  `:577-581`), and the `loadingModal` object (`app.js:576-581`).
+- **Unused code:** the `mapsDir` field (`web.go:24`).
 
 Known defects and the planned feature that repairs each:
 
 | Defect | Repaired by |
 |---|---|
-| CORS `*`, any-origin websocket, no auth on a non-loopback bind, no server timeouts, `innerHTML` writes, preview panic | `security-hardening` (05) |
-| Concurrent websocket writes, gorilla/websocket | `security-hardening` (05) |
+| No authentication on a non-loopback bind | `team-server` (12) |
 | Geocode route that breaks the Nominatim policy | `polite-downloading` (06) |
-| CDN dependencies, OSM base map, no fetch of the output file, missing loading and error states, accessibility gaps, unused Batch Delay control | `offline-web-ui` (08) |
+| Late cancel that keeps the output file | `robust-downloads` (07) |
+| CDN dependencies, OSM base map, no fetch of the output file, missing loading and error states, accessibility gaps | `offline-web-ui` (08) |
 | Rectangle only | `area-selection` (11) |
-| One global job, orphaned jobs, no job history | `team-server` (12) |
+| One global job, only the last job in memory, no job history | `team-server` (12) |
 
 ## Acceptance criteria
 
 - [ ] `atak-dl serve` prints `Open http://localhost:5000 in your browser` and serves the
       page at that address.
 - [ ] `GET /` returns HTML whose `<title>` is `ATAK Tile Downloader`.
-- [ ] Every response carries `Access-Control-Allow-Origin: *`.
-- [ ] A websocket connection to `/ws` receives
-      `{"type":"status","message":"Connected to ATAK Downloader"}` first.
-- [ ] A second `start_download` while a job runs receives a `download_error` with
-      `Download already in progress`.
+- [ ] No response carries an `Access-Control-Allow-Origin` header.
+- [ ] A `POST /api/jobs` with `Sec-Fetch-Site: cross-site` returns 403 with code
+      `cross_origin`.
+- [ ] `GET /api/jobs/{id}/events` for a running job sends a `state` event first.
+- [ ] A second `POST /api/jobs` while a job runs returns 202 with the state `queued`.
+- [ ] A 2 MiB request body returns 413 with code `body_too_large`.
+- [ ] `atak-dl serve --addr 0.0.0.0:5000` with no token prints a generated token once to stderr.
 - [ ] `POST /api/preview` with valid bounds and `max_zoom` 16 returns at most 9 tiles.
 - [ ] After a rectangle is drawn, **Estimate Download** and **Preview** are enabled.
 - [ ] After a successful estimate, **Start Download** is enabled.
+- [ ] On page load, **Verify TLS** is checked.
 
 ## Out of scope
 
@@ -408,7 +498,5 @@ Known defects and the planned feature that repairs each:
 
 ## Open questions
 
-- The **Batch Delay** control and `delay_between_batches` reach the engine, which does not
-  use them. The code does not show whether a delay was ever planned.
 - The code does not show whether `/api/tile-info` and `/api/validate-source` were meant
   for the web UI or for scripts.

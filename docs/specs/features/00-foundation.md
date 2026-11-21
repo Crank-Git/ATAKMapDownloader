@@ -2,8 +2,8 @@
 id: foundation
 feature: Foundation
 epic: "Epic 0: Foundation"
-status: issued
-issues: [4, 5, 6, 7, 8, 9, 10]
+status: built
+issues: [4, 5, 6, 7, 8, 9, 10, 68]
 mockups: []
 ---
 
@@ -33,10 +33,10 @@ Audit of the Epic 0 items against the repository on 2026-11-21:
 
 ## Functional requirements
 
-- FR-foundation-1 — `go.mod` declares `go 1.26` and `toolchain go1.27.4`.
+- FR-foundation-1 — `go.mod` declares `go 1.26.0` and `toolchain go1.27.4`.
 - FR-foundation-2 — The output writer uses `modernc.org/sqlite`.
 - FR-foundation-3 — `CGO_ENABLED=0 go build ./cmd/atak-dl` succeeds for linux, darwin and windows on amd64 and arm64.
-- FR-foundation-4 — An output file written with the new driver is byte-compatible in schema with the current output file: the same tables, columns, indexes and metadata keys.
+- FR-foundation-4 — An output file written with the new driver is byte-compatible in schema with the current output file: the same tables, columns, indexes and metadata keys. Epic 3 adds the table `atakdl_failed_tiles` and the metadata key `atakdl_source`, and the four original statements stay the same.
 - FR-foundation-5 — `gofmt -l .` prints no file.
 - FR-foundation-6 — `.golangci.yml` uses the golangci-lint v2 format and enables `gocyclo`, `gocognit`, `cyclop`, `funlen`, `revive`, `gosec`, `errorlint` and `unused`.
 - FR-foundation-7 — The lint thresholds are: cyclomatic complexity 15, cognitive complexity 20, function length 80 lines or 50 statements.
@@ -114,7 +114,7 @@ No screen. The CLI adds `--version`.
 
 - CI uses `actions/setup-go` with `go-version-file: go.mod`.
 - The release workflow has the permissions `contents: write`, `packages: write`, `id-token: write` and `attestations: write`.
-- The Docker image runs as a non-root user. It exposes port 5000 and starts `atak-dl serve --addr 0.0.0.0:5000`.
+- The Docker image runs as a non-root user. It exposes port 5000 and starts `atak-dl serve --addr 0.0.0.0:5000 --data-dir /data`.
 
 ## Data touched
 

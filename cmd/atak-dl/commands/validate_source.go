@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// NewValidateSourceCmd returns the validate-source command, which checks one map source.
 func NewValidateSourceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate-source",
@@ -14,18 +15,14 @@ func NewValidateSourceCmd() *cobra.Command {
 		RunE:  runValidateSource,
 	}
 	cmd.Flags().String("source", "", "Map source name (required)")
-	cmd.MarkFlagRequired("source")
+	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	return cmd
 }
 
 func runValidateSource(cmd *cobra.Command, _ []string) error {
 	parser := getParser(cmd)
-	sourceName, _ := cmd.Flags().GetString("source")
-
-	source := parser.GetSource(sourceName)
-	if source == nil {
-		exitErr("Source '" + sourceName + "' not found")
-	}
+	source := sourceFlag(cmd, parser)
+	sourceName := source.Name
 
 	errors := parser.ValidateSource(source)
 	if len(errors) == 0 {

@@ -1,0 +1,401 @@
+#!/bin/sh
+# smoke.sh builds atak-dl, starts serve on a free port, and checks twelve responses, the token of a server that is not on loopback, the health route and the serve arguments of the image.
+# It also checks the terms exit code, the output file exit code, the tile cap, the output format, the package name,
+# --no-geocode, the sources sync command and the area file parser.
+# FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9 and -17,
+# FR-team-server-17, -19, -20, -23, -25, -29 and -30, FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27,
+# FR-output-formats-1, -3 and -19, FR-source-sync-10, -11, -16 and -29, and FR-area-selection-16 and -18 define the checks.
+# It needs go, curl and python3. It exits 0 when every check passes.
+set -eu
+
+# go build needs the module root, so the script runs from the repository root.
+cd "$(dirname "$0")/.."
+
+CGO_ENABLED=0 go build -o atak-dl ./cmd/atak-dl
+
+# A new home directory has no user source directory, so serve loads only the embedded snapshot.
+# The build runs first, because the Go cache is in the real home directory.
+smoke_home=$(mktemp -d)
+export HOME="$smoke_home" XDG_CONFIG_HOME="$smoke_home/.config"
+
+# The OS gives a free port to a socket that binds port 0.
+port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+base="http://127.0.0.1:$port"
+
+./atak-dl serve --addr "127.0.0.1:$port" >/dev/null &
+pid=$!
+trap 'kill "$pid" 2>/dev/null || true; rm -rf "$smoke_home"' EXIT INT TERM
+
+# 50 attempts at 0.2 s give the server 10 s to start.
+attempt=0
+until [ "$(curl -s -o /dev/null -w '%{http_code}' "$base/" || true)" = "200" ]; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 50 ]; then
+		echo "smoke: GET / did not return 200 within 10 s" >&2
+		exit 1
+	fi
+	if ! kill -0 "$pid" 2>/dev/null; then
+		echo "smoke: serve stopped before it answered GET /" >&2
+		exit 1
+	fi
+	sleep 0.2
+done
+
+curl -sf "$base/api/sources" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if not isinstance(body, list) or "Google Satellite" not in [s.get("name") for s in body]:
+    sys.exit("smoke: GET /api/sources did not return the snapshot map sources")
+print("smoke: GET /api/sources returned %d snapshot sources" % len(body))
+'
+
+# The snapshot holds source files that the parser does not load, so the skipped list is not empty (FR-source-sync-29).
+curl -sf "$base/api/sources/skipped" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if not isinstance(body, list) or not body or any(sorted(s) != ["detail", "path", "reason"] for s in body):
+    sys.exit("smoke: GET /api/sources/skipped did not return [{path, reason, detail}]")
+print("smoke: GET /api/sources/skipped returned %d skipped source files" % len(body))
+'
+
+# The page loads Leaflet from the binary, so the web UI works with no internet (FR-offline-web-ui-1).
+status=$(curl -s -o /dev/null -w '%{http_code}' "$base/static/vendor/leaflet/leaflet.js")
+if [ "$status" != "200" ]; then
+	echo "smoke: GET /static/vendor/leaflet/leaflet.js returned $status, want 200" >&2
+	exit 1
+fi
+echo "smoke: GET /static/vendor/leaflet/leaflet.js returned 200"
+
+# No job runs yet, so the job API returns the job_not_found error shape.
+curl -s "$base/api/jobs/000000000000" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("error", {}).get("code") != "job_not_found":
+    sys.exit("smoke: GET /api/jobs/{id} did not return job_not_found")
+print("smoke: GET /api/jobs/{id} returned job_not_found")
+'
+
+# GET /api/files returns a JSON array, also when the output directory does not exist yet (FR-offline-web-ui-7).
+curl -sf "$base/api/files" | python3 -c '
+import json, sys
+if not isinstance(json.load(sys.stdin), list):
+    sys.exit("smoke: GET /api/files did not return a JSON array")
+print("smoke: GET /api/files returned a JSON array")
+'
+
+# An encoded parent path returns 404 file_not_found and not the file (FR-offline-web-ui-10).
+curl -s -w '\n%{http_code}' "$base/api/files/..%2Fgo.mod" | python3 -c '
+import json, sys
+body, status = sys.stdin.read().rsplit("\n", 1)
+if status != "404" or json.loads(body).get("error", {}).get("code") != "file_not_found":
+    sys.exit("smoke: GET /api/files/..%2Fgo.mod returned " + status + ", want 404 file_not_found")
+print("smoke: GET /api/files/..%2Fgo.mod returned 404 file_not_found")
+'
+
+# The tile route of a name that is not an output file returns 404 file_not_found (FR-offline-web-ui-13).
+curl -s -w '\n%{http_code}' "$base/api/files/missing.mbtiles/tiles/0/0/0" | python3 -c '
+import json, sys
+body, status = sys.stdin.read().rsplit("\n", 1)
+if status != "404" or json.loads(body).get("error", {}).get("code") != "file_not_found":
+    sys.exit("smoke: GET /api/files/missing.mbtiles/tiles/0/0/0 returned " + status + ", want 404 file_not_found")
+print("smoke: GET /api/files/missing.mbtiles/tiles/0/0/0 returned 404 file_not_found")
+'
+
+# A browser adds Sec-Fetch-Site: cross-site to a request from another web page.
+curl -s -X POST -H 'Sec-Fetch-Site: cross-site' -H 'Content-Type: application/json' -d '{}' "$base/api/jobs" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("error", {}).get("code") != "cross_origin":
+    sys.exit("smoke: a cross-site POST /api/jobs did not return cross_origin")
+print("smoke: a cross-site POST /api/jobs returned cross_origin")
+'
+
+# The smoke test sends no geocode request, because a test never calls the real Nominatim.
+curl -sf "$base/api/config" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("geocode") is not True:
+    sys.exit("smoke: GET /api/config did not return geocode true")
+print("smoke: GET /api/config returned geocode true")
+'
+
+# A route that carries areas reads 5 MiB, so a 6 MiB job body returns 413 (FR-security-hardening-17).
+status=$(head -c 6291456 /dev/zero | curl -s -o /dev/null -w '%{http_code}' --data-binary @- "$base/api/jobs")
+if [ "$status" != "413" ]; then
+	echo "smoke: POST /api/jobs with a 6 MiB body returned $status, want 413" >&2
+	exit 1
+fi
+echo "smoke: POST /api/jobs with a 6 MiB body returned 413"
+
+# The parse route reads a KML file into areas, and it warns about the Point (FR-area-selection-18).
+curl -sf --data-binary @testdata/areas/trail.kml "$base/api/areas/parse?min_zoom=12&max_zoom=17&buffer_m=300" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+areas = body.get("areas") or []
+if len(areas) != 1 or areas[0].get("kind") != "route_buffer" or len(body.get("warnings") or []) != 1:
+    sys.exit("smoke: POST /api/areas/parse did not return one route_buffer area and one warning")
+print("smoke: POST /api/areas/parse returned one route_buffer area and one warning")
+'
+
+# A server on an address that is not loopback generates a token and prints it once (FR-team-server-17, -19 and -20).
+stderr_file=$(mktemp)
+open_port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("0.0.0.0", 0)); print(s.getsockname()[1]); s.close()')
+./atak-dl serve --addr "0.0.0.0:$open_port" >/dev/null 2>"$stderr_file" &
+open_pid=$!
+trap 'kill "$pid" "$open_pid" 2>/dev/null || true; rm -f "$stderr_file"; rm -rf "$smoke_home"' EXIT INT TERM
+attempt=0
+until grep -q "^token: " "$stderr_file" && [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$open_port/api/sources" || true)" != "000" ]; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 50 ]; then
+		echo "smoke: serve --addr 0.0.0.0:$open_port did not print a token and answer within 10 s" >&2
+		exit 1
+	fi
+	sleep 0.2
+done
+token=$(sed -n 's/^token: \([0-9a-f]\{32\}\) .*/\1/p' "$stderr_file")
+if [ -z "$token" ]; then
+	echo "smoke: serve --addr 0.0.0.0:$open_port printed no 32-character token" >&2
+	exit 1
+fi
+status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$open_port/api/sources")
+if [ "$status" != "401" ]; then
+	echo "smoke: GET /api/sources with no token returned $status, want 401" >&2
+	exit 1
+fi
+status=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:$open_port/api/sources")
+if [ "$status" != "200" ]; then
+	echo "smoke: GET /api/sources with the bearer token returned $status, want 200" >&2
+	exit 1
+fi
+echo "smoke: serve --addr 0.0.0.0 printed a token, and GET /api/sources returned 401 without it and 200 with it"
+
+# The Jobs page needs the token, and the sign-in page and its files need none (FR-team-server-23 and -25).
+for check in "/jobs  302" "/signin  200" "/static/js/signin.js  200" "/jobs $token 200"; do
+	set -- $check
+	if [ $# -eq 3 ]; then
+		status=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $2" "http://127.0.0.1:$open_port$1")
+		want=$3
+	else
+		status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$open_port$1")
+		want=$2
+	fi
+	if [ "$status" != "$want" ]; then
+		echo "smoke: GET $1 returned $status, want $want" >&2
+		exit 1
+	fi
+done
+echo "smoke: GET /jobs returned 302 without the token and 200 with it, and the sign-in page returned 200 without it"
+
+# The footer of the Jobs page shows the version, the bind address, the data directory and the worker count of serve.
+curl -sf -H "Authorization: Bearer $token" "http://127.0.0.1:$open_port/api/config" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("version") != sys.argv[2] or body.get("addr") != "0.0.0.0:" + sys.argv[1] or body.get("workers") != 1 or not body.get("data_dir"):
+    sys.exit("smoke: GET /api/config did not return the version, addr, data_dir and workers of serve: %s" % body)
+print("smoke: GET /api/config returned the version, addr, data_dir and workers of serve")
+' "$open_port" "$(./atak-dl --version | cut -d' ' -f3)"
+
+# The health route needs no token, and it reports the version of the binary (FR-team-server-17 and -29).
+want_version=$(./atak-dl --version | cut -d' ' -f3)
+curl -sf "http://127.0.0.1:$open_port/healthz" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body != {"status": "ok", "version": sys.argv[1]}:
+    sys.exit("smoke: GET /healthz with no token returned %r, want status ok and version %s" % (body, sys.argv[1]))
+' "$want_version"
+echo "smoke: GET /healthz with no token returned status ok and version $want_version"
+
+# The image runs serve with these arguments and ATAKDL_TOKEN, and the server reads the data directory of --data-dir (FR-team-server-30).
+image_port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("0.0.0.0", 0)); print(s.getsockname()[1]); s.close()')
+image_data=$(mktemp -d)
+ATAKDL_TOKEN=abc ./atak-dl serve --addr "0.0.0.0:$image_port" --data-dir "$image_data" >/dev/null 2>"$stderr_file" &
+image_pid=$!
+trap 'kill "$pid" "$open_pid" "$image_pid" 2>/dev/null || true; rm -f "$stderr_file"; rm -rf "$smoke_home" "$image_data"' EXIT INT TERM
+attempt=0
+until [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$image_port/healthz" || true)" = "200" ]; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 50 ]; then
+		echo "smoke: serve with the image arguments did not return 200 for GET /healthz within 10 s" >&2
+		exit 1
+	fi
+	if ! kill -0 "$image_pid" 2>/dev/null; then
+		echo "smoke: serve with the image arguments stopped: $(cat "$stderr_file")" >&2
+		exit 1
+	fi
+	sleep 0.2
+done
+if grep -q "^token: " "$stderr_file"; then
+	echo "smoke: serve with ATAKDL_TOKEN printed a token" >&2
+	exit 1
+fi
+status=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer abc" "http://127.0.0.1:$image_port/api/jobs")
+if [ "$status" != "200" ]; then
+	echo "smoke: GET /api/jobs with the ATAKDL_TOKEN token returned $status, want 200" >&2
+	exit 1
+fi
+status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$image_port/api/jobs")
+if [ "$status" != "401" ]; then
+	echo "smoke: GET /api/jobs with no token returned $status, want 401" >&2
+	exit 1
+fi
+echo "smoke: serve with the image arguments returned 200 for GET /healthz, 200 with the ATAKDL_TOKEN token and 401 without it"
+
+# A restricted map source without --accept-terms exits with code 2 (FR-polite-downloading-18).
+# The output directory is a regular file, so a build without the check fails before it sends a request to Google.
+# The v0.1 name goes through the alias, so the check also covers the deprecation warning (FR-source-sync-16).
+terms_file=$(mktemp)
+trap 'kill "$pid" "$open_pid" "$image_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file"; rm -rf "$smoke_home" "$image_data"' EXIT INT TERM
+status=0
+./atak-dl download --source "Google - Satellite Only" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--output "$terms_file/out.sqlite" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "2" ] || ! grep -q "https://developers.google.com/maps/documentation/tile/policies" "$stderr_file"; then
+	echo "smoke: download of a Google map source without --accept-terms exited $status, want 2 and the reference URL" >&2
+	exit 1
+fi
+if ! grep -qF 'The new name is "Google Satellite".' "$stderr_file"; then
+	echo "smoke: download with the old name \"Google - Satellite Only\" printed no deprecation warning" >&2
+	exit 1
+fi
+echo "smoke: download of a Google map source by its old name warned and exited 2"
+
+# --area together with --bbox exits with code 1 (FR-area-selection-16).
+status=0
+./atak-dl estimate --source "Google Satellite" --area testdata/areas/trail.kml --bbox 40.7,-74.1,40.8,-74.0 >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q -- "--area and --bbox" "$stderr_file"; then
+	echo "smoke: estimate with --area and --bbox exited $status, want 1" >&2
+	exit 1
+fi
+echo "smoke: estimate with --area and --bbox exited 1"
+
+# An existing output file without --resume or --overwrite exits with code 3 and stays unchanged (FR-robust-downloads-6).
+# The file is not SQLite, so a build without the check fails when it opens the file, before a request.
+exists_file=$(mktemp)
+trap 'kill "$pid" "$open_pid" "$image_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file" "$exists_file"; rm -rf "$smoke_home" "$image_data"' EXIT INT TERM
+echo "smoke notes" >"$exists_file"
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--output "$exists_file" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --overwrite" "$stderr_file" ||
+	[ "$(cat "$exists_file")" != "smoke notes" ]; then
+	echo "smoke: download into an existing output file exited $status, want 3, the message and the file unchanged" >&2
+	exit 1
+fi
+echo "smoke: download into an existing output file exited 3"
+
+# --format gpkg has a writer, so the job passes the format check and stops at the existing output file (FR-output-formats-1).
+# A build without the GeoPackage writer exits 1 with not_implemented before the output check.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--format gpkg --output "$exists_file" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --overwrite" "$stderr_file"; then
+	echo "smoke: download with --format gpkg into an existing output file exited $status, want 3" >&2
+	exit 1
+fi
+echo "smoke: download with --format gpkg passed the format check and exited 3"
+
+# --format osmdroid has a writer, so the job passes the format check and stops at the existing output file (FR-output-formats-1).
+# A build without the OSMDroid writer exits 1 with not_implemented before the output check.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--format osmdroid --output "$exists_file" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --overwrite" "$stderr_file"; then
+	echo "smoke: download with --format osmdroid into an existing output file exited $status, want 3" >&2
+	exit 1
+fi
+echo "smoke: download with --format osmdroid passed the format check and exited 3"
+
+# A job above --max-tiles exits with code 4 before it sends a request (FR-robust-downloads-26).
+# The output directory is a regular file, so a build without the check fails before it sends a request.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 12 \
+	--max-tiles 1 --output "$terms_file/out.sqlite" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "4" ] || ! grep -q "too_many_tiles" "$stderr_file"; then
+	echo "smoke: download above --max-tiles exited $status, want 4 and too_many_tiles" >&2
+	exit 1
+fi
+echo "smoke: download above --max-tiles exited 4"
+
+# An unknown --format exits with code 1 and lists the valid values (FR-output-formats-1).
+# The output directory is a regular file, so a build without the check fails before it sends a request.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--format kmz --output "$terms_file/out.mbtiles" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q "invalid_output_format: --format \"kmz\" is not one of mbtiles, osmdroid, gpkg" "$stderr_file"; then
+	echo "smoke: download with --format kmz exited $status, want 1 and the valid values" >&2
+	exit 1
+fi
+echo "smoke: download with --format kmz exited 1 and listed the valid values"
+
+# The job API rejects an unknown output_format before it sends a request (FR-output-formats-3).
+curl -s -X POST -H 'Content-Type: application/json' \
+	-d '{"source":"USGS Topo","bounds":[-74.1,40.7,-74.0,40.8],"min_zoom":10,"max_zoom":10,"output_format":"kmz"}' "$base/api/jobs" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("error", {}).get("code") != "invalid_output_format":
+    sys.exit("smoke: POST /api/jobs with output_format kmz did not return invalid_output_format")
+'
+echo "smoke: POST /api/jobs with output_format kmz returned invalid_output_format"
+
+# A package name with a slash exits with code 1 before a request (FR-output-formats-19).
+# The output directory is a regular file, so a build without the check fails before it sends a request.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--data-package --package-name "a/b" --output "$terms_file/out.mbtiles" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q "invalid_package_name" "$stderr_file"; then
+	echo "smoke: download with --package-name a/b exited $status, want 1 and invalid_package_name" >&2
+	exit 1
+fi
+echo "smoke: download with --package-name a/b exited 1 with invalid_package_name"
+
+# The job API rejects a data package with no package name before it sends a request.
+curl -s -X POST -H 'Content-Type: application/json' \
+	-d '{"source":"USGS Topo","bounds":[-74.1,40.7,-74.0,40.8],"min_zoom":10,"max_zoom":10,"data_package":true}' "$base/api/jobs" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("error", {}).get("code") != "invalid_package_name":
+    sys.exit("smoke: POST /api/jobs with data_package and no package_name did not return invalid_package_name")
+'
+echo "smoke: POST /api/jobs with data_package and no package_name returned invalid_package_name"
+
+# serve --no-geocode removes the geocode route and reports geocode false (FR-polite-downloading-26).
+port2=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+base2="http://127.0.0.1:$port2"
+./atak-dl serve --addr "127.0.0.1:$port2" --no-geocode --max-tiles 1 >/dev/null &
+off_pid=$!
+trap 'kill "$pid" "$open_pid" "$image_pid" "$off_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file" "$exists_file"; rm -rf "$smoke_home" "$image_data"' EXIT INT TERM
+attempt=0
+until [ "$(curl -s -o /dev/null -w '%{http_code}' "$base2/" || true)" = "200" ]; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 50 ]; then
+		echo "smoke: serve --no-geocode did not answer GET / within 10 s" >&2
+		exit 1
+	fi
+	sleep 0.2
+done
+status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"query":"Berlin"}' "$base2/api/geocode")
+if [ "$status" != "404" ]; then
+	echo "smoke: POST /api/geocode with --no-geocode returned $status, want 404" >&2
+	exit 1
+fi
+curl -sf "$base2/api/config" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("geocode") is not False:
+    sys.exit("smoke: GET /api/config with --no-geocode did not return geocode false")
+'
+echo "smoke: serve --no-geocode returned 404 for POST /api/geocode and geocode false"
+
+# A job API job above serve --max-tiles returns 400 too_many_tiles before it sends a request (FR-robust-downloads-27).
+curl -s -X POST -H 'Content-Type: application/json' \
+	-d '{"source":"USGS Topo","bounds":[-74.1,40.7,-74.0,40.8],"min_zoom":10,"max_zoom":12}' "$base2/api/jobs" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("error", {}).get("code") != "too_many_tiles":
+    sys.exit("smoke: POST /api/jobs above serve --max-tiles did not return too_many_tiles")
+'
+echo "smoke: POST /api/jobs above serve --max-tiles returned too_many_tiles"
+
+# The binary has the sources sync command with --tag (FR-source-sync-10 and -11).
+# The check reads only the help text, because a smoke test never calls the real GitHub.
+if ! ./atak-dl sources sync --help | grep -q -- "--tag"; then
+	echo "smoke: atak-dl sources sync --help does not show --tag" >&2
+	exit 1
+fi
+echo "smoke: atak-dl sources sync --help shows --tag"
+
+echo "smoke: pass"

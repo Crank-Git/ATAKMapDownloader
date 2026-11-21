@@ -1,7 +1,7 @@
 # 0003 — Local server with no authentication
 
 Date: 2026-11-21
-Status: accepted
+Status: superseded by 0006 for the CORS and websocket parts (#77, #78). The no-authentication part stays accepted.
 
 ## Context
 
@@ -23,6 +23,6 @@ reaches the server.
 - Any web page that the user visits can call the API and start a job that
   writes files to disk.
 - `--addr 0.0.0.0:5000` exposes the server to the whole network with no control.
-- The planned `security-hardening` feature replaces the CORS and origin parts of this
-  decision. The planned ADR `0006-sse-job-api.md` replaces the websocket job channel.
+- The `security-hardening` feature replaces the CORS and origin parts of this
+  decision. The accepted ADR `0006-sse-job-api.md` replaces the websocket job channel.
   The `team-server` feature and ADR `0009-shared-token.md` add a shared token for a non-loopback bind.

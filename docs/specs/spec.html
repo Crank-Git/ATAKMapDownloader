@@ -187,7 +187,8 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>map source</td><td>noun</td><td>One tile provider definition: name, URL template, zoom range, tile type. Code: <code>xmlparser.MapSource</code>.</td><td>provider, layer, map</td></tr>
 <tr><td>source file</td><td>noun</td><td>One MOBAC XML file that defines one map source.</td><td>config, definition</td></tr>
 <tr><td>source catalog</td><td>noun</td><td>The set of map sources that the project loaded.</td><td>library, source list</td></tr>
-<tr><td>snapshot</td><td>noun</td><td>The pinned copy of ATAK-Maps source files embedded in the binary (planned, feature 09).</td><td>bundle, vendor copy</td></tr>
+<tr><td>snapshot</td><td>noun</td><td>The pinned copy of ATAK-Maps source files embedded in the binary (feature 09).</td><td>bundle, vendor copy</td></tr>
+<tr><td>user source directory</td><td>noun</td><td>The directory that <code>--mapsources-dir</code> names. Its map sources replace snapshot map sources with the same name (feature 09).</td><td>override folder, mapsources folder</td></tr>
 <tr><td>overlay</td><td>noun</td><td>A map source with transparent tiles, drawn on top of another map source.</td><td>layer</td></tr>
 <tr><td>policy class</td><td>noun</td><td>The terms-of-use class of a map source: <code>open</code>, <code>conditional</code> or <code>restricted</code> (planned, feature 06).</td><td>license, tier</td></tr>
 <tr><td>rate limit</td><td>noun</td><td>The maximum number of requests per second that the project sends to one host.</td><td>throttle</td></tr>
@@ -195,29 +196,41 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>zoom level</td><td>noun</td><td>An integer from 0 to 25 that selects the tile grid.</td><td>level, z (in prose)</td></tr>
 <tr><td>zoom range</td><td>noun</td><td>A minimum and a maximum zoom level, both included.</td><td>levels</td></tr>
 <tr><td>bounds</td><td>noun</td><td>A geographic rectangle: minimum and maximum latitude and longitude. The <code>--bbox</code> flag name stays as it is.</td><td>bbox (in prose), extent, box</td></tr>
-<tr><td>area</td><td>noun</td><td>The region that a job covers: bounds, a polygon or a route buffer (polygon and route buffer are planned, feature 11).</td><td>AOI, region, selection</td></tr>
-<tr><td>route buffer</td><td>noun</td><td>An area made from a line and a distance in metres on each side of it (planned).</td><td>corridor</td></tr>
+<tr><td>area</td><td>noun</td><td>The region that a job covers: bounds, a polygon or a route buffer (feature 11).</td><td>AOI, region, selection</td></tr>
+<tr><td>route buffer</td><td>noun</td><td>An area made from a line and a distance in metres on each side of it (feature 11).</td><td>corridor</td></tr>
+<tr><td>vertex</td><td>noun</td><td>One position of a polygon ring or of a line. An area holds at most 20,000 (feature 11).</td><td>node, corner</td></tr>
 <tr><td>estimate</td><td>noun</td><td>A prediction of the tile count, file size and time for an area and a zoom range. The <code>estimate</code> command name stays as it is.</td><td>quote, calculation</td></tr>
 <tr><td>preview</td><td>noun</td><td>A grid of sample tiles from a map source, shown on the map over the area.</td><td>thumbnail</td></tr>
 <tr><td>download</td><td>verb</td><td>To get tiles from a map source over HTTP and write them to an output file. Never a noun in this spec.</td><td>fetch, grab, scrape, pull</td></tr>
 <tr><td>job</td><td>noun</td><td>One run of a download: map source, area, zoom range, settings, output file and state.</td><td>download (noun), task, run</td></tr>
 <tr><td>output file</td><td>noun</td><td>The SQLite or zip file that a job writes.</td><td>tileset, database, map file, archive</td></tr>
-<tr><td>output format</td><td>noun</td><td>The schema of the output file: <code>mbtiles</code>, <code>osmdroid</code> or <code>gpkg</code> (planned, feature 10).</td><td>file type</td></tr>
-<tr><td>data package</td><td>noun</td><td>An ATAK zip file with a <code>MANIFEST/manifest.xml</code> (planned, feature 10).</td><td>mission package (except in ATAK quotes)</td></tr>
+<tr><td>output format</td><td>noun</td><td>The schema of the output file: <code>mbtiles</code>, <code>osmdroid</code> or <code>gpkg</code> (built, feature 10).</td><td>file type</td></tr>
+<tr><td>data package</td><td>noun</td><td>An ATAK zip file with a <code>MANIFEST/manifest.xml</code> and the output file (built, feature 10).</td><td>mission package (except in ATAK quotes)</td></tr>
+<tr><td>data directory</td><td>noun</td><td>The directory of <code>serve</code> that holds the output files and the job store. It comes from <code>--data-dir</code>, else <code>ATAKDL_DATA_DIR</code>, else <code>./downloads</code> (built, feature 12).</td><td>output folder, volume</td></tr>
+<tr><td>job store</td><td>noun</td><td>The file <code>jobs.jsonl</code> in the data directory. Each line holds one state of one job, with its request (built, feature 12).</td><td>database, history, log</td></tr>
+<tr><td>queue</td><td>noun</td><td>The ordered list of the queued jobs that wait for a worker of <code>serve</code> (built, feature 12).</td><td>backlog, waiting list</td></tr>
+<tr><td>position</td><td>noun</td><td>The place of a queued job in the queue. Position 1 is the next job (built, feature 12).</td><td>rank, index</td></tr>
+<tr><td>package name</td><td>noun</td><td>The name of a data package: 1 to 64 characters of <code>A-Z</code>, <code>a-z</code>, <code>0-9</code>, space, <code>_</code> and <code>-</code>, after the spaces around it are trimmed. It gives the zip file name (feature 10).</td><td>zip name, bundle name</td></tr>
 <tr><td>retry</td><td>verb</td><td>To send a tile request again after it fails.</td><td>re-fetch</td></tr>
-<tr><td>resume</td><td>verb</td><td>To continue a job into an existing output file and skip the tiles it already holds (planned, feature 07).</td><td>restart, continue</td></tr>
+<tr><td>resume</td><td>verb</td><td>To continue a job into an existing output file and skip the tiles it already holds (feature 07).</td><td>restart, continue</td></tr>
 <tr><td>failure rate</td><td>noun</td><td>Failed tiles divided by processed tiles in one job.</td><td>error rate</td></tr>
 <tr><td>failure tolerance</td><td>noun</td><td>The highest failure rate at which a job still succeeds. Code: <code>MaxFailureRate</code>.</td><td>error budget</td></tr>
+<tr><td>failure reason</td><td>noun</td><td>The word that names why one tile failed, for example <code>not_image</code> or <code>http_404</code>. Code: <code>download.Reason</code>.</td><td>error code, cause</td></tr>
+<tr><td>URL placeholder</td><td>noun</td><td>A <code>{$…}</code> string in the <code>url</code> of a source file that the engine replaces for each tile, for example <code>{$x}</code> (feature 09).</td><td>variable, template field</td></tr>
+<tr><td>server part</td><td>noun</td><td>One value of <code>serverParts</code> that the engine puts in <code>{$serverpart}</code>. The tile column plus the tile row selects it (feature 09).</td><td>subdomain, mirror</td></tr>
+<tr><td>placeholder image</td><td>noun</td><td>One image that a map source sends for many tiles in place of real map data.</td><td>dummy tile, filler</td></tr>
 <tr><td>server</td><td>noun</td><td>The HTTP process that <code>atak-dl serve</code> starts.</td><td>backend, daemon</td></tr>
 <tr><td>web UI</td><td>noun</td><td>The browser page that the server sends from the binary.</td><td>frontend, dashboard, web app</td></tr>
 <tr><td>CLI</td><td>noun</td><td>Command-line interface: the <code>atak-dl</code> subcommands.</td><td>terminal mode</td></tr>
 <tr><td>base map</td><td>noun</td><td>The background map that the web UI draws under the area.</td><td>basemap layer</td></tr>
 <tr><td>geocode</td><td>verb</td><td>To find coordinates for a place name through Nominatim.</td><td>search (as a verb for this)</td></tr>
-<tr><td>token</td><td>noun</td><td>The shared secret that a client sends to a server that is not bound to loopback (planned, feature 12).</td><td>password, API key</td></tr>
+<tr><td>token</td><td>noun</td><td>The shared secret that a client sends to a server that is not bound to loopback (built, feature 12).</td><td>password, API key</td></tr>
 <tr><td>TMS</td><td>noun</td><td>Tile Map Service row order: row 0 is at the south edge.</td><td>—</td></tr>
 <tr><td>XYZ</td><td>noun</td><td>Slippy-map row order: row 0 is at the north edge.</td><td>—</td></tr>
 <tr><td>WMS</td><td>noun</td><td>OGC Web Map Service. A map source that the project requests with bounds instead of a tile column and row.</td><td>—</td></tr>
-<tr><td>SSE</td><td>noun</td><td>Server-Sent Events: a one-way HTTP event stream (planned, feature 05).</td><td>—</td></tr>
+<tr><td>CRS</td><td>noun</td><td>Coordinate reference system, for example <code>EPSG:3857</code>. A WMS request names one (feature 09).</td><td>projection, SRS (except as the WMS 1.1.1 parameter name)</td></tr>
+<tr><td>GetCapabilities</td><td>noun</td><td>The WMS request that returns the service metadata of a server, which lists the CRS of each layer (feature 09).</td><td>capabilities call</td></tr>
+<tr><td>SSE</td><td>noun</td><td>Server-Sent Events: a one-way HTTP event stream. The job API sends job events over it (#76).</td><td>—</td></tr>
 </table></div>
 <h2 id="goals">Goals</h2>
 <ol>
@@ -265,18 +278,18 @@ body.rv-open .layout { padding-right:21rem; }
 <h2 id="feature-map">Feature map</h2>
 <div class="table-wrap"><table>
 <tr><th>Feature set</th><th>Spec file</th><th>Epic</th><th>Status</th><th>Mockups</th></tr>
-<tr><td>Foundation</td><td><a href="html/feature-foundation.html">features/00-foundation.md</a></td><td>Epic 0: Foundation</td><td>planned</td><td>—</td></tr>
+<tr><td>Foundation</td><td><a href="html/feature-foundation.html">features/00-foundation.md</a></td><td>Epic 0: Foundation</td><td>built</td><td>—</td></tr>
 <tr><td>Map source catalog</td><td><a href="html/feature-map-sources.html">features/01-map-sources.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Area estimate and tile info</td><td><a href="html/feature-area-estimate.html">features/02-area-estimate.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Tile download and output file</td><td><a href="html/feature-tile-download.html">features/03-tile-download.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Web UI and server</td><td><a href="html/feature-web-ui.html">features/04-web-ui.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
-<tr><td>Security hardening</td><td><a href="html/feature-security-hardening.html">features/05-security-hardening.md</a></td><td>Epic 1: Security hardening</td><td>planned</td><td>—</td></tr>
-<tr><td>Polite downloading</td><td><a href="html/feature-polite-downloading.html">features/06-polite-downloading.md</a></td><td>Epic 2: Polite downloading</td><td>planned</td><td>04-source-policy-warning</td></tr>
-<tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>planned</td><td>—</td></tr>
-<tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>planned</td><td>01-workspace</td></tr>
-<tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>planned</td><td>—</td></tr>
-<tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>planned</td><td>03-export-options</td></tr>
-<tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>planned</td><td>02-area-tools</td></tr>
+<tr><td>Security hardening</td><td><a href="html/feature-security-hardening.html">features/05-security-hardening.md</a></td><td>Epic 1: Security hardening</td><td>built</td><td>—</td></tr>
+<tr><td>Polite downloading</td><td><a href="html/feature-polite-downloading.html">features/06-polite-downloading.md</a></td><td>Epic 2: Polite downloading</td><td>built</td><td>04-source-policy-warning</td></tr>
+<tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>built</td><td>—</td></tr>
+<tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>built</td><td>01-workspace</td></tr>
+<tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>built</td><td>—</td></tr>
+<tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>built</td><td>03-export-options</td></tr>
+<tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>built</td><td>02-area-tools</td></tr>
 <tr><td>Team server</td><td><a href="html/feature-team-server.html">features/12-team-server.md</a></td><td>Epic 8: Team server</td><td>planned</td><td>05-jobs</td></tr>
 </table></div>
 <h2 id="architecture-stack">Architecture &amp; stack</h2>
@@ -287,11 +300,11 @@ body.rv-open .layout { padding-right:21rem; }
     Server["Server: net/http (built, reworked)"]
     WebUI["Web UI: embedded page (built, reworked)"]
     Catalog["Source catalog: xmlparser (built)"]
-    Snapshot["Snapshot: embedded ATAK-Maps (planned)"]
+    Snapshot["Snapshot: embedded ATAK-Maps (built)"]
     Policy["Source policy table (planned)"]
     TileCalc["tilecalc: tile math (built)"]
     Engine["Download engine (built, reworked)"]
-    Writer["Output writer: mbtiles / osmdroid / gpkg (built mbtiles)"]
+    Writer["Output writer: mbtiles / osmdroid / gpkg (built)"]
     Jobs["Job queue and store (planned)"]
   end
   Browser["Browser"] --&gt;|HTTP + SSE| Server
@@ -309,23 +322,23 @@ body.rv-open .layout { padding-right:21rem; }
   Out --&gt;|copy or data package| TAK["ATAK device"]</pre></div>
 <p>Per component:</p>
 <ul>
-<li><strong>Language and runtime: Go.</strong> Today <code>go.mod</code> says <code>go 1.21</code>, and the installed toolchain is 1.27.3. Epic 0 sets <code>go 1.26</code> with <code>toolchain go1.27.4</code>. Go 1.27.4 is the current stable release (https://go.dev/doc/devel/release, retrieved 2026-11-21). Go beat the alternatives because it gives one static binary and has a cross-compile story that a solo maintainer can keep. See <a href="../adr/0001-go-single-binary-cli.md">ADR 0001</a>.
+<li><strong>Language and runtime: Go.</strong> <code>go.mod</code> declares <code>go 1.26.0</code> and <code>toolchain go1.27.4</code> (#63). Go 1.27.4 is the current stable release (https://go.dev/doc/devel/release, retrieved 2026-11-21). Go beat the alternatives because it gives one static binary and has a cross-compile story that a solo maintainer can keep. See <a href="../adr/0001-go-single-binary-cli.md">ADR 0001</a>.
 </li>
 <li><strong>CLI: spf13/cobra.</strong> Built. Cobra is kept because it already defines every command.
 </li>
-<li><strong>SQLite driver: modernc.org/sqlite (planned).</strong> It replaces <code>mattn/go-sqlite3</code>, which needs CGO. modernc is at v1.62.0 (https://pkg.go.dev/modernc.org/sqlite?tab=versions, retrieved 2026-11-21). It is about 1.6 times slower than mattn at bulk inserts (https://github.com/cvilsmeier/go-sqlite-bench). The network is the bottleneck, so the difference is small. ncruces/go-sqlite3 is pre-1.0 and is the fallback. See <a href="../adr/0005-pure-go-sqlite.md">ADR 0005</a>.
+<li><strong>SQLite driver: modernc.org/sqlite.</strong> Built (#63). It replaced <code>mattn/go-sqlite3</code>, which needs CGO. modernc is at v1.62.0 (https://pkg.go.dev/modernc.org/sqlite?tab=versions, retrieved 2026-11-21). It is about 1.6 times slower than mattn at bulk inserts (https://github.com/cvilsmeier/go-sqlite-bench). The network is the bottleneck, so the difference is small. ncruces/go-sqlite3 is pre-1.0 and is the fallback. See <a href="../adr/0005-pure-go-sqlite.md">ADR 0005</a>.
 </li>
-<li><strong>Server: net/http.</strong> The Go 1.22 method-and-path patterns replace the hand-written router in <code>cmd/atak-dl/commands/web.go:52-75</code>. <code>http.CrossOriginProtection</code> (Go 1.25, https://go.dev/doc/go1.25) blocks requests from other web pages. <code>os.Root</code> (Go 1.24) limits file serving to the output directory.
+<li><strong>Server: net/http.</strong> The job routes use the Go 1.22 method-and-path patterns (<code>cmd/atak-dl/commands/jobs.go:244-258</code>, #76). The other routes still use the hand-written router in <code>cmd/atak-dl/commands/web.go:87-100</code>. <code>http.CrossOriginProtection</code> (Go 1.25, https://go.dev/doc/go1.25) blocks requests from other web pages (#77). Planned: <code>os.Root</code> (Go 1.24) limits file serving to the output directory.
 </li>
-<li><strong>Progress channel: SSE (planned).</strong> SSE replaces <code>gorilla/websocket</code>, which has had no release since v1.5.3 in June 2024 (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions). Progress goes from the server to the browser only, and browser commands become POST requests. See <a href="../adr/0006-sse-job-api.md">ADR 0006</a>.
+<li><strong>Progress channel: SSE.</strong> Built (#76, #78). SSE replaced <code>gorilla/websocket</code>, which has had no release since v1.5.3 in June 2024 (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions). Progress goes from the server to the browser only, and browser commands are <code>POST</code> and <code>DELETE</code> requests. See <a href="../adr/0006-sse-job-api.md">ADR 0006</a>.
 </li>
-<li><strong>Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman (planned), embedded with <code>embed.FS</code>.</strong> Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
+<li><strong>Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman 2.20.8, embedded with <code>embed.FS</code>.</strong> Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
 </li>
-<li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Today there is a copied folder of 34 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
+<li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Built (Epic 5). The binary embeds a snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). <code>atak-dl sources sync</code> writes a newer release to <code>&lt;user source directory&gt;/atak-maps/</code>. See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
 </li>
-<li><strong>Release: GoReleaser v2 on GitHub Actions (planned).</strong> Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
+<li><strong>Release: GoReleaser v2 on GitHub Actions.</strong> Built (#65, #70, #73). Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
 </li>
-<li><strong>Lint: golangci-lint v2 (planned).</strong> Version v2.15.0, with the complexity linters enabled (https://github.com/golangci/golangci-lint/releases).
+<li><strong>Lint: golangci-lint v2.</strong> Built (#64). Version v2.15.0, pinned with a <code>tool</code> directive in <code>go.mod</code>, with the complexity linters enabled (https://github.com/golangci/golangci-lint/releases).
 </li>
 </ul>
 <p>Repository layout (current, plus planned additions in italics):</p>
@@ -334,12 +347,15 @@ internal/xmlparser/     source file parser (built)
 internal/tilecalc/      Web Mercator tile math (built)
 internal/download/      download engine (built)
 internal/mbtiles/       MBTiles writer (built)
-internal/output/        planned: one writer per output format
-internal/policy/        planned: source policy table and rate limits
-internal/jobs/          planned: job queue and job store
+internal/output/        output format registry, and the osmdroid and gpkg writers (built)
+internal/output/sqlitequeue/  writer core that the three output formats share (built)
+internal/datapackage/   ATAK data package zip and manifest (built)
+internal/policy/        source policy table and rate limits (built)
+internal/jobs/          queue and job store (built)
 internal/server/        planned: HTTP handlers moved out of commands/web.go
 web/                    embedded web UI
-mapsources/             source files (replaced by the embedded snapshot in Epic 5)
+internal/snapshot/      embedded ATAK-Maps source files, VERSION and name aliases (built)
+internal/sourcesync/    the sources sync command (built)
 docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <h2 id="data-model">Data model</h2>
 <div class="diagram"><pre class="mermaid">erDiagram
@@ -363,20 +379,20 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
     string background_color
     bool ignore_errors
     string_list server_parts
-    string kind "tile or wms (planned)"
-    bool invert_y "planned"
+    string kind "tile or wms"
+    bool invert_y
   }
   SOURCE_FILE {
     string path PK
-    string origin "snapshot or user (planned)"
+    string origin "snapshot or user"
   }
   SKIPPED_SOURCE {
     string path FK
-    string reason "planned"
+    string reason
     string detail
   }
   SOURCE_POLICY {
-    string host_pattern PK
+    string host_patterns PK "list, the first pattern names the entry"
     string policy_class
     float requests_per_second
     string reason
@@ -391,7 +407,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
     string output_format "planned"
     int total
     int downloaded
-    int skipped "planned"
+    int skipped
     int failed
     time created_at "planned"
   }
@@ -419,7 +435,8 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
     int zoom_level
     int tile_column
     int tile_row
-    string reason "planned"
+    string reason
+    int attempts
   }
   JOB_EVENT {
     string type
@@ -427,27 +444,27 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
   }</pre></div>
 <p>Per entity:</p>
 <ul>
-<li><strong>MAP_SOURCE</strong> (built, <code>internal/xmlparser/xmlparser.go:16-26</code>). The parser loads it from a <code>&lt;customMapSource&gt;</code> source file. <code>name</code> is the key. If two source files have the same name, the last file loaded wins with no warning. Defaults: if both zooms are 0, <code>max_zoom</code> is 18. <code>tile_type</code> is <code>png</code>, <code>tile_update</code> is <code>None</code> and <code>background_color</code> is <code>#000000</code>. Planned: <code>kind</code> (<code>tile</code> or <code>wms</code>) and <code>invert_y</code> (feature 09).
+<li><strong>MAP_SOURCE</strong> (built, <code>internal/xmlparser/xmlparser.go:16-26</code>). The parser loads it from a <code>&lt;customMapSource&gt;</code> source file. <code>name</code> is the key. A map source of a later layer replaces one of the same name: the snapshot, then <code>atak-maps/</code>, then the user's own files (FR-source-sync-5). Defaults: if both zooms are 0, <code>max_zoom</code> is 18. <code>tile_type</code> is <code>png</code>, <code>tile_update</code> is <code>None</code> and <code>background_color</code> is <code>#000000</code>. It has <code>kind</code> (<code>tile</code> or <code>wms</code>) and <code>invert_y</code> (feature 09).
 </li>
-<li><strong>SOURCE_FILE</strong> (built). A MOBAC XML file in the source directory. Planned: <code>origin</code> is <code>snapshot</code> or <code>user</code> (feature 09).
+<li><strong>SOURCE_FILE</strong> (built). A MOBAC XML file in the snapshot or in the user source directory. <code>origin</code> is <code>snapshot</code> or <code>user</code> (feature 09).
 </li>
-<li><strong>SKIPPED_SOURCE</strong> (planned, feature 09). An in-memory record of a source file that did not load, with its reason. Today the parser drops these with no record.
+<li><strong>SKIPPED_SOURCE</strong> (built, feature 09). An in-memory record of a source file that did not load, with its path, reason and detail (#38).
 </li>
-<li><strong>SOURCE_POLICY</strong> (planned, feature 06). A table embedded in the binary, keyed by a host pattern such as <code>*.google.com</code>. <code>policy_class</code> is <code>open</code>, <code>conditional</code> or <code>restricted</code>. <code>requests_per_second</code> is the rate limit for that host.
+<li><strong>SOURCE_POLICY</strong> (built, feature 06). A table embedded in the binary, keyed by a host pattern such as <code>*.google.com</code>. <code>policy_class</code> is <code>open</code>, <code>conditional</code> or <code>restricted</code>. <code>requests_per_second</code> is the rate limit for that host.
 </li>
-<li><strong>JOB</strong> (built as one in-memory record, <code>cmd/atak-dl/commands/web.go:30-34</code>). The state is <code>idle</code> or <code>downloading</code>. Planned (features 05 and 12): an <code>id</code>, the states in the state diagram below, and a persistent record in the data directory.
+<li><strong>JOB</strong> (built, feature 12, <code>cmd/atak-dl/commands/jobs.go:101-128</code>). It has an <code>id</code>, and its state is <code>queued</code>, <code>running</code>, <code>complete</code>, <code>failed</code> or <code>cancelled</code>. The server keeps every job in the job store of the data directory (<code>jobstore.go:71-84</code>). Each line of the job store holds the job record and the job request. A queued job has a position in the queue. After a restart, a queued job goes back in the queue, and a running job becomes <code>failed</code> with the reason <code>server_restarted</code>.
 </li>
-<li><strong>AREA</strong> (built as bounds only). Planned: polygon and route buffer geometry as GeoJSON, with a zoom range for each area (feature 11).
+<li><strong>AREA</strong> (built, feature 11). Its kind is <code>bounds</code>, <code>polygon</code> or <code>route_buffer</code>, with GeoJSON geometry and a zoom range for each area. A job holds 1 to 20 areas, and the output file metadata <code>atakdl_areas</code> stores them.
 </li>
-<li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path is deleted first, and the file is deleted again on cancel. Planned: an extension per output format, no silent delete, and resume (features 07 and 10).
+<li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row <code>atakdl_source</code> names the map source. Planned: an extension per output format (feature 10).
 </li>
-<li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:29-34</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned, with no check.
+<li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:20,22</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
 </li>
-<li><strong>METADATA_ENTRY</strong> (built). Keys: <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code>, <code>maxzoom</code>. Planned: <code>center</code> and <code>attribution</code> (feature 10).
+<li><strong>METADATA_ENTRY</strong> (built). Keys: <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code>, <code>maxzoom</code>, <code>atakdl_source</code> and <code>atakdl_areas</code>. The <code>--resume</code> check reads <code>atakdl_source</code> (feature 07, #26), and it rebuilds the tile set from <code>atakdl_areas</code> (feature 11). Planned: <code>center</code> and <code>attribution</code> (feature 10).
 </li>
-<li><strong>FAILED_TILE</strong> (planned, feature 07). A table <code>atakdl_failed_tiles</code> in the output file. ATAK reads only the <code>tiles</code> and <code>metadata</code> tables, so an extra table is safe. This is inferred from ATAK-CIV <code>TilesetInfo.java</code> and is a risk item.
+<li><strong>FAILED_TILE</strong> (built, feature 07, #28). A table <code>atakdl_failed_tiles</code> in the output file. The retry pass and <code>--resume</code> request each tile in it again, except a <code>not_found</code> tile. ATAK reads only the <code>tiles</code> and <code>metadata</code> tables, so an extra table is safe. This is inferred from ATAK-CIV <code>TilesetInfo.java</code> and is a risk item.
 </li>
-<li><strong>JOB_EVENT</strong> (planned). An SSE message: <code>progress</code>, <code>state</code> or <code>log</code>.
+<li><strong>JOB_EVENT</strong> (built in memory, #76). An SSE message: <code>progress</code>, <code>state</code> or <code>log</code>. The server does not store it.
 </li>
 </ul>
 <p>Job lifecycle (planned, features 05, 07 and 12):</p>
@@ -463,25 +480,31 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
   complete --&gt; [*]</pre></div>
 <h2 id="cross-cutting-concerns">Cross-cutting concerns</h2>
 <ul>
-<li><strong>Authentication and authorization.</strong> Today there is none, and that is acceptable only on loopback. Planned (feature 12): if the server binds to an address that is not loopback, every request must carry the token. The token comes from <code>--token</code> or <code>ATAKDL_TOKEN</code>. If neither is set, the server generates one and prints it once at start.
+<li><strong>Authentication and authorization.</strong> A server on loopback needs no token. If the server binds to an address that is not loopback, every request must carry the token, except the health route and the sign-in page (built, feature 12, <code>cmd/atak-dl/commands/auth.go:111-145</code>). The token comes from <code>--token</code>, else from <code>ATAKDL_TOKEN</code>. If neither is set, the server generates one and prints it once to stderr at start (<code>serve.go:128-145</code>). A client sends the token in the <code>Authorization</code> header or in the <code>atakdl_token</code> cookie. An IP address with 10 failed attempts in one minute gets 429 <code>too_many_attempts</code>.
 </li>
-<li><strong>Cross-origin requests.</strong> Today the server sends <code>Access-Control-Allow-Origin: *</code>, and the websocket accepts any origin (<code>web.go:44,54</code>). Any web page that the user visits can start a job. Planned (feature 05): no CORS headers, and <code>http.CrossOriginProtection</code> on every state-changing route.
+<li><strong>Cross-origin requests.</strong> The server sends no CORS header (#77). <code>newServerHandler</code> wraps every route with <code>http.CrossOriginProtection</code> (<code>cmd/atak-dl/commands/web.go:56-62</code>). A cross-origin browser request that is not <code>GET</code>, <code>HEAD</code> or <code>OPTIONS</code> gets 403 <code>cross_origin</code>. The websocket and <code>/ws</code> are removed (#78).
 </li>
-<li><strong>TLS.</strong> Today <code>InsecureSkipVerify</code> is true by default (<code>internal/download/download.go:42,100</code>). Planned (feature 05): verification is on by default, and <code>--insecure</code> turns it off for one job.
+<li><strong>TLS.</strong> The engine verifies TLS certificates by default (<code>internal/download/download.go:43</code>, #75). <code>download --insecure</code> turns verification off for one job and prints a warning to stderr. The web UI shows <strong>Verify TLS</strong> checked by default (#78).
 </li>
-<li><strong>Error handling.</strong> Today handlers write hand-built JSON strings as <code>text/plain</code> (<code>web.go:179,352</code>). Planned (feature 05): every error response is <code>application/json</code> with the shape <code>{"error": {"code": "&lt;snake_case&gt;", "message": "&lt;text&gt;"}}</code>.
+<li><strong>Error handling.</strong> Every error response is <code>application/json</code> with the shape <code>{"error": {"code": "&lt;snake_case&gt;", "message": "&lt;text&gt;"}}</code> (<code>writeError</code>, <code>web.go:443-447</code>, #74). Every JSON success response sets <code>Content-Type: application/json</code>. The error codes are in <code>05-security-hardening.md</code>. The CLI prints a limit error as <code>Error: &lt;code&gt;: &lt;message&gt;</code>. It exits with code 4 for <code>too_many_tiles</code> and with code 1 for the other limit errors (#81, #29).
 </li>
-<li><strong>Validation.</strong> Planned limits:
+<li><strong>Validation and limits.</strong> Built (#81):
 <ul>
-<li>The zoom range is within the map source's zoom range.
+<li>The zoom range is within the map source's zoom range (<code>zoom_out_of_range</code>). The CLI and <code>POST /api/jobs</code> share <code>checkJobLimits</code> (<code>jobs.go:320-337</code>).
 </li>
-<li>The tile count is at most <code>--max-tiles</code>, with a default of 500,000 (feature 07).
+<li>Concurrency is from 1 to 32 (<code>invalid_concurrency</code>).
 </li>
-<li>A request body is at most 1 MiB.
+<li>A request body is at most 1 MiB (<code>body_too_large</code>, status 413, <code>limitBody</code> in <code>web.go</code>). A route that carries areas reads 5 MiB plus 64 KiB (FR-security-hardening-17).
 </li>
-<li>Concurrency is from 1 to 32.
+<li>The server sets <code>ReadHeaderTimeout</code> 10 s, <code>ReadTimeout</code> 30 s and <code>IdleTimeout</code> 120 s, and no <code>WriteTimeout</code>, because an SSE stream stays open (<code>serve.go:91-99</code>).
+</li>
+<li>A geocode result with a coordinate that is not a number gives 500 <code>internal</code>.
 </li>
 </ul>
+</li>
+</ul>
+<ul>
+<li>The tile count is at most <code>--max-tiles</code>, with a default of 500,000 (<code>too_many_tiles</code>, feature 07, #29).
 </li>
 <li><strong>Logging.</strong> <code>log/slog</code> with the text handler today. Planned: every job log line carries <code>job_id</code>, and every failed tile is logged at debug level with its URL and reason.
 </li>
@@ -531,12 +554,12 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <ul>
 <li><strong>CI secrets</strong> (names only; see <a href="../external.md">docs/external.md</a>): <code>GITHUB_TOKEN</code> (provided by Actions). No other secret is needed.
 </li>
-<li><strong>Seed and demo data.</strong> Epic 0 adds <code>testdata/</code> with three fixture source files (tile, quadkey and WMS) and a fake tile server for tests (<code>internal/testtiles</code>). The demo is <code>atak-dl download --source "OpenTopo - Opentopomap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12</code>, Mount Hood with about 60 tiles.
+<li><strong>Seed and demo data.</strong> Epic 0 added <code>testdata/</code> with three fixture source files (tile, quadkey and WMS) and a fake tile server for tests (<code>internal/testtiles</code>). The demo is <code>atak-dl download --source "OpenTopo - Opentopomap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12</code>, Mount Hood with about 60 tiles.
 </li>
 </ul>
 <h2 id="testing-strategy">Testing strategy</h2>
 <ul>
-<li><strong>Unit tests.</strong> <code>go test -race ./...</code>. Every package in <code>internal/</code> has table-driven tests. Today only <code>tilecalc</code> and <code>xmlparser</code> have tests (12 tests, all pass).
+<li><strong>Unit tests.</strong> <code>go test -race ./...</code>. Every package in <code>internal/</code> and <code>cmd/atak-dl/</code> has tests (#66, #74–#78, #81).
 </li>
 <li><strong>Integration tests.</strong> The download engine and every output writer run against <code>internal/testtiles</code>, an <code>httptest</code> tile server. The test server can return 200, 404, 429 with <code>Retry-After</code>, 503, HTML bodies and slow responses. No test calls a real tile server.
 </li>
@@ -604,21 +627,21 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <h2 id="risks-open-questions" class="callout-h">Risks &amp; open questions</h2>
 <p>Reconciliation of the existing documentation against the code (Phase 1):</p>
 <ul>
-<li><strong>Contradicted — README cross-compile.</strong> <code>README.md:37-46</code> tells users to cross-compile with <code>GOOS</code>/<code>GOARCH</code>. The <code>mattn/go-sqlite3</code> driver needs CGO, so those commands fail with no C cross-compiler. The code wins. Epic 0 fixes the driver and the README.
+<li><strong>Resolved — README cross-compile.</strong> The README told users to cross-compile with <code>GOOS</code>/<code>GOARCH</code>, and the <code>mattn/go-sqlite3</code> driver needed CGO. #63 replaced the driver, and the README now shows <code>CGO_ENABLED=0</code> builds (<code>README.md:65-77</code>).
 </li>
-<li><strong>Contradicted — "1:1 functionality matching the Python version".</strong> <code>README.md:5</code>. No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim. Epic 0 removes it.
+<li><strong>Resolved — "1:1 functionality matching the Python version".</strong> No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim, and Epic 0 removed it from the README (#71).
 </li>
-<li><strong>Contradicted — "30+ map sources".</strong> 34 files ship. 30 load. Three WMS source files are skipped with no log (<code>internal/xmlparser/xmlparser.go:129-132</code>), and one file is not a source file.
+<li><strong>Resolved — "30+ map sources".</strong> The snapshot holds 53 source files, and 52 load, including 5 WMS files (#41). <code>list-sources --skipped</code> reports the other 1, a multi-layer file, with reason <code>parse_error</code> (#37, #38).
 </li>
 <li><strong>Contradicted — "MBTiles output".</strong> The output file has a <code>.sqlite</code> extension and lacks the <code>center</code> key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
 </li>
-<li><strong>Contradicted — "Batch Delay".</strong> The web UI offers a batch delay (<code>web/index.html:127</code>). The engine never reads <code>DelayBetweenBatches</code> (<code>internal/download/download.go:28</code>).
+<li><strong>Resolved — "Batch Delay".</strong> The web UI offered a batch delay that the engine never read. #78 removed the control and <code>DelayBetweenBatches</code>.
 </li>
-<li><strong>Risk — the build fails on this machine today.</strong> On 2026-11-21, <code>go run ./cmd/atak-dl</code> failed at the CGO link step on macOS 27 (<code>ld: … tapi error: malformed file … unknown architecture</code>). The prebuilt <code>./atak-dl</code> from February still runs. Epic 0 removes CGO (ADR 0005), so this is the first sub-issue to build.
+<li><strong>Resolved — the build failed on this machine.</strong> On 2026-11-21, <code>go run ./cmd/atak-dl</code> failed at the CGO link step on macOS 27 (<code>ld: … tapi error: malformed file … unknown architecture</code>). #63 removed CGO (ADR 0005), and <code>CGO_ENABLED=0</code> builds pass in CI (#69).
 </li>
-<li><strong>Risk — a late cancel is lost.</strong> The engine checks the context only while it starts tile requests (<code>internal/download/download.go:171-184</code>). A SIGINT after the last request starts ends as a normal job, and the CLI can print "Download complete". Feature 07 fixes this (FR-robust-downloads-30).
+<li><strong>Risk — a late cancel is lost.</strong> The engine checks the context only while it starts tile requests (<code>internal/download/download.go:160-165</code>). A SIGINT after the last request starts ends as a normal job, and the CLI can print "Download complete". Feature 07 fixes this (FR-robust-downloads-30).
 </li>
-<li><strong>Risk — preview tiles can fail to show.</strong> The preview overlays set <code>crossOrigin: 'anonymous'</code> (<code>web/static/js/app.js</code>), so a tile server that sends no CORS header blocks the image. Feature 08 owns the preview rendering.
+<li><strong>Risk — preview tiles can fail to show.</strong> The preview overlays set <code>crossOrigin: 'anonymous'</code> (<code>web/static/js/app.js:621</code>), so a tile server that sends no CORS header blocks the image. Feature 08 owns the preview rendering.
 </li>
 <li><strong>Risk — ATAK format handling is inferred, not tested.</strong> The public ATAK-CIV source is archived at 4.6.0.5 (October 2024). No public source exists for ATAK 5.x, iTAK, WinTAK or TAK Aware. Each output format can fail on a newer client. Mitigation: conformance tests, plus an optional device check before v0.5.0.
 </li>
@@ -626,7 +649,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>Risk — the ATAK-Maps v2 rename.</strong> ATAK-Maps v2.0.0 renamed every map source (https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md). Scripts that pass <code>--source "Google - Satellite Only"</code> break after Epic 5. Mitigation: an alias table from old names to new names for one release.
 </li>
-<li><strong>Open question — Leaflet-Geoman license.</strong> The free edition is believed to be MIT, but the research spike did not confirm it. Epic 4 confirms the license before it vendors the library.
+<li><strong>Resolved — Leaflet-Geoman license.</strong> The <code>LICENSE</code> file in the npm tarball of the free edition 2.20.8 is MIT. #31 vendors it (ADR 0010).
 </li>
 <li><strong>Open question — WebP support in ATAK.</strong> Not verified. Re-encoding is a non-goal for v1.
 </li>
@@ -659,8 +682,8 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <p>Created by spec-to-issues on 2026-11-21. Features 01–04 are <code>built</code> and have no issues.</p>
 <div class="table-wrap"><table>
 <tr><th>Epic</th><th>Epic issue</th><th>Sub-issues</th></tr>
-<tr><td>Foundation</td><td>#4</td><td>#5, #6, #7, #8, #9, #10</td></tr>
-<tr><td>Security hardening</td><td>#11</td><td>#12, #13, #14, #15, #16, #17</td></tr>
+<tr><td>Foundation</td><td>#4</td><td>#5, #6, #7, #8, #9, #10, #68</td></tr>
+<tr><td>Security hardening</td><td>#11</td><td>#12, #13, #14, #15, #16, #17, #80</td></tr>
 <tr><td>Polite downloading</td><td>#18</td><td>#19, #20, #21, #22, #23</td></tr>
 <tr><td>Robust downloads</td><td>#24</td><td>#25, #26, #27, #28, #29</td></tr>
 <tr><td>Offline web UI</td><td>#30</td><td>#31, #32, #33, #34, #35</td></tr>
@@ -730,6 +753,148 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <li>2026-11-21: Removed the Homebrew tap from the release targets, at the maintainer's request, to make releases simpler.
 </li>
 <li>2026-11-21: Issued by spec-to-issues: 9 epics (#4, #11, #18, #24, #30, #36, #43, #50, #55) and 48 sub-issues. Epic 4 now depends on Epic 3.
+</li>
+<li>2026-11-21: Epic 0 merged into <code>develop</code> (#71). Decisions at its gates:
+<ul>
+<li>The PM added #68, so release archives include <code>mapsources/</code> until Epic 5 embeds the source files.
+</li>
+<li>The PM ruled that a function extracted to meet the lint complexity limits may have a single caller (<code>.claude/rules/quality.md</code>).
+</li>
+<li>The engine tests run with one download slot until #25 fixes the Progress data race.
+</li>
+</ul>
+</li>
+<li>2026-11-21: Updated the built features 01–04, the cross-cutting concerns, the architecture and the risks to match Epics 0 and 1 (#80). FR-foundation-1 now says <code>go 1.26.0</code> (#62). The PM accepted the error codes <code>invalid_query</code>, <code>not_found</code> and <code>method_not_allowed</code> at the #74 gate.
+</li>
+<li>2026-11-21: Epic 1 merged into <code>develop</code> (#83). Decisions at its gates:
+<ul>
+<li>The PM accepted the error codes <code>invalid_query</code>, <code>not_found</code> and <code>method_not_allowed</code> (#74).
+</li>
+<li>Every 404, not only <code>/api/</code> errors, uses the JSON error shape (#74, FR-security-hardening-22).
+</li>
+<li>The PM added #80 to bring the built feature specs up to date, and it closed #62.
+</li>
+<li>A batch-gate fix keeps a stalled SSE client from blocking a job (3bd39f2).
+</li>
+<li>The <code>tls</code> failure reason waits for the Epic 3 failure-reason field.
+</li>
+</ul>
+</li>
+<li>2026-11-21: Hotfix #72 pinned <code>sigstore/cosign-installer</code> to <code>v4.1.3</code> (#73). Pre-release <code>v0.2.0-rc.1</code> was published and verified.
+</li>
+<li>2026-11-21: Epic 2 merged into <code>develop</code> (#89). Decisions at its gates:
+<ul>
+<li>The policy table follows the real host patterns of the bundled source files, and one entry covers every pattern of one operator (#84 and the batch fix).
+</li>
+<li><code>GET /api/config</code> was added so that the web UI can hide the search box (#88).
+</li>
+<li><code>rate_limit</code> of 0 or below returns 400 <code>invalid_rate_limit</code> in the API. The CLI keeps the policy rate for 0 (#87).
+</li>
+<li><code>/api/preview</code> is viewing in the browser and needs no terms acceptance.
+</li>
+<li>The failed-job exit code goes to #29.
+</li>
+</ul>
+</li>
+<li>2026-11-21: Epic 3 merged into <code>develop</code> (#95). Decisions at its gates:
+<ul>
+<li>Output files close in rollback-journal mode, as one file with no <code>-wal</code> or <code>-shm</code>, so that ATAK can open them read-only (batch fix).
+</li>
+<li>The retry pass makes 1 attempt per tile, as feature 07 says (batch fix).
+</li>
+<li>An API resume accepts a v0.1 file without force. The code <code>invalid_if_exists</code> is new (#91).
+</li>
+<li>The progress percent clamps at 100 (#94).
+</li>
+<li>Until #34 adds the overwrite/resume choice, a repeated web UI job for the same area returns 409 <code>output_exists</code>.
+</li>
+</ul>
+</li>
+<li>2026-11-21: Epic 4 merged into <code>develop</code> (#109). Decisions at its gates:
+<ul>
+<li>The vendored-asset budget is 520 KB instead of 400 KB, so that Leaflet-Geoman (MIT, needed by Epic 7) stays (#31 ruling).
+</li>
+<li>The web UI treats the browser as offline only when <code>navigator.onLine</code> is false or the first OSM tile fails. The connection indicator tracks the server, not the internet (batch fix, which corrects the #33 gate ruling).
+</li>
+<li>A running job makes the settings, Estimate and Start read-only (batch fix).
+</li>
+<li>FR-offline-web-ui-28 now also requires an accessible name on the progress bar.
+</li>
+<li>The PM checked the web UI with Playwright and axe-core: 0 critical violations (#30).
+</li>
+</ul>
+</li>
+<li>2026-11-21: Epic 5 merged into <code>develop</code> (#111) <strong>without WMS (#41)</strong>. #41 waits on a maintainer question about the CRS of the FEMA source, and the PM shipped the rest because it stands alone. Decisions at its gates:
+<ul>
+<li>Source precedence is the snapshot, then the synced <code>atak-maps/</code>, then the user's own files. The user's own file always wins (batch fix, FR-source-sync-5).
+</li>
+<li><code>sources sync</code> changes only <code>&lt;user source directory&gt;/atak-maps/</code> (cross-check amendment, #105).
+</li>
+<li>OpenRailwayMap (#101) and CyclOSM (batch fix) are <code>restricted</code>, because their terms ban bulk use. Waymarked Trails only discourages bulk use, so it stays conditional.
+</li>
+<li>Commas also split <code>serverParts</code>. This is a superset of ATAK's whitespace split (#42).
+</li>
+<li>Pending repair: <code>/api/estimate</code> does not resolve old map source names yet.
+</li>
+</ul>
+</li>
+<li>2026-11-21: Epic 7 merged into <code>develop</code> (#122). Decisions at its gates:
+<ul>
+<li>One area-file parser, on the server. The web UI sends a file to <code>POST /api/areas/parse</code> and has no parser of its own (cross-check).
+</li>
+<li>The routes that carry areas (<code>/api/estimate</code>, <code>/api/jobs</code>, <code>/api/areas/tiles</code>, <code>/api/areas/parse</code>) accept 5 MiB. Every other route keeps 1 MiB (batch fix, FR-security-hardening-17).
+</li>
+<li>An area holds at most 20,000 vertices, and a job at most 50,000. The cap keeps the self-intersection check bounded (batch fix, FR-area-selection-30 and -31).
+</li>
+<li>The map shades an area only below 5,000 squares, as FR-area-selection-24 says (#54).
+</li>
+<li>The old-name repair for <code>/api/estimate</code> is now #123.
+</li>
+</ul>
+</li>
+<li>2026-11-21: Epic 6 merged into <code>develop</code> (#130). Decisions at its gates:
+<ul>
+<li>The <code>--resume</code> criterion for <code>.gpkg</code> moved from #44 to #47, where the GeoPackage writer lives (decomposition error).
+</li>
+<li>A user map source gets its bare file name as the MBTiles <code>attribution</code>, HTML-escaped. The full path can hold the operator's home directory (#45 rework).
+</li>
+<li>OSMDroid allows zoom 27 at most. The key fits up to zoom 29, but ATAK's <code>getOSMDroidSQLiteZoomLevel</code> rejects 28 and above (ADR 0011, #46).
+</li>
+<li>GeoPackage refuses a map source with tile type <code>webp</code> or <code>gif</code> (<code>unsupported_tile_type</code>), because GeoPackage 1.3.1 allows only PNG and JPEG tiles (batch fix).
+</li>
+<li>The three writers share one queue in <code>internal/output/sqlitequeue</code> (batch fix).
+</li>
+<li><code>--resume --data-package</code> reads the output file back out of the zip (batch fix). The job API does not do this yet (#129).
+</li>
+<li>CI installs GDAL and requires the <code>ogrinfo</code> test to run (#47).
+</li>
+</ul>
+</li>
+<li>2026-11-21: Batch #131 merged into <code>develop</code> (#134): <code>/api/estimate</code> resolves old map source names (#123), and an import moves the map to the new areas (#124).
+</li>
+<li>2026-11-21: Epic 8 merged into <code>develop</code> (#140). Decisions at its gates:
+<ul>
+<li>An IP over 10 failed token attempts in one minute gets 429 <code>too_many_attempts</code>, also with the correct token. The server does not trust <code>X-Forwarded-For</code> (#58).
+</li>
+<li>A second job queues. The <code>if_exists</code> check runs again when the job starts, and an overwrite deletes the file only then (#56).
+</li>
+<li>The <code>-2</code> suffix applies only to a name that a queued or running job holds. A file on disk keeps the <code>if_exists</code> rule. A resume that collides gives 409 <code>output_in_use</code> (#57).
+</li>
+<li><code>jobs.jsonl</code> stores the job request, never the token. A failed write is logged, and the job continues (#57).
+</li>
+<li>The image creates <code>/data</code> with <code>WORKDIR</code>, so a named volume is writable by the nonroot user without <code>chown</code>. The release workflow pushes only after a container smoke check of <code>/healthz</code> (#60).
+</li>
+<li><code>/api/files</code> serves output files only (<code>.mbtiles</code>, <code>.sqlite</code>, <code>.gpkg</code>, <code>.zip</code>), so <code>jobs.jsonl</code> is not downloadable (batch fix).
+</li>
+</ul>
+</li>
+<li>2026-11-21: WMS map sources merged into <code>develop</code> (#142). Epic 5 is complete. Decisions:
+<ul>
+<li>The maintainer chose option 1 for FR-source-sync-20. The engine requests <code>EPSG:3857</code>, and if the source file declares another CRS, it reads GetCapabilities one time for each map source. A server that does not list <code>EPSG:3857</code> stops the job with <code>unsupported_crs</code> (#41).
+</li>
+<li><code>unsupported_crs</code> is a job error only, and it is no longer a skip reason (#41).
+</li>
+</ul>
 </li>
 </ul><nav class="pager">
 <span></span>

@@ -37,25 +37,6 @@ func TestMapSource_FormatURL_BingQuadkey(t *testing.T) {
 	}
 }
 
-func TestMapSource_GetServerPart(t *testing.T) {
-	source := &MapSource{
-		ServerParts: []string{"a", "b", "c"},
-	}
-	if source.GetServerPart(0) != "a" {
-		t.Error("expected a")
-	}
-	if source.GetServerPart(1) != "b" {
-		t.Error("expected b")
-	}
-	if source.GetServerPart(3) != "a" {
-		t.Error("expected wrap to a")
-	}
-	noParts := &MapSource{ServerParts: nil}
-	if noParts.GetServerPart(0) != "" {
-		t.Error("expected empty for no server parts")
-	}
-}
-
 func TestXMLParser_DiscoverSources(t *testing.T) {
 	dir := t.TempDir()
 	createTestXML(t, dir, "test.xml", `<?xml version="1.0"?>
@@ -68,7 +49,7 @@ func TestXMLParser_DiscoverSources(t *testing.T) {
 </customMapSource>`)
 
 	parser := New(dir)
-	sources := parser.DiscoverSources(false)
+	sources := parser.DiscoverSources()
 	if len(sources) != 1 {
 		t.Fatalf("expected 1 source, got %d", len(sources))
 	}
@@ -110,8 +91,35 @@ func TestXMLParser_ValidateSource(t *testing.T) {
 func createTestXML(t *testing.T, dir, name, content string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMapSourceHostsReturnsTheDistinctHosts(t *testing.T) {
+	tests := []struct {
+		name string
+		src  MapSource
+		want []string
+	}{
+		{"returns the host of a URL with no server parts", MapSource{URL: "https://example.com/{$z}/{$x}/{$y}.png"}, []string{"example.com"}},
+		{"returns one host per server part", MapSource{URL: "https://{$serverpart}.tile.opentopomap.org/{$z}/{$x}/{$y}.png", ServerParts: []string{"a", "b"}}, []string{"a.tile.opentopomap.org", "b.tile.opentopomap.org"}},
+		{"returns a shared host once", MapSource{URL: "https://example.com/{$serverpart}/{$z}/{$x}/{$y}.png", ServerParts: []string{"a", "b"}}, []string{"example.com"}},
+		{"drops the port and lowers the letter case", MapSource{URL: "https://MT1.Google.com:8443/{$z}/{$x}/{$y}.png"}, []string{"mt1.google.com"}},
+		{"returns no host for a URL with no host", MapSource{URL: "/{$z}/{$x}/{$y}.png"}, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.src.Hosts()
+			if len(got) != len(tt.want) {
+				t.Fatalf("Hosts() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("Hosts() = %v, want %v", got, tt.want)
+				}
+			}
+		})
 	}
 }
 

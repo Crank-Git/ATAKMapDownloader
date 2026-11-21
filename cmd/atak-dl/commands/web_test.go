@@ -1,0 +1,458 @@
+package commands
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
+	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
+)
+
+const testSourceXML = `<?xml version="1.0"?>
+<customMapSource>
+    <name>Test Source</name>
+    <minZoom>0</minZoom>
+    <maxZoom>18</maxZoom>
+    <tileType>png</tileType>
+    <url>https://example.com/{$z}/{$x}/{$y}.png</url>
+</customMapSource>`
+
+// newTestHandler returns a handler whose source catalog holds the given XML files.
+func newTestHandler(t *testing.T, sourceFiles map[string]string) *WebHandler {
+	t.Helper()
+	return newDataDirHandler(t, sourceFiles, t.TempDir())
+}
+
+// newDataDirHandler returns a handler like newTestHandler, with dataDir as the data directory.
+// The handler reads the jobs.jsonl file of dataDir before its workers start.
+func newDataDirHandler(t *testing.T, sourceFiles map[string]string, dataDir string) *WebHandler {
+	t.Helper()
+	dir := t.TempDir()
+	for name, content := range sourceFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := NewWebHandler(xmlparser.New(dir), tilecalc.NewTileCalculator(), dir, testUserAgent)
+	if err := h.useDataDir(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	// One worker is the serve default (FR-team-server-2). The workers stop when the test ends.
+	h.queue.Start(t.Context(), 1)
+	return h
+}
+
+// testUserAgent has the form of FR-polite-downloading-14.
+const testUserAgent = "atak-map-downloader/test (+https://github.com/Crank-Git/ATAKMapDownloader)"
+
+func serve(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestErrorResponsesUseTheErrorShape(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		status int
+		code   string
+	}{
+		{"estimate rejects GET", http.MethodGet, "/api/estimate", "", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"estimate rejects a body that is not JSON", http.MethodPost, "/api/estimate", "{", http.StatusBadRequest, "invalid_json"},
+		{"estimate rejects three bounds values", http.MethodPost, "/api/estimate", `{"bounds":[1,2,3]}`, http.StatusBadRequest, "invalid_bounds"},
+		{"estimate rejects inverted bounds", http.MethodPost, "/api/estimate", `{"bounds":[10,10,0,0]}`, http.StatusBadRequest, "invalid_bounds"},
+		{"estimate rejects an unknown source", http.MethodPost, "/api/estimate", `{"source":"Nope","bounds":[0,0,1,1]}`, http.StatusNotFound, "unknown_source"},
+		{"tile-info rejects GET", http.MethodGet, "/api/tile-info", "", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"tile-info rejects a body that is not JSON", http.MethodPost, "/api/tile-info", "{", http.StatusBadRequest, "invalid_json"},
+		{"validate-source rejects GET", http.MethodGet, "/api/validate-source", "", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"validate-source rejects a body that is not JSON", http.MethodPost, "/api/validate-source", "{", http.StatusBadRequest, "invalid_json"},
+		{"validate-source rejects an unknown source", http.MethodPost, "/api/validate-source", `{"source_name":"Nope"}`, http.StatusNotFound, "unknown_source"},
+		{"preview rejects GET", http.MethodGet, "/api/preview", "", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"preview rejects a body that is not JSON", http.MethodPost, "/api/preview", "{", http.StatusBadRequest, "invalid_json"},
+		{"preview rejects a missing source name", http.MethodPost, "/api/preview", `{"bounds":[0,0,1,1]}`, http.StatusBadRequest, "unknown_source"},
+		{"preview rejects three bounds values", http.MethodPost, "/api/preview", `{"source":"Test Source","bounds":[1,2,3]}`, http.StatusBadRequest, "invalid_bounds"},
+		{"preview rejects an unknown source", http.MethodPost, "/api/preview", `{"source":"Nope","bounds":[0,0,1,1]}`, http.StatusNotFound, "unknown_source"},
+		{"geocode rejects GET", http.MethodGet, "/api/geocode", "", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"geocode rejects a body that is not JSON", http.MethodPost, "/api/geocode", "{", http.StatusBadRequest, "invalid_json"},
+		{"geocode rejects an empty query", http.MethodPost, "/api/geocode", `{"query":"  "}`, http.StatusBadRequest, "invalid_query"},
+		{"sources/skipped rejects POST", http.MethodPost, "/api/sources/skipped", "", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"api rejects an unknown route", http.MethodGet, "/api/nope", "", http.StatusNotFound, "not_found"},
+		{"static rejects a missing file", http.MethodGet, "/static/missing.js", "", http.StatusNotFound, "not_found"},
+		{"server rejects an unknown path", http.MethodGet, "/nope", "", http.StatusNotFound, "not_found"},
+		{"server rejects the removed websocket route", http.MethodGet, "/ws", "", http.StatusNotFound, "not_found"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := serve(h, tt.method, tt.path, tt.body)
+			if rec.Code != tt.status {
+				t.Errorf("status = %d, want %d", rec.Code, tt.status)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", ct)
+			}
+			var body struct {
+				Error *struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			dec := json.NewDecoder(rec.Body)
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&body); err != nil {
+				t.Fatalf("body does not parse as the error shape: %v", err)
+			}
+			if body.Error == nil {
+				t.Fatal("body has no error object")
+			}
+			if body.Error.Code != tt.code {
+				t.Errorf("code = %q, want %q", body.Error.Code, tt.code)
+			}
+			if body.Error.Message == "" {
+				t.Error("message is empty")
+			}
+		})
+	}
+}
+
+func TestSuccessResponsesSetTheJSONContentType(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{"sources", http.MethodGet, "/api/sources", ""},
+		{"sources/skipped", http.MethodGet, "/api/sources/skipped", ""},
+		{"estimate", http.MethodPost, "/api/estimate", `{"bounds":[0,0,1,1],"min_zoom":1,"max_zoom":2}`},
+		{"tile-info", http.MethodPost, "/api/tile-info", `{"lat":1,"lon":1,"zoom":3}`},
+		{"validate-source", http.MethodPost, "/api/validate-source", `{"source_name":"Test Source"}`},
+		{"preview", http.MethodPost, "/api/preview", `{"source":"Test Source","bounds":[0,0,1,1],"max_zoom":3}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := serve(h, tt.method, tt.path, tt.body)
+			if rec.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200", rec.Code)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", ct)
+			}
+		})
+	}
+}
+
+func TestSourcesReturnsAnEmptyArray(t *testing.T) {
+	h := newTestHandler(t, nil)
+	rec := serve(h, http.MethodGet, "/api/sources", "")
+	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
+		t.Errorf("body = %q, want []", got)
+	}
+}
+
+func TestSourcesReturnsThePolicyOfEachSource(t *testing.T) {
+	googleXML := strings.Replace(testSourceXML, "https://example.com/", "https://mt1.google.com/", 1)
+	googleXML = strings.Replace(googleXML, "Test Source", "Google Test", 1)
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "google.xml": googleXML})
+	rec := serve(h, http.MethodGet, "/api/sources", "")
+
+	var got []sourceItem
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]sourceItem{
+		"Google Test": {
+			PolicyClass:        "restricted",
+			PolicyReferenceURL: "https://developers.google.com/maps/documentation/tile/policies",
+			RequestsPerSecond:  1,
+			PolicyHost:         "*.google.com, *.googleapis.com",
+		},
+		"Test Source": {
+			PolicyClass:       "conditional",
+			RequestsPerSecond: 4,
+			PolicyHost:        "example.com",
+		},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d sources, want %d", len(got), len(want))
+	}
+	for _, item := range got {
+		w := want[item.Name]
+		if item.PolicyClass != w.PolicyClass || item.PolicyReferenceURL != w.PolicyReferenceURL ||
+			item.RequestsPerSecond != w.RequestsPerSecond || item.PolicyHost != w.PolicyHost || item.PolicyReason == "" {
+			t.Errorf("source %q = %+v, want the policy fields of %+v and a reason", item.Name, item, w)
+		}
+	}
+}
+
+func TestSourcesReturnsTheKindAndOriginOfEachSource(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	rec := serve(h, http.MethodGet, "/api/sources", "")
+
+	var got []struct {
+		Name   string `json:"name"`
+		Kind   string `json:"kind"`
+		Origin string `json:"origin"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != xmlparser.KindTile || got[0].Origin != xmlparser.OriginUser {
+		t.Errorf("GET /api/sources = %+v, want Test Source with kind tile and origin user", got)
+	}
+}
+
+func TestSourcesSkippedReturnsThePathReasonAndDetailOfEachSkippedFile(t *testing.T) {
+	multiXML := `<?xml version="1.0"?><customMultiLayerMapSource><name>Multi</name></customMultiLayerMapSource>`
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "multi.xml": multiXML})
+	rec := serve(h, http.MethodGet, "/api/sources/skipped", "")
+
+	var got []struct {
+		Path   string `json:"path"`
+		Reason string `json:"reason"`
+		Detail string `json:"detail"`
+	}
+	dec := json.NewDecoder(rec.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&got); err != nil {
+		t.Fatalf("body does not parse as [{path, reason, detail}]: %v", err)
+	}
+	if len(got) != 1 || filepath.Base(got[0].Path) != "multi.xml" || got[0].Reason != xmlparser.SkipParseError ||
+		!strings.Contains(got[0].Detail, "customMultiLayerMapSource") {
+		t.Errorf("GET /api/sources/skipped = %+v, want multi.xml with reason parse_error and the root element", got)
+	}
+}
+
+func TestSourcesSkippedReturnsAnEmptyArray(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	rec := serve(h, http.MethodGet, "/api/sources/skipped", "")
+	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
+		t.Errorf("body = %q, want []", got)
+	}
+}
+
+// The browser behavior needs a manual check, so this test proves only that the served files carry the skipped list (FR-source-sync-30).
+func TestServedAssetsHoldTheSkippedSourcesLink(t *testing.T) {
+	h := newTestHandler(t, nil)
+	tests := []struct {
+		path string
+		want []string
+	}{
+		{"/", []string{
+			`<div id="skippedSources" class="hint" hidden>`,
+			`id="skippedLink"`,
+			`<dialog id="skippedDialog"`,
+			`id="skippedList"`,
+		}},
+		{"/static/js/app.js", []string{
+			"fetch('/api/sources/skipped')",
+			"sources skipped",
+			"block.hidden = skipped.length === 0",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			body := serve(h, http.MethodGet, tt.path, "").Body.String()
+			for _, s := range tt.want {
+				if !strings.Contains(body, s) {
+					t.Errorf("%s does not contain %q", tt.path, s)
+				}
+			}
+		})
+	}
+	// The skipped list holds file paths from the server, so the code that builds it never sets innerHTML.
+	js := serve(h, http.MethodGet, "/static/js/app.js", "").Body.String()
+	start := strings.Index(js, "async loadSkippedSources()")
+	if start < 0 {
+		t.Fatal("app.js has no loadSkippedSources method")
+	}
+	end := strings.Index(js[start:], "\n    }\n")
+	if end < 0 || strings.Contains(js[start:start+end], "innerHTML") {
+		t.Error("loadSkippedSources sets innerHTML, want textContent only")
+	}
+}
+
+func TestPreviewRejectsInvertedBounds(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	// The south value is above the north value.
+	rec := serve(h, http.MethodPost, "/api/preview", `{"source":"Test Source","bounds":[0,10,1,0]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("body does not parse as the error shape: %v", err)
+	}
+	if body.Error.Code != "invalid_bounds" {
+		t.Errorf("code = %q, want invalid_bounds", body.Error.Code)
+	}
+}
+
+func TestGeocodeSendsTheUserAgentToNominatim(t *testing.T) {
+	var got string
+	nominatim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.UserAgent()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`)) // The handler test below reports a failed write as a wrong response.
+	}))
+	t.Cleanup(nominatim.Close)
+	h := newTestHandler(t, nil)
+	h.geocodeURL = nominatim.URL
+
+	rec := serve(h, http.MethodPost, "/api/geocode", `{"query":"Berlin"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/geocode returned %d, want 200: %s", rec.Code, rec.Body)
+	}
+	if got != testUserAgent {
+		t.Errorf("Nominatim got User-Agent %q, want %q", got, testUserAgent)
+	}
+}
+
+// The browser behavior needs a manual check, so this test proves only that the served files carry the dialog (FR-polite-downloading-20, 21).
+func TestServedAssetsHoldThePolicyWarningDialog(t *testing.T) {
+	h := newTestHandler(t, nil)
+	tests := []struct {
+		path string
+		want []string
+	}{
+		{"/", []string{
+			`<dialog id="policyDialog"`,
+			`id="policyAccept"`,
+			`id="policyStart"`,
+			`id="policyCancel"`,
+			`id="policyLegend"`,
+			"I accept responsibility for this download",
+		}},
+		{"/static/js/app.js", []string{
+			"request.accept_terms = true",
+			"policy_class",
+			"policy_reason",
+			"policy_reference_url",
+			"policy_host",
+			"requests_per_second",
+			".showModal()",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rec := serve(h, http.MethodGet, tt.path, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			body := rec.Body.String()
+			for _, s := range tt.want {
+				if !strings.Contains(body, s) {
+					t.Errorf("%s does not contain %q", tt.path, s)
+				}
+			}
+		})
+	}
+}
+
+const testJPGSourceXML = `<?xml version="1.0"?>
+<customMapSource>
+    <name>JPG Source</name>
+    <minZoom>0</minZoom>
+    <maxZoom>18</maxZoom>
+    <tileType>jpg</tileType>
+    <url>https://example.com/{$z}/{$x}/{$y}.jpg</url>
+</customMapSource>`
+
+// estimateResponse holds the fields of the /api/estimate response that the tests read.
+type estimateResponse struct {
+	TotalTiles      int     `json:"total_tiles"`
+	EstimatedSizeMB float64 `json:"estimated_size_mb"`
+	ZoomRange       []int   `json:"zoom_range"`
+}
+
+func postEstimate(t *testing.T, h http.Handler, body string) estimateResponse {
+	t.Helper()
+	rec := serve(h, http.MethodPost, "/api/estimate", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	var est estimateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&est); err != nil {
+		t.Fatalf("decode estimate: %v", err)
+	}
+	return est
+}
+
+func TestEstimateEncodesATypedResponse(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	rec := serve(h, http.MethodPost, "/api/estimate", `{"bounds":[0,0,1,1],"min_zoom":1,"max_zoom":2}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	// A map encodes its keys in sorted order, and a struct keeps its field order, so total_tiles comes first.
+	if want := `{"total_tiles":`; !strings.HasPrefix(rec.Body.String(), want) {
+		t.Errorf("body = %s, want the prefix %s of the typed response", rec.Body, want)
+	}
+}
+
+func TestEstimateUsesTheSizePerTileOfTheMapSource(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "jpg.xml": testJPGSourceXML})
+	tests := []struct {
+		name   string
+		source string
+		kb     float64
+	}{
+		{"uses 18 KB per tile for a jpg map source", `"source":"JPG Source",`, 18},
+		{"uses 25 KB per tile for a png map source", `"source":"Test Source",`, 25},
+		{"uses 20 KB per tile when the request names no map source", "", 20},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			est := postEstimate(t, h, `{`+tt.source+`"bounds":[0,0,1,1],"min_zoom":1,"max_zoom":8}`)
+			if est.TotalTiles == 0 {
+				t.Fatal("total_tiles = 0, so the test checks nothing")
+			}
+			if want := float64(est.TotalTiles) * tt.kb / 1024; est.EstimatedSizeMB != want {
+				t.Errorf("estimated_size_mb = %v, want %v (%d tiles at %v KB)", est.EstimatedSizeMB, want, est.TotalTiles, tt.kb)
+			}
+		})
+	}
+}
+
+func TestEstimateAndPreviewAcceptOneZoomLevel(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	est := postEstimate(t, h, `{"source":"Test Source","bounds":[0,0,1,1],"min_zoom":7,"max_zoom":7}`)
+	if len(est.ZoomRange) != 2 || est.ZoomRange[0] != 7 || est.ZoomRange[1] != 7 {
+		t.Errorf("estimate zoom_range = %v, want [7 7]", est.ZoomRange)
+	}
+	bounds, err := tilecalc.NewGeographicBounds(0, 1, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := tilecalc.NewTileCalculator().CalculateTileBounds(bounds, 7).TileCount(); est.TotalTiles != want {
+		t.Errorf("estimate total_tiles = %d, want %d, the tile count of zoom 7 only", est.TotalTiles, want)
+	}
+
+	rec := serve(h, http.MethodPost, "/api/preview", `{"source":"Test Source","bounds":[0,0,1,1],"min_zoom":7,"max_zoom":7}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	var preview struct {
+		Zoom int `json:"zoom"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&preview); err != nil {
+		t.Fatalf("decode preview: %v", err)
+	}
+	if preview.Zoom != 7 {
+		t.Errorf("preview zoom = %d, want 7", preview.Zoom)
+	}
+}

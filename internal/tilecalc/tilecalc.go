@@ -2,8 +2,10 @@
 package tilecalc
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"strings"
 )
 
 // EarthRadius is the WGS84 earth radius in meters.
@@ -36,14 +38,20 @@ func (t *TileBounds) ContainsTile(x, y int) bool {
 	return x >= t.MinX && x <= t.MaxX && y >= t.MinY && y <= t.MaxY
 }
 
-// IterTiles yields all (x, y) tile coordinates.
-func (t *TileBounds) IterTiles() <-chan [2]int {
+// IterTiles returns a channel that carries every (x, y) tile coordinate of t, row by row.
+// The producer goroutine closes the channel after the last tile, or when ctx ends.
+// A caller that stops early cancels ctx, so the producer does not stay blocked on a send.
+func (t *TileBounds) IterTiles(ctx context.Context) <-chan [2]int {
 	ch := make(chan [2]int)
 	go func() {
 		defer close(ch)
 		for y := t.MinY; y <= t.MaxY; y++ {
 			for x := t.MinX; x <= t.MaxX; x++ {
-				ch <- [2]int{x, y}
+				select {
+				case ch <- [2]int{x, y}:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()
@@ -85,14 +93,14 @@ func (g *GeographicBounds) AreaDegrees() float64 {
 
 // TileCalculator handles tile coordinate calculations.
 type TileCalculator struct {
-	EarthRadius       float64
+	EarthRadius        float64
 	EarthCircumference float64
 }
 
 // NewTileCalculator creates a new TileCalculator.
 func NewTileCalculator() *TileCalculator {
 	return &TileCalculator{
-		EarthRadius:       EarthRadius,
+		EarthRadius:        EarthRadius,
 		EarthCircumference: 2 * math.Pi * EarthRadius,
 	}
 }
@@ -164,6 +172,20 @@ func (t *TileCalculator) CalculateZoomForArea(bounds *GeographicBounds, maxTiles
 	return 18
 }
 
+// TileSizeKB returns the assumed size of one tile in KB for a tile type.
+// The values are guesses from feature 08: jpg 18 KB, png 25 KB, and 20 KB for any other type.
+// The match ignores case, and jpeg counts as jpg.
+func TileSizeKB(tileType string) float64 {
+	switch strings.ToLower(tileType) {
+	case "jpg", "jpeg":
+		return 18
+	case "png":
+		return 25
+	default:
+		return 20
+	}
+}
+
 // EstimateDownloadSize returns size estimates for tiles.
 func (t *TileCalculator) EstimateDownloadSize(b *TileBounds, avgTileSizeKB float64) map[string]interface{} {
 	count := b.TileCount()
@@ -221,13 +243,4 @@ func (t *TileCalculator) ValidateZoomRange(minZoom, maxZoom int) []string {
 func (t *TileCalculator) CalculateResolutionAtLatitude(lat float64, zoom int) float64 {
 	latRad := t.DegToRad(lat)
 	return (t.EarthCircumference * math.Cos(latRad)) / (256 * math.Pow(2, float64(zoom)))
-}
-
-// TilesIntersectGeometry checks if tile bounds intersect geographic bounds.
-func (t *TileCalculator) TilesIntersectGeometry(tileBounds *TileBounds, geoBounds *GeographicBounds) bool {
-	tileGeo := t.TileBoundsToGeographic(tileBounds)
-	return !(tileGeo.MaxLat < geoBounds.MinLat ||
-		tileGeo.MinLat > geoBounds.MaxLat ||
-		tileGeo.MaxLon < geoBounds.MinLon ||
-		tileGeo.MinLon > geoBounds.MaxLon)
 }

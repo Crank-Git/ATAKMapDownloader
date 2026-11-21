@@ -1,0 +1,227 @@
+[
+  {
+    "host_patterns": [
+      "*.google.com",
+      "*.googleapis.com"
+    ],
+    "policy_class": "restricted",
+    "requests_per_second": 1,
+    "reason": "The Google Maps Platform policies prohibit bulk download of map tiles and offline use.",
+    "reference_url": "https://developers.google.com/maps/documentation/tile/policies",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.virtualearth.net",
+      "*.bing.com"
+    ],
+    "policy_class": "restricted",
+    "requests_per_second": 1,
+    "reason": "Microsoft does not allow direct access to Bing Maps tiles from a hardcoded URL.",
+    "reference_url": "https://learn.microsoft.com/en-us/bingmaps/rest-services/directly-accessing-the-bing-maps-tiles",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.arcgisonline.com",
+      "*.arcgis.com"
+    ],
+    "policy_class": "restricted",
+    "requests_per_second": 1,
+    "reason": "The Esri terms prohibit systematic harvest of basemap tiles outside Esri Content Packages.",
+    "reference_url": "https://www.esri.com/content/dam/arcgisonline/docs/tou_summary.pdf",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "tile.openstreetmap.org",
+      "*.tile.openstreetmap.org"
+    ],
+    "policy_class": "restricted",
+    "requests_per_second": 1,
+    "reason": "The OSM tile usage policy prohibits bulk download and offline use.",
+    "reference_url": "https://operations.osmfoundation.org/policies/tiles/",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.opentopomap.org"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "OpenTopoMap allows use while mass downloads do not overload its server.",
+    "reference_url": "https://opentopomap.org/about",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.tile-cyclosm.openstreetmap.fr"
+    ],
+    "policy_class": "restricted",
+    "requests_per_second": 1,
+    "reason": "Volunteers run this tile server. The CyclOSM site serves it \"under a fairuse tile policy\", the OSMF tile policy, which says: \"Bulk downloading is any pre-emptive fetching of tiles other than those a user is actively viewing.\"",
+    "reference_url": "https://www.cyclosm.org/",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.openseamap.org"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "Volunteers run this tile server. The project publishes the chart tiles under CC BY-SA 2.0 and names no rate limit or bulk download rule.",
+    "reference_url": "https://wiki.openstreetmap.org/wiki/OpenSeaMap",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.mtbmap.cz"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "Volunteers run this tile server. The site publishes no usage policy and no rate limit.",
+    "reference_url": "https://mtbmap.cz/",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.waymarkedtrails.org"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "Volunteers run this tile server. Its usage policy allows \"moderate\" access rates and says: \"Mass download of tiles is strongly discouraged.\"",
+    "reference_url": "https://github.com/waymarkedtrails/waymarked-trails-site/blob/master/django/locale/en-gb/helppages.yaml",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.openrailwaymap.org"
+    ],
+    "policy_class": "restricted",
+    "requests_per_second": 1,
+    "reason": "Volunteers run this tile server. Its usage policy says: \"Bulk requests are forbidden.\"",
+    "reference_url": "https://wiki.openstreetmap.org/wiki/OpenRailwayMap/API",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.nationalmap.gov",
+      "*.usgs.gov"
+    ],
+    "policy_class": "open",
+    "requests_per_second": 8,
+    "reason": "The National Map services are free and in the public domain, with no restrictions.",
+    "reference_url": "https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.usda.gov"
+    ],
+    "policy_class": "open",
+    "requests_per_second": 8,
+    "reason": "NAIP imagery is in the public domain.",
+    "reference_url": "https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.blm.gov"
+    ],
+    "policy_class": "open",
+    "requests_per_second": 8,
+    "reason": "BLM data that the BLM makes available to the public is in the public domain, with no access constraint.",
+    "reference_url": "https://blm.gov/sites/blm.gov/files/uploads/IM2014-029_att1.pdf",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "sgx.geodatenzentrum.de"
+    ],
+    "policy_class": "open",
+    "requests_per_second": 8,
+    "reason": "The BKG provides basemap.de Web Raster free of charge under CC BY 4.0.",
+    "reference_url": "https://sgx.geodatenzentrum.de/public/gdz/lizenz/deu/nutzungsbedingungen_basemapde.pdf",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "openmaps.gov.bc.ca"
+    ],
+    "policy_class": "open",
+    "requests_per_second": 8,
+    "reason": "The BC Wildfire Fire Perimeters dataset is under the Open Government Licence - British Columbia, which allows copy and distribution.",
+    "reference_url": "https://catalogue.data.gov.bc.ca/dataset/bc-wildfire-fire-perimeters-current",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "api.os.uk"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "The license of this service is not verified. The OS Maps API needs an API key and allows 600 requests per minute for one key.",
+    "reference_url": "https://docs.os.uk/os-apis/core-concepts/rate-limiting-policy",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.fema.gov"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "The license of this service is not verified.",
+    "reference_url": "",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.nrcan.gc.ca"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "The license of this service is not verified.",
+    "reference_url": "",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.maanmittauslaitos.fi"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "The license of this service is not verified.",
+    "reference_url": "",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.geoportal.gov.pl"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "The license of this service is not verified.",
+    "reference_url": "",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "tiles.kartat.kapsi.fi"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "The license of this service is not verified.",
+    "reference_url": "",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "maps.geogratis.gc.ca"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "The license of this service is not verified.",
+    "reference_url": "",
+    "retrieved": "2026-11-21"
+  }
+]

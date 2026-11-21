@@ -14,10 +14,15 @@ Design lives in `docs/specs/`. Read `docs/specs/spec.md` and the relevant `docs/
 | `internal/xmlparser/` | The source file parser and `MapSource` |
 | `internal/tilecalc/` | Web Mercator tile math |
 | `internal/download/` | The download engine |
-| `internal/mbtiles/` | The MBTiles writer (becomes `internal/output/` in Epic 6) |
-| `internal/policy/`, `internal/jobs/`, `internal/server/`, `internal/testtiles/` | Planned packages. See `spec.md` § Architecture & stack |
+| `internal/mbtiles/` | The MBTiles writer |
+| `internal/output/` | The output format registry, and the `gpkg` and `osmdroid` writers. `sqlitequeue/` holds the writer core that the three formats share |
+| `internal/datapackage/` | The ATAK data package zip and manifest |
+| `internal/jobs/` | The job queue and the job store |
+| `internal/policy/` | The embedded source policy table and its host match |
+| `internal/testtiles/` | The `httptest` tile server for tests |
+| `internal/server/` | Planned package. See `spec.md` § Architecture & stack |
 | `web/` | The embedded web UI. Vendor every asset here. Load nothing from a CDN |
-| `mapsources/` | Source files (replaced by the embedded snapshot in Epic 5) |
+| `internal/snapshot/` | The embedded ATAK-Maps v2.3.1 source files, `VERSION`, `LICENSE` and `NOTICE.md` |
 | `docs/specs/`, `docs/adr/` | The spec and the decision records |
 
 ## Commands

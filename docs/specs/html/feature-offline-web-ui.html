@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Offline web UI</h1>
-<p class="meta">Epic 4: Offline web UI &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 4: Offline web UI &nbsp; <span class="badge">built</span></p>
 <h3 id="offline-web-ui-purpose">Purpose</h3>
 <p>Today the web UI loads Leaflet, leaflet-draw, Bootstrap and Font Awesome from public CDNs (<code>web/index.html:9-16,241-243</code>). With no internet the page does not work, and ATAK users often prepare maps on poor connections. The finished output file stays on the server's disk with no route to fetch it, so a browser on another machine cannot get it. Errors appear only in a small status log. A loading modal exists but is never shown (<code>web/static/js/app.js:576-581</code>).</p>
 <p>This feature vendors every asset, removes Bootstrap and Font Awesome, and adds an output file list with downloads. It adds a local base map from an output file and gives every screen its full set of states.</p>
@@ -203,7 +203,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h4 id="offline-web-ui-local-base-map">Local base map</h4>
 <ul>
-<li>FR-offline-web-ui-13 — <code>GET /api/files/{name}/tiles/{z}/{x}/{y}</code> returns one tile from an output file, with the TMS row converted from the XYZ request.
+<li>FR-offline-web-ui-13 — <code>GET /api/files/{name}/tiles/{z}/{x}/{y}</code> returns one tile from an output file through the tile reader of its output format, which reads the rows of that format (#126).
 </li>
 <li>FR-offline-web-ui-14 — The tile route returns 204 for a tile that the output file does not hold.
 </li>
@@ -239,7 +239,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-offline-web-ui-27 — The job status region has <code>aria-live="polite"</code>.
 </li>
-<li>FR-offline-web-ui-28 — The progress bar sets <code>aria-valuenow</code>, <code>aria-valuemin</code> and <code>aria-valuemax</code>.
+<li>FR-offline-web-ui-28 — The progress bar sets <code>aria-valuenow</code>, <code>aria-valuemin</code> and <code>aria-valuemax</code>. The progress bar has an accessible name (<code>aria-label</code>) (Epic 4 batch gate).
 </li>
 <li>FR-offline-web-ui-29 — The theme follows <code>prefers-color-scheme</code> until the user selects a theme.
 </li>
@@ -353,7 +353,7 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>downloading</td><td>The job panel shows the progress bar and counts. Cancel is visible. The settings are read-only.</td></tr>
 <tr><td>complete</td><td>The job panel shows the summary. The new output file is highlighted in the list.</td></tr>
 <tr><td>error</td><td>The inline banner shows the message and Retry.</td></tr>
-<tr><td>offline</td><td>The indicator is offline and the base map falls back (Flow 1). Start is disabled.</td></tr>
+<tr><td>offline</td><td>The indicator is offline. Start is disabled. The base map does not change, because the local tiles come from the same server.</td></tr>
 </table></div>
 <h3 id="offline-web-ui-behaviour-rules">Behaviour rules</h3>
 <ul>
@@ -361,7 +361,11 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The output file list is sorted by modified time, newest first.
 </li>
-<li>The vendored assets add at most 400 KB to the binary.
+<li>The base map falls back (Flow 1) when <code>navigator.onLine</code> is false or the first OpenStreetMap tile fails. The offline indicator does not change the base map, because it reports on the server that sends the local tiles.
+</li>
+<li>While a job runs, Estimate, Start and the settings are read-only. A rejected start keeps the job panel and Cancel of the running job.
+</li>
+<li>The vendored assets add at most 520 KB to the binary. The PM raised the budget from 400 KB at the #31 gate, because Leaflet and Geoman measure about 500 KB.
 </li>
 <li>The connection indicator is "connected" while the event stream or the last request succeeded, "reconnecting" while <code>EventSource</code> reconnects, and "offline" after 3 failed attempts.
 </li>
@@ -376,9 +380,9 @@ body.rv-open .layout { padding-right:21rem; }
 <h3 id="offline-web-ui-interfaces">Interfaces</h3>
 <div class="table-wrap"><table>
 <tr><th>Method</th><th>Path</th><th>Success</th><th>Errors</th></tr>
-<tr><td>GET</td><td><code>/api/files</code></td><td>200 <code>[{name, size, modified, format, source, min_zoom, max_zoom, bounds}]</code></td><td>—</td></tr>
+<tr><td>GET</td><td><code>/api/files</code></td><td>200 <code>[{name, size, modified, format, output_format, source, min_zoom, max_zoom, bounds, in_progress}]</code>. <code>format</code> is the tile format, or <code>data_package</code> for a data package. <code>output_format</code> is the output format, and it is empty for a data package.</td><td>—</td></tr>
 <tr><td>GET</td><td><code>/api/files/{name}</code></td><td>200 attachment, <code>Content-Disposition: attachment</code></td><td>404 <code>file_not_found</code></td></tr>
-<tr><td>GET</td><td><code>/api/files/{name}/tiles/{z}/{x}/{y}</code></td><td>200 image, or 204</td><td>404</td></tr>
+<tr><td>GET</td><td><code>/api/files/{name}/tiles/{z}/{x}/{y}</code></td><td>200 image, or 204</td><td>404 <code>file_not_found</code>, or 404 <code>not_found</code> for a tile outside its zoom level</td></tr>
 </table></div>
 <ul>
 <li>Leaflet 1.9.4: https://leafletjs.com/reference.html (1.9.4 reference). The release list is at https://github.com/Leaflet/Leaflet/releases.

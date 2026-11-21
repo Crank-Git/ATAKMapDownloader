@@ -21,8 +21,8 @@ The project is one Go binary, `atak-dl`. Cobra defines the subcommands
 ## Consequences
 
 - The web UI needs no separate install step.
-- The map source files are not embedded. They must sit next to the binary in
-  `mapsources/`. See ADR 0004.
+- The binary embeds a snapshot of the ATAK-Maps source files, so it needs no folder
+  next to it (Epic 5). See ADR 0004 and ADR 0008.
 - The embedded page loads its libraries from public hosts, so the binary does not work
   on a disconnected machine. The planned `offline-web-ui` feature revisits this.
 - The SQLite driver needs CGO, which breaks the cross-compile promise. See ADR 0002.

@@ -1,0 +1,96 @@
+# GoReleaser v2 configuration for the atak-dl release.
+# Reference: https://goreleaser.com/customization/ (v2.20).
+# The release workflow runs it when a v* tag is pushed (FR-foundation-21).
+version: 2
+
+project_name: atak-map-downloader
+
+builds:
+  - id: atak-dl
+    main: ./cmd/atak-dl
+    binary: atak-dl
+    env:
+      # The SQLite driver is pure Go, so the build needs no C toolchain.
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }} -X main.date={{ .Date }}
+
+# FR-foundation-19: six archives, one for each OS and architecture.
+archives:
+  - ids:
+      - atak-dl
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    # A list here replaces the default files, so README.md and LICENSE are named again.
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+# Syft writes one SPDX SBOM for each archive.
+sboms:
+  - artifacts: archive
+
+# Cosign signs keylessly with the OIDC token of the release workflow.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+
+# FR-foundation-20: one multi-arch image on gcr.io/distroless/static.
+dockers_v2:
+  - id: atak-dl
+    ids:
+      - atak-dl
+    dockerfile: Dockerfile
+    images:
+      - ghcr.io/crank-git/atak-map-downloader
+    tags:
+      - "{{ .Tag }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.source: https://github.com/Crank-Git/ATAKMapDownloader
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.licenses: MIT
+
+# Without --key, cosign signs the image keylessly.
+docker_signs:
+  - cmd: cosign
+    args:
+      - "sign"
+      - "${artifact}@${digest}"
+      - "--yes"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+release:
+  # A tag such as v0.2.0-rc.1 makes a GitHub pre-release.
+  prerelease: auto
+
+changelog:
+  sort: asc

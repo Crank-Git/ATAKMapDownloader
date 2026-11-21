@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Foundation</h1>
-<p class="meta">Epic 0: Foundation &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 0: Foundation &nbsp; <span class="badge">built</span></p>
 <h3 id="foundation-purpose">Purpose</h3>
 <p>The project builds and passes its 12 tests, but it has no CI, no lint config, no release automation and no integration branch. It also needs CGO, so the documented cross-compile commands fail. This feature adds only the missing foundation items. It does not change user-visible behavior.</p>
 <p>Audit of the Epic 0 items against the repository on 2026-11-21:</p>
@@ -182,13 +182,13 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h3 id="foundation-functional-requirements">Functional requirements</h3>
 <ul>
-<li>FR-foundation-1 — <code>go.mod</code> declares <code>go 1.26</code> and <code>toolchain go1.27.4</code>.
+<li>FR-foundation-1 — <code>go.mod</code> declares <code>go 1.26.0</code> and <code>toolchain go1.27.4</code>.
 </li>
 <li>FR-foundation-2 — The output writer uses <code>modernc.org/sqlite</code>.
 </li>
 <li>FR-foundation-3 — <code>CGO_ENABLED=0 go build ./cmd/atak-dl</code> succeeds for linux, darwin and windows on amd64 and arm64.
 </li>
-<li>FR-foundation-4 — An output file written with the new driver is byte-compatible in schema with the current output file: the same tables, columns, indexes and metadata keys.
+<li>FR-foundation-4 — An output file written with the new driver is byte-compatible in schema with the current output file: the same tables, columns, indexes and metadata keys. Epic 3 adds the table <code>atakdl_failed_tiles</code> and the metadata key <code>atakdl_source</code>, and the four original statements stay the same.
 </li>
 <li>FR-foundation-5 — <code>gofmt -l .</code> prints no file.
 </li>
@@ -300,7 +300,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The release workflow has the permissions <code>contents: write</code>, <code>packages: write</code>, <code>id-token: write</code> and <code>attestations: write</code>.
 </li>
-<li>The Docker image runs as a non-root user. It exposes port 5000 and starts <code>atak-dl serve --addr 0.0.0.0:5000</code>.
+<li>The Docker image runs as a non-root user. It exposes port 5000 and starts <code>atak-dl serve --addr 0.0.0.0:5000 --data-dir /data</code>.
 </li>
 </ul>
 <h3 id="foundation-data-touched">Data touched</h3>

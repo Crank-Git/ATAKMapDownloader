@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Security hardening</h1>
-<p class="meta">Epic 1: Security hardening &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 1: Security hardening &nbsp; <span class="badge">built</span></p>
 <h3 id="security-hardening-purpose">Purpose</h3>
 <p>Today any web page that the user visits can start a job on the local server. That is possible because the server sends <code>Access-Control-Allow-Origin: *</code> and accepts websocket connections from any origin (<code>cmd/atak-dl/commands/web.go:44,54</code>). Tile requests skip TLS verification by default (<code>internal/download/download.go:42,100</code>). Progress messages are written to one websocket from many goroutines with no lock, and gorilla/websocket does not allow that.</p>
 <p>This feature closes these gaps. It also replaces the websocket with a small job API over HTTP and SSE. The team server (feature 12) builds on that API.</p>
@@ -199,7 +199,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-security-hardening-11 — <code>DELETE /api/jobs/{id}</code> cancels a queued or running job and returns 202.
 </li>
-<li>FR-security-hardening-12 — If a job is already running, <code>POST /api/jobs</code> returns 409 with error code <code>job_running</code>. Feature 12 replaces this rule with a queue.
+<li>FR-security-hardening-12 — When a job runs, <code>POST /api/jobs</code> adds the next job to the queue of feature 12 (FR-team-server-1). Feature 12 removed the error code <code>job_running</code>.
 </li>
 <li>FR-security-hardening-13 — One goroutine per job sends events. Engine goroutines send progress through a channel to that goroutine.
 </li>
@@ -212,7 +212,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h4 id="security-hardening-limits-and-timeouts">Limits and timeouts</h4>
 <ul>
-<li>FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413.
+<li>FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413. A route that carries areas has a limit of 5 MiB plus 64 KiB, because its areas can come from a 5 MiB area file (feature 11). These routes are <code>POST /api/estimate</code>, <code>POST /api/jobs</code>, <code>POST /api/areas/parse</code> and <code>POST /api/areas/tiles</code>.
 </li>
 <li>FR-security-hardening-18 — The server sets <code>ReadHeaderTimeout</code> 10 s, <code>ReadTimeout</code> 30 s and <code>IdleTimeout</code> 120 s. The SSE route has no write timeout.
 </li>
@@ -246,11 +246,11 @@ body.rv-open .layout { padding-right:21rem; }
     S--&gt;&gt;B: 403 cross_origin
   else invalid input
     S--&gt;&gt;B: 400 error JSON
-  else a job is running
-    S--&gt;&gt;B: 409 job_running
+  else the queue is full
+    S--&gt;&gt;B: 429 queue_full
   else accepted
-    S-&gt;&gt;E: start job
-    S--&gt;&gt;B: 202 job record
+    S--&gt;&gt;B: 202 job record, state queued
+    S-&gt;&gt;E: start job when a worker is free
     B-&gt;&gt;S: GET /api/jobs/{id}/events
     loop until a final state
       E-&gt;&gt;S: progress via channel
@@ -265,9 +265,9 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The server validates the input. If the input is invalid, the server returns 400.
 </li>
-<li>If a job is running, the server returns 409.
+<li>If the queue is full, the server returns 429.
 </li>
-<li>The server starts the job and returns 202 with the job record.
+<li>The server adds the job to the queue and returns 202 with the job record. A free worker starts the job.
 </li>
 <li>The web UI opens <code>GET /api/jobs/{id}/events</code>.
 </li>
@@ -321,7 +321,9 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The <code>delay_between_batches</code> setting is removed. The engine never read it (<code>internal/download/download.go:28</code>). Feature 06 replaces it with rate limits.
 </li>
-<li>Error codes: <code>cross_origin</code>, <code>invalid_json</code>, <code>invalid_bounds</code>, <code>zoom_out_of_range</code>, <code>invalid_concurrency</code>, <code>unknown_source</code>, <code>job_running</code>, <code>job_not_found</code>, <code>body_too_large</code>, <code>internal</code>.
+<li>Error codes: <code>cross_origin</code>, <code>invalid_json</code>, <code>invalid_bounds</code>, <code>zoom_out_of_range</code>, <code>invalid_concurrency</code>, <code>unknown_source</code>, <code>job_not_found</code>, <code>invalid_if_exists</code>, <code>body_too_large</code>, <code>internal</code>, <code>invalid_query</code>, <code>not_found</code>, <code>method_not_allowed</code>. Later epics add <code>terms_not_accepted</code> and <code>invalid_rate_limit</code> (feature 06), <code>output_exists</code> and <code>too_many_tiles</code> (feature 07), <code>invalid_area</code> and <code>invalid_area_file</code> (feature 11), and <code>unauthorized</code>, <code>too_many_attempts</code>, <code>queue_full</code>, <code>invalid_state</code>, <code>invalid_label</code> and <code>output_in_use</code> (feature 12). Feature 12 removed <code>job_running</code>.
+</li>
+<li><code>invalid_query</code> is for an empty <code>/api/geocode</code> query, <code>not_found</code> is for a route that does not exist, and <code>method_not_allowed</code> comes with status 405. The PM accepted these three codes at the #74 gate.
 </li>
 </ul>
 <h3 id="security-hardening-data-touched">Data touched</h3>
@@ -334,7 +336,7 @@ body.rv-open .layout { padding-right:21rem; }
 <h3 id="security-hardening-interfaces">Interfaces</h3>
 <div class="table-wrap"><table>
 <tr><th>Method</th><th>Path</th><th>Request</th><th>Success</th><th>Errors</th></tr>
-<tr><td>POST</td><td><code>/api/jobs</code></td><td><code>{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?}</code></td><td>202 job record</td><td>400, 403, 404 <code>unknown_source</code>, 409, 413</td></tr>
+<tr><td>POST</td><td><code>/api/jobs</code></td><td><code>{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?, if_exists?}</code></td><td>202 job record</td><td>400, 403, 404 <code>unknown_source</code>, 409 <code>output_exists</code>, 413, 429 <code>queue_full</code></td></tr>
 <tr><td>GET</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>200 job record</td><td>404 <code>job_not_found</code></td></tr>
 <tr><td>GET</td><td><code>/api/jobs/{id}/events</code></td><td>—</td><td>200 <code>text/event-stream</code></td><td>404</td></tr>
 <tr><td>DELETE</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>202 job record</td><td>403, 404</td></tr>

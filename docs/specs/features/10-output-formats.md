@@ -2,7 +2,7 @@
 id: output-formats
 feature: Output formats
 epic: "Epic 6: Output formats"
-status: issued
+status: built
 issues: [43, 44, 45, 46, 47, 48, 49]
 mockups: [mockups/03-export-options.html]
 ---
@@ -137,8 +137,10 @@ States: the default (MBTiles selected, no data package), a data package with an 
 - Device locations, as shown in the help box:
   - MBTiles, OSMDroid and GeoPackage files go to `atak/imagery/`.
   - A data package goes through ATAK's Import Manager.
-- The package name allows `[A-Za-z0-9 _-]`, 1 to 64 characters. Spaces become `_` in the file name.
+- The package name allows `[A-Za-z0-9 _-]`, 1 to 64 characters, after the CLI and the API trim the spaces around it. Spaces become `_` in the file name.
 - `--data-package` with `--resume` resumes the inner output file and then rebuilds the zip.
+- If only the zip exists, a resume reads the inner output file out of the zip first. This applies to `--resume`, to `"if_exists": "resume"` and to `POST /api/jobs/{id}/resume`.
+- If that zip holds no inner output file, the CLI exits with code 3. A job of the job API ends `failed`, and its error starts with "read the output file out of". The zip stays unchanged.
 
 ## Data touched
 
@@ -159,8 +161,10 @@ States: the default (MBTiles selected, no data package), a data package with an 
 
 ## Edge cases & failures
 
-- If the OSMDroid key overflows int64 above zoom level 20, the writer refuses zoom levels above 20 for `osmdroid` with error code `zoom_out_of_range`. Check the overflow point in `OSMUtils.java` first.
+- Every output format accepts zoom levels up to 25, the zoom cap of the job (`tilecalc.MaxZoomLevel`). A job above zoom level 25 fails with error code `zoom_out_of_range` before the writer opens.
+- The OSMDroid writer also refuses zoom levels above 27 with `zoom_out_of_range`, because `OSMUtils.java` decodes no zoom level above 27. The key fits in int64 up to zoom level 29.
 - If the map source tile type is `webp`, the CLI warns that ATAK WebP support is unverified.
+- If the map source tile type is not `png`, `jpg` or `jpeg`, a `gpkg` job fails with error code `unsupported_tile_type` before the first request. GeoPackage 1.3.1 Requirements 36 and 37 allow only PNG and JPEG tile data.
 - If the zip step fails, the job ends `failed` with reason `package_failed`, and the inner output file stays.
 
 ## Acceptance criteria

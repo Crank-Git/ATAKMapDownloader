@@ -155,9 +155,9 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Source sync and WMS</h1>
-<p class="meta">Epic 5: Source sync and WMS &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 5: Source sync and WMS &nbsp; <span class="badge">built</span></p>
 <h3 id="source-sync-purpose">Purpose</h3>
-<p>Today the project reads source files from a <code>mapsources/</code> folder that must sit next to the binary. The folder is a February 2026 copy of 34 files from joshuafuller/ATAK-Maps. ATAK-Maps is now at v2.3.1 with 53 source files in a new layout (<code>maps/base/&lt;provider&gt;/</code>, <code>maps/overlays/</code>), and it renamed every map source in v2.0.0 (https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md). Some endpoints in the old copy are dead: USDA FSTopo, NAIP TNM and Finland MML were removed upstream in commit 66be333.</p>
+<p>Today the project reads source files from a <code>mapsources/</code> folder that must sit next to the binary. The folder is a February 2026 copy of 33 files from joshuafuller/ATAK-Maps. ATAK-Maps is now at v2.3.1 with 53 source files in a new layout (<code>maps/base/&lt;provider&gt;/</code>, <code>maps/overlays/</code>), and it renamed every map source in v2.0.0 (https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md). Some endpoints in the old copy are dead: USDA FSTopo, NAIP TNM and Finland MML were removed upstream in commit 66be333.</p>
 <p>The parser skips the three WMS source files with no log (<code>internal/xmlparser/xmlparser.go:129-132</code>). It splits server parts on whitespace only, although some source files use commas. It ignores <code>invertYCoordinate</code>, and the <code>serve</code> command's local <code>--mapsources-dir</code> flag shadows the global one (<code>cmd/atak-dl/commands/serve.go:21</code>).</p>
 <p>This feature embeds a pinned snapshot in the binary, adds a sync command, supports WMS, and reports every skipped source file with its reason.</p>
 <h3 id="source-sync-user-stories">User stories</h3>
@@ -182,8 +182,19 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-source-sync-4 — The source catalog loads the snapshot first. Then it loads the user source directory.
 </li>
-<li>FR-source-sync-5 — A map source from the user source directory replaces a snapshot map source with the same name.
+<li>FR-source-sync-5 — A map source of a later layer replaces a map source of an earlier layer with the same name. The layers are, in order:
+<ol>
+<li>the snapshot
 </li>
+<li>the synced files in <code>&lt;user source directory&gt;/atak-maps/</code>
+</li>
+<li>the other files in the user source directory, which are the user's own files
+</li>
+</ol>
+</li>
+</ul>
+<p>So a user's own source file always replaces a synced or snapshot file with the same name.</p>
+<ul>
 <li>FR-source-sync-6 — The user source directory is <code>--mapsources-dir</code>, and its default is <code>&lt;user config dir&gt;/atak-dl/mapsources</code>.
 </li>
 <li>FR-source-sync-7 — <code>--no-snapshot</code> loads only the user source directory.
@@ -195,11 +206,11 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h4 id="source-sync-sync-command">Sync command</h4>
 <ul>
-<li>FR-source-sync-10 — <code>atak-dl sources sync</code> downloads the latest ATAK-Maps release archive from GitHub into the user source directory.
+<li>FR-source-sync-10 — <code>atak-dl sources sync</code> downloads the latest ATAK-Maps release archive from GitHub into <code>&lt;user source directory&gt;/atak-maps/</code>.
 </li>
 <li>FR-source-sync-11 — <code>atak-dl sources sync --tag &lt;tag&gt;</code> downloads that release.
 </li>
-<li>FR-source-sync-12 — <code>sources sync</code> writes the tag and commit to <code>&lt;user source directory&gt;/VERSION</code>.
+<li>FR-source-sync-12 — <code>sources sync</code> writes the tag and commit to <code>&lt;user source directory&gt;/atak-maps/VERSION</code>.
 </li>
 <li>FR-source-sync-13 — <code>sources sync</code> extracts only <code>.xml</code> files under <code>maps/</code>, and it rejects any archive path that leaves the target directory.
 </li>
@@ -221,7 +232,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-source-sync-19 — For a WMS map source, the engine builds a GetMap request with the WMS version, layers, CRS, image format, 256×256 size and bounds of the tile.
 </li>
-<li>FR-source-sync-20 — The engine supports WMS CRS <code>EPSG:3857</code>. A WMS source file with another CRS is skipped with reason <code>unsupported_crs</code>.
+<li>FR-source-sync-20 — The engine requests WMS tiles in CRS <code>EPSG:3857</code>. If the source file declares another CRS, the engine reads the server's GetCapabilities document one time for each map source and uses <code>EPSG:3857</code> when the server lists it for the layers. If the server does not list <code>EPSG:3857</code>, the job stops before the first tile request with error <code>unsupported_crs</code>.
 </li>
 <li>FR-source-sync-21 — The parser reads <code>invertYCoordinate</code>. If it is true, the engine sends <code>(2^z - 1) - y</code> as <code>{$y}</code>.
 </li>
@@ -246,8 +257,6 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><code>missing_url</code>
 </li>
-<li><code>unsupported_crs</code>
-</li>
 <li><code>unknown_placeholder</code>
 </li>
 <li><code>duplicate_name</code>
@@ -269,7 +278,7 @@ body.rv-open .layout { padding-right:21rem; }
   A[Process start] --&gt; B{--no-snapshot?}
   B --&gt;|no| C[Load embedded snapshot]
   B --&gt;|yes| D
-  C --&gt; D[Load user source directory]
+  C --&gt; D[Load atak-maps/, then the user's own files]
   D --&gt; E{Each source file}
   E --&gt;|parses| F[Add or replace map source by name]
   E --&gt;|fails| G[Record skipped: path + reason]
@@ -279,7 +288,7 @@ body.rv-open .layout { padding-right:21rem; }
 <ol>
 <li>If the command has no <code>--no-snapshot</code>, the project loads the embedded snapshot.
 </li>
-<li>The project loads the user source directory.
+<li>The project loads <code>&lt;user source directory&gt;/atak-maps/</code>, then the other files in the user source directory.
 </li>
 <li>For each source file that parses, the project adds the map source, or it replaces the map source with the same name.
 </li>
@@ -302,7 +311,7 @@ body.rv-open .layout { padding-right:21rem; }
     G--&gt;&gt;C: release tag + archive URL
     C-&gt;&gt;G: GET archive
     C-&gt;&gt;C: extract maps/**/*.xml to a temp dir, validate paths
-    C-&gt;&gt;C: swap temp dir into the user source directory
+    C-&gt;&gt;C: swap temp dir into atak-maps/ in the user source directory
     C--&gt;&gt;U: v2.4.0: 3 added, 5 changed, 1 removed
   end</pre></div>
 <ol>
@@ -314,7 +323,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The CLI downloads the archive and extracts the XML files to a temporary directory.
 </li>
-<li>The CLI replaces the user source directory with the temporary directory.
+<li>The CLI replaces <code>&lt;user source directory&gt;/atak-maps/</code> with the temporary directory.
 </li>
 <li>The CLI prints the counts.
 </li>
@@ -330,9 +339,29 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>WMS tile bounds come from <code>tilecalc</code> for the tile at zoom level z, column x and row y, in EPSG:3857 metres.
 </li>
-<li>The WMS <code>BBOX</code> axis order for 1.3.0 with EPSG:3857 is <code>minx,miny,maxx,maxy</code>. Confirm this against the OGC WMS 1.3.0 standard before you build it.
+<li>The WMS <code>BBOX</code> axis order for 1.3.0 with EPSG:3857 is <code>minx,miny,maxx,maxy</code>. OGC WMS 1.3.0 § 6.7.4 orders <code>BBOX</code> by the axes of the CRS, and EPSG:3857 has easting first.
+</li>
+<li>WMS 1.1.1 names the CRS parameter <code>SRS</code>. WMS 1.3.0 names it <code>CRS</code>.
+</li>
+<li>The GetCapabilities request obeys the policy table like a tile request. The engine does not reproject.
 </li>
 <li><code>sources sync</code> honours the GitHub API rate limit and sends the project User-Agent from feature 06.
+</li>
+<li><code>sources sync</code> changes no file outside <code>&lt;user source directory&gt;/atak-maps/</code>. Its temporary directories in the user source directory start with <code>.atak-maps-</code>.
+</li>
+<li><code>sources sync</code> rejects an archive in these cases, and changes no file:
+<ul>
+<li>the response is larger than 64 MiB
+</li>
+<li>the entry bodies are larger than 256 MiB in total
+</li>
+<li>the archive has more than 10000 entries
+</li>
+</ul>
+</li>
+<li><code>sources sync</code> skips a symbolic link entry and every entry that is not a regular file.
+</li>
+<li><code>POST /api/validate-source</code> and <code>POST /api/preview</code> accept an old map source name. They use the new name in the response, and the server log gets the deprecation warning.
 </li>
 <li>The snapshot adds about 200 KB to the binary.
 </li>
@@ -369,6 +398,8 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>If a WMS server returns an XML exception with status 200, tile validation from feature 07 rejects it with reason <code>not_image</code>.
 </li>
+<li>If the swap of <code>atak-maps/</code> fails and the restore of the old files fails too, the old files stay in a <code>.atak-maps-kept-</code> directory. The error names that directory, and the next sync keeps it.
+</li>
 <li>If an old map source name has no v2 equivalent (for example Michelin, removed upstream), <code>--source</code> fails with "map source removed upstream in ATAK-Maps v1.10.1".
 </li>
 </ul>
@@ -378,7 +409,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><code>atak-dl list-sources --skipped</code> lists every snapshot source file that did not load, each with a reason. The loaded count plus the skipped count is 53.
 </li>
-<li>The FEMA NFHL WMS source file loads, and one tile request to a fake WMS server has <code>SERVICE=WMS</code>, <code>REQUEST=GetMap</code>, <code>LAYERS</code>, <code>CRS=EPSG:3857</code> and a <code>BBOX</code> that matches the tile.
+<li>The FEMA NFHL WMS source file loads. When a fake WMS server lists <code>EPSG:3857</code> in GetCapabilities, one tile request has <code>SERVICE=WMS</code>, <code>REQUEST=GetMap</code>, <code>LAYERS</code>, <code>CRS=EPSG:3857</code> and a <code>BBOX</code> that matches the tile. When the fake server does not list <code>EPSG:3857</code>, the job stops with <code>unsupported_crs</code> and sends no GetMap request.
 </li>
 <li>A fixture source file with <code>serverParts</code> <code>a,b,c</code> produces requests to three different hosts.
 </li>
@@ -391,6 +422,8 @@ body.rv-open .layout { padding-right:21rem; }
 <li><code>atak-dl sources sync</code> against a fake release server writes the XML files and <code>VERSION</code>, and prints the counts.
 </li>
 <li>An archive with <code>../evil.xml</code> makes <code>sources sync</code> exit 1, and the user source directory is unchanged.
+</li>
+<li>A user source file with the name of a synced map source replaces the synced map source, whether its path sorts before or after <code>atak-maps/</code>.
 </li>
 <li><code>atak-dl --mapsources-dir X serve</code> loads source files from <code>X</code>.
 </li>

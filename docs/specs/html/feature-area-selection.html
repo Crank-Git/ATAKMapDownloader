@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Area selection</h1>
-<p class="meta">Epic 7: Area selection &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 7: Area selection &nbsp; <span class="badge">built</span></p>
 <h3 id="area-selection-purpose">Purpose</h3>
 <p>Today a job covers one rectangle of bounds (<code>cmd/atak-dl/commands/download.go:24-33</code>, <code>web/static/js/app.js:69-98</code>). A trail, a river or a county boundary needs a much larger rectangle than the region the user cares about, so the job downloads many tiles that the user does not need. ATAK's own Map Manager can select by polygon, by lasso and by route buffer (ATAK 4.6 User Guide, p. 21).</p>
 <p>This feature adds polygons, GeoJSON and KML import, and route buffers. It also lets one job hold several areas, each with its own zoom range. A job downloads only the tiles that intersect an area.</p>
@@ -180,6 +180,10 @@ body.rv-open .layout { padding-right:21rem; }
 <li>FR-area-selection-4 — Each area has its own zoom range.
 </li>
 <li>FR-area-selection-5 — A job holds 1 to 20 areas.
+</li>
+<li>FR-area-selection-30 — An area holds at most 20,000 vertices. The API returns 400 <code>invalid_area</code> above the cap, and the CLI exits with code 1.
+</li>
+<li>FR-area-selection-31 — A job holds at most 50,000 vertices over all its areas. The API and the CLI reject a larger job as in FR-area-selection-30.
 </li>
 </ul>
 <h4 id="area-selection-tile-selection">Tile selection</h4>
@@ -249,7 +253,8 @@ body.rv-open .layout { padding-right:21rem; }
   B --&gt;|invalid file| X[Error banner: cannot read KML, line N]
   B --&gt;|no polygon or line| Y[Error banner: file has no area]
   B --&gt;|ok| C[Add areas to the area list, zoom range = sidebar default]
-  C --&gt; D[User sets zoom range per area]
+  C --&gt; M[Move the map to the new areas]
+  M --&gt; D[User sets zoom range per area]
   D --&gt; E[POST /api/estimate with areas]
   E --&gt; F{Unique tiles &gt; max-tiles?}
   F --&gt;|yes| Z[Estimate card warning, Start disabled]
@@ -263,6 +268,8 @@ body.rv-open .layout { padding-right:21rem; }
 <li>If the file has no polygon and no line, the web UI says that the file has no area.
 </li>
 <li>The web UI adds one area per feature to the area list.
+</li>
+<li>The web UI moves the map to show the new areas. A draw with a tool does not move the map.
 </li>
 <li>The user sets the zoom range of each area.
 </li>
@@ -338,6 +345,12 @@ body.rv-open .layout { padding-right:21rem; }
 <li>Leaflet-Geoman draw modes <code>Polygon</code> and <code>Line</code>: https://github.com/geoman-io/leaflet-geoman (vendored in feature 08).
 </li>
 <li><code>POST /api/estimate</code> response adds <code>areas: [{name, tiles}]</code> and <code>unique_tiles</code>.
+</li>
+<li><code>POST /api/areas/parse</code> reads an area file for the web UI import, so the web UI has no second parser. The body is a multipart form with the field <code>file</code>, or the file itself. The query parameters <code>min_zoom</code>, <code>max_zoom</code> and <code>buffer_m</code> set the values that the file does not set. The response is <code>{areas, warnings}</code>, with <code>areas</code> in the shape of FR-area-selection-25. A file that does not decode returns 400 <code>invalid_area_file</code>.
+</li>
+<li><code>POST /api/areas/tiles</code> returns the tiles of one area at one zoom level for the map shading (FR-area-selection-24). The body is <code>{area, zoom}</code>, with <code>area</code> in the shape of FR-area-selection-25. The response is <code>{"tiles": [[x, y], …]}</code>. At 5,000 tiles or more it returns 413 <code>too_many_tiles</code>, and the map shows the outline only. A geometry that does not validate returns 400 <code>invalid_area</code> (#54).
+</li>
+<li><code>GET /api/config</code> adds <code>max_tiles</code>, the tile cap of a job. The web UI shows the unique total in red above it (#54).
 </li>
 </ul>
 <h3 id="area-selection-edge-cases-failures">Edge cases &amp; failures</h3>

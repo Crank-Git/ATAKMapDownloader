@@ -158,7 +158,7 @@ body.rv-open .layout { padding-right:21rem; }
 <p class="meta">Existing (built) &nbsp; <span class="badge">built</span></p>
 <h3 id="tile-download-purpose">Purpose</h3>
 <p>The engine downloads every tile for the bounds and the zoom range from one map source. It writes the tiles into one SQLite output file that ATAK can import. The CLI <code>download</code> command and the web UI both start a job through the same engine (<code>internal/download/download.go</code>).</p>
-<p>This file describes the behavior that exists today. It records the defects plainly and points each defect at the planned feature that repairs it.</p>
+<p>This file describes the behavior that exists today. It records the defects plainly and points each defect at the planned feature that repairs it. A statement that an Epic 0 or Epic 1 pull request changed names that pull request, for example (#75).</p>
 <h3 id="tile-download-user-stories">User stories</h3>
 <ul>
 <li>As a solo operator, I want to download tiles from the CLI, so that a script
@@ -191,21 +191,24 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>time. The default is 5.</p>
 <ul>
-<li>FR-tile-download-3 — The engine sends the header <code>User-Agent: ATAK-Map-Downloader/1.0</code>
+<li>FR-tile-download-3 — Replaced by FR-polite-downloading-14 (#87). The engine sent the header <code>User-Agent: ATAK-Map-Downloader/1.0</code>
 </li>
 </ul>
 <p>with each tile request.</p>
 <ul>
 <li>FR-tile-download-4 — The engine stops each tile request after 30 seconds.
 </li>
-<li>FR-tile-download-5 — The engine skips TLS certificate verification unless <code>VerifySSL</code>
+<li>FR-tile-download-5 — The engine verifies TLS certificates unless <code>VerifyTLS</code> is false.
 </li>
 </ul>
-<p>is true. The default is false.</p>
+<p>The default is true (#75).</p>
 <ul>
-<li>FR-tile-download-6 — The engine makes at most 3 attempts per tile.
+<li>FR-tile-download-6 — The engine makes at most 3 attempts per tile in the main pass and
 </li>
-<li>FR-tile-download-7 — The engine waits 1 second after the first failed attempt and
+</ul>
+<p>1 in the retry pass (#28).</p>
+<ul>
+<li>FR-tile-download-7 — Replaced by FR-polite-downloading-9 and 10 (#87). The engine waited 1 second after the first failed attempt and
 </li>
 </ul>
 <p>2 seconds after the second.</p>
@@ -213,7 +216,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li>FR-tile-download-8 — The engine retries a tile after a network error or after HTTP
 </li>
 </ul>
-<p>status 403, 429 or 503.</p>
+<p>status 403, 429 or 503. The wait follows the host backoff in FR-polite-downloading-9 and 10 (#87). A 404 is recorded as <code>not_found</code> (FR-robust-downloads-25).</p>
 <ul>
 <li>FR-tile-download-9 — The engine marks a tile as failed after any other HTTP status
 </li>
@@ -223,25 +226,28 @@ body.rv-open .layout { padding-right:21rem; }
 <li>FR-tile-download-10 — The engine stores the response body of an HTTP 200 response as
 </li>
 </ul>
-<p>the tile data, unchanged.</p>
+<p>the tile data, unchanged, if the body is a valid image (#27).</p>
 <ul>
 <li>FR-tile-download-11 — The engine writes the tile row in TMS order:
 </li>
 </ul>
 <p><code>tile_row = 2^z − 1 − y</code>.</p>
 <ul>
-<li>FR-tile-download-12 — The engine deletes an output file that already exists at the
+<li>FR-tile-download-12 — The engine opens an output file that already exists at the
 </li>
 </ul>
-<p>output path before it creates the new one.</p>
+<p>output path, and it keeps the tiles that the file holds (#26).</p>
 <ul>
 <li>FR-tile-download-13 — The engine writes the metadata keys <code>name</code>, <code>type</code>, <code>version</code>,
 </li>
 </ul>
 <p><code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code> and <code>maxzoom</code>.</p>
 <ul>
-<li>FR-tile-download-14 — When the job is cancelled, the engine deletes the output file.
+<li>FR-tile-download-14 — When the job is cancelled, the engine keeps the output file and
 </li>
+</ul>
+<p>every tile it stored (#26).</p>
+<ul>
 <li>FR-tile-download-15 — If <code>IgnoreErrors</code> is false, the engine reports failure when the
 </li>
 </ul>
@@ -266,7 +272,20 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>FR-tile-download-20 — The <code>download</code> command cancels the job on SIGINT or SIGTERM.
 </li>
+<li>FR-tile-download-21 — <code>download --insecure</code> turns off TLS verification for the job and
+</li>
 </ul>
+<p>prints <code>warning: TLS certificate verification is off for this job</code> to stderr (#75).</p>
+<ul>
+<li>FR-tile-download-22 — The <code>download</code> command rejects a zoom range outside the zoom range
+</li>
+</ul>
+<p>of the map source with the error code <code>zoom_out_of_range</code> (#81).</p>
+<ul>
+<li>FR-tile-download-23 — The <code>download</code> command rejects a <code>--concurrent</code> value below 1 or
+</li>
+</ul>
+<p>above 32 with the error code <code>invalid_concurrency</code> (#81).</p>
 <h3 id="tile-download-user-flows">User flows</h3>
 <h4 id="tile-download-flow-1-the-solo-operator-runs-the-download-command">Flow 1 — The solo operator runs the <code>download</code> command</h4>
 <div class="diagram"><pre class="mermaid">flowchart TD
@@ -274,16 +293,19 @@ body.rv-open .layout { padding-right:21rem; }
     B -- no --&gt; X1[Print Source not found, exit 1]
     B -- yes --&gt; C{bounds valid?}
     C -- no --&gt; X2[Print the bounds error, exit 1]
-    C -- yes --&gt; D{min-zoom not greater than max-zoom?}
-    D -- no --&gt; X3[Print min-zoom cannot be greater than max-zoom, exit 1]
+    C -- yes --&gt; D{Zoom range and concurrency in the limits?}
+    D -- no --&gt; X3[Print Error: code: message, exit 1]
     D -- yes --&gt; E[Choose the output path]
-    E --&gt; F[Delete an old output file at that path]
+    E --&gt; W{--insecure?}
+    W -- yes --&gt; W1[Print the TLS warning to stderr]
+    W -- no --&gt; F
+    W1 --&gt; F[Delete an old output file at that path]
     F --&gt; G[Create the output file and write the metadata]
     G --&gt; H[Request the tiles and print progress]
     H --&gt; I{Result}
-    I -- SIGINT or SIGTERM --&gt; J[Delete the output file, print Download cancelled., exit 1]
-    I -- failure rate above tolerance --&gt; K[Keep the output file, print Download failed, exit 1]
-    I -- success --&gt; L[Print Download complete. Saved to PATH, exit 0]</pre></div>
+    I -- SIGINT or SIGTERM --&gt; J[Commit the stored tiles, print the stored count, exit 130]
+    I -- failure rate above tolerance --&gt; K[Keep the output file, print the summary line and the failure rate, exit 5]
+    I -- success --&gt; L[Print the summary line, exit 0]</pre></div>
 <ol>
 <li>The solo operator runs <code>atak-dl download</code> with <code>--source</code> and <code>--bbox</code>.
 </li>
@@ -294,33 +316,46 @@ body.rv-open .layout { padding-right:21rem; }
 <ol>
 <li>If the bounds are not valid, the CLI prints the error and exits with code 1.
 </li>
-<li>If <code>--min-zoom</code> is greater than <code>--max-zoom</code>, the CLI prints
+<li>The CLI checks the zoom range, <code>--concurrent</code> and the tile count with <code>checkJobLimits</code>
 </li>
 </ol>
-<p><code>min-zoom cannot be greater than max-zoom</code> and exits with code 1.</p>
-<ol>
+<p>(<code>cmd/atak-dl/commands/download.go:81-89</code>, #81, #29). If a check fails, the CLI prints <code>Error: &lt;code&gt;: &lt;message&gt;</code> with no usage text. A tile count above <code>--max-tiles</code> exits with code 4, and the other checks exit with code 1. Examples:</p>
+<ul>
+<li><code>Error: zoom_out_of_range: min_zoom 12 is above max_zoom 10</code>
+<ul>
+<li><code>Error: invalid_concurrency: concurrency 0 is outside the range 1-32</code>
+</li>
+<li><code>Error: too_many_tiles: the job has 600000 tiles, and the tile cap is 500000</code>
+</li>
+</ul>
+</li>
 <li>The CLI uses <code>--output</code>, or builds a file name in <code>./downloads</code>.
 </li>
-<li>The engine deletes any file at the output path.
+<li>If <code>--insecure</code> is set, the CLI prints the TLS warning to stderr (#75).
 </li>
-<li>The engine creates the output file and writes the metadata.
+<li>If a file exists at the output path, the CLI applies <code>--resume</code>, <code>--overwrite</code> and
+</li>
+</ul>
+<p><code>--force</code> to it (#26). With no flag, the CLI exits with code 3.</p>
+<ol>
+<li>The engine opens or creates the output file and writes the metadata.
 </li>
 <li>The engine requests the tiles. The CLI prints progress.
 </li>
-<li>If the solo operator presses Ctrl-C, the engine deletes the output file. The CLI
+<li>If the solo operator presses Ctrl-C, the engine stops its requests within 500 ms and
 </li>
 </ol>
-<p>prints <code>Download cancelled.</code>, then <code>Error: context canceled</code> and the usage text, and exits with code 1.</p>
+<p>commits the stored tiles (#29). The CLI prints <code>Cancelled. N of T tiles stored. Run again with --resume.</code> and exits with code 130.</p>
 <ol>
-<li>If the failure rate is above the failure tolerance, the CLI prints
+<li>If the failure rate is above the failure tolerance, the CLI prints the summary line,
 </li>
 </ol>
-<p><code>Download failed: failure rate N% exceeds threshold 20.0%</code> and exits with code 1. The output file stays on disk.</p>
+<p>then <code>Error: failure rate N% exceeds threshold 20.0%</code>, and exits with code 5. The output file stays on disk.</p>
 <ol>
-<li>If the job succeeds, the CLI prints <code>Download complete. Saved to PATH</code> and exits with
+<li>If the job succeeds, the CLI prints the summary line
 </li>
 </ol>
-<p>code 0.</p>
+<p><code>Done: N downloaded, N skipped, N failed in 2h41m -&gt; PATH</code> and exits with code 0.</p>
 <h4 id="tile-download-flow-2-the-engine-processes-one-tile">Flow 2 — The engine processes one tile</h4>
 <div class="diagram"><pre class="mermaid">flowchart TD
     A[Take a slot from the semaphore] --&gt; B{Job cancelled?}
@@ -335,10 +370,11 @@ body.rv-open .layout { padding-right:21rem; }
     E -- other status --&gt; I
     F --&gt; J{Insert succeeded?}
     J -- yes --&gt; K[Count the tile as downloaded and call the progress callback]
-    J -- no --&gt; I
+    J -- no --&gt; M[Log insert tile failed and count the tile as failed]
     I --&gt; L[Call the progress callback]
     K --&gt; Z
-    L --&gt; Z</pre></div>
+    L --&gt; Z
+    M --&gt; Z</pre></div>
 <ol>
 <li>The engine takes a slot from the semaphore.
 </li>
@@ -348,8 +384,11 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The engine sends a GET request.
 </li>
-<li>If the status is 200, the engine inserts the tile with the TMS row.
+<li>If the status is 200 and the body is a valid image, the engine sends the tile to the
 </li>
+</ol>
+<p>writer (#27). The writer stores the TMS row.</p>
+<ol>
 <li>If a network error or status 403, 429 or 503 occurs, the engine waits and tries again.
 </li>
 </ol>
@@ -358,27 +397,33 @@ body.rv-open .layout { padding-right:21rem; }
 <li>If any other status occurs, or the attempts run out, the engine counts the tile as
 </li>
 </ol>
-<p>failed.</p>
+<p>failed. It records the tile in <code>atakdl_failed_tiles</code>, and the retry pass requests it once more (#28).</p>
 <ol>
-<li>If the insert fails, the engine counts the tile as failed.
-</li>
-<li>The engine calls the progress callback and releases the slot.
+<li>If the insert fails, the engine logs <code>insert tile failed</code> and counts the tile as
 </li>
 </ol>
+<p>failed. It does not call the progress callback (<code>internal/download/download.go:272-276</code>).</p>
+<ol>
+<li>Otherwise, the engine calls the progress callback and releases the slot.
+</li>
+<li>After the last tile, the engine calls the progress callback once more with the final
+</li>
+</ol>
+<p>counts (<code>download.go:181-185</code>).</p>
 <h3 id="tile-download-screens-states">Screens &amp; states</h3>
 <p>CLI output of <code>download</code>:</p>
 <ul>
-<li>Running: <code>\r12.0% (605/5044) - 31.2 tiles/s - ETA: 142s</code>, written over itself.
-</li>
-<li>Success: <code>Download complete. Saved to downloads/&lt;file&gt;.sqlite</code>.
-</li>
-<li>Failure: <code>Download failed: failure rate 35.0% exceeds threshold 20.0%</code>.
-</li>
-<li>Cancelled: <code>Download cancelled.</code>, then cobra prints <code>Error: context canceled</code> and the
+<li>Running: <code>\r37.4% (44,880/120,000) - 12.1 tiles/s - 1,200 skipped - 14 failed - ETA 1h43m</code>,
 </li>
 </ul>
-<p>usage text.</p>
+<p>written over itself. The percentage counts downloaded, skipped and failed tiles (#29).</p>
 <ul>
+<li>Success: <code>Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -&gt; downloads/&lt;file&gt;.sqlite</code>.
+</li>
+<li>Failure: the summary line, then <code>Error: failure rate 35.0% exceeds threshold 20.0%</code>.
+</li>
+<li>Cancelled: <code>Cancelled. 41,200 of 120,000 tiles stored. Run again with --resume.</code>
+</li>
 <li>The engine logs <code>starting download</code>, <code>download complete</code> and each retry through slog
 </li>
 </ul>
@@ -400,6 +445,9 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The engine does not check the zoom range against the zoom range of the map source.
 </li>
+</ul>
+<p>The <code>download</code> command and <code>POST /api/jobs</code> check it before the job starts, with <code>checkJobLimits</code> (<code>cmd/atak-dl/commands/jobs.go:320-337</code>, #81).</p>
+<ul>
 <li>The engine does not limit the total tile count.
 </li>
 <li>The engine does not skip tiles that an earlier job already wrote. Every job starts a
@@ -407,10 +455,10 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>new output file.</p>
 <ul>
-<li><code>DelayBetweenBatches</code> (default 200 ms) is set in <code>Config</code>, but the engine never reads
+<li><code>Config</code> has no <code>DelayBetweenBatches</code> field. #78 removed it, because the engine never
 </li>
 </ul>
-<p>it.</p>
+<p>read it.</p>
 <ul>
 <li>The engine chooses the server part from the count of downloaded tiles at that moment.
 </li>
@@ -422,12 +470,12 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>the last.</p>
 <h3 id="tile-download-data-touched">Data touched</h3>
-<p>The output file is a SQLite file. The schema is from <code>internal/mbtiles/mbtiles.go:29-34</code>:</p>
+<p>The output file is a SQLite file. The schema is from <code>internal/mbtiles/mbtiles.go:34-37</code>:</p>
 <pre class="code"><code>CREATE TABLE metadata (name text, value text);
 CREATE TABLE tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob);
 CREATE UNIQUE INDEX name ON metadata (name);
 CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</code></pre>
-<p>Metadata rows (<code>internal/download/download.go:139-148</code>):</p>
+<p>Metadata rows (<code>internal/download/download.go:202-214</code>):</p>
 <div class="table-wrap"><table>
 <tr><th>Key</th><th>Value</th></tr>
 <tr><td><code>name</code></td><td><code>&lt;source&gt; - minLat,minLon to maxLat,maxLon</code> at 4 decimals</td></tr>
@@ -440,7 +488,7 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 <tr><td><code>maxzoom</code></td><td>the last zoom level of the request</td></tr>
 </table></div>
 <p>The metadata has no <code>center</code> key.</p>
-<p>File name (<code>download.go:304-321</code>):</p>
+<p>File name (<code>download.go:333-351</code>):</p>
 <ul>
 <li>With no custom name:
 </li>
@@ -453,7 +501,7 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 </li>
 </ul>
 <p><code>_</code>.</p>
-<p>The engine writes one autocommit <code>INSERT OR REPLACE</code> per tile. It uses one <code>*sql.DB</code> for all goroutines, with no PRAGMA settings.</p>
+<p>The tile goroutines send each tile to one writer goroutine per job (#25). The writer commits one transaction per 500 tiles, and one more when the job ends. It writes each tile with <code>INSERT OR REPLACE</code>. The driver opens the output file with <code>journal_mode=WAL</code> and <code>busy_timeout=5000</code>, so a write waits up to 5 seconds for a locked file.</p>
 <h4 id="tile-download-how-atak-reads-the-output-file">How ATAK reads the output file</h4>
 <p>ATAK detects an imagery SQLite file by the columns of its <code>tiles</code> table, not by its extension. In ATAK-CIV, a <code>tiles</code> table with exactly <code>zoom_level</code>, <code>tile_column</code>, <code>tile_row</code> and <code>tile_data</code> is the "momap" type. That type reads TMS rows and the <code>minzoom</code>, <code>maxzoom</code> and <code>format</code> keys (<a href="https://github.com/deptofdefense/AndroidTacticalAssaultKit-CIV/blob/main/takkernel/engine/src/main/java/com/atakmap/android/maps/tilesets/TilesetInfo.java">TilesetInfo.java</a>, ATAK-CIV 4.6.0.5, retrieved 2026-11-21). The output file matches that path.</p>
 <p>This conclusion comes from the archived ATAK-CIV 4.6 source code. No one has imported an output file on a device to confirm it. Current ATAK 5.x, iTAK and WinTAK behavior is not known.</p>
@@ -467,10 +515,28 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 <tr><td><code>--max-zoom</code></td><td>15</td><td></td></tr>
 <tr><td><code>--output</code></td><td>—</td><td>Full output path. Overrides the generated name</td></tr>
 <tr><td><code>--name</code></td><td>—</td><td>Custom file name without extension</td></tr>
-<tr><td><code>--concurrent</code></td><td>5</td><td>Not validated</td></tr>
+<tr><td><code>--concurrent</code></td><td>5</td><td>From 1 to 32. Another value fails with <code>invalid_concurrency</code> (#81)</td></tr>
 <tr><td><code>--ignore-errors</code></td><td>false</td><td></td></tr>
+<tr><td><code>--insecure</code></td><td>false</td><td>Turns off TLS verification for the job, with a warning (#75)</td></tr>
 </table></div>
-<p>Exit codes: 0 on success, 1 on any error, failure or cancel.</p>
+<p><code>--min-zoom</code> and <code>--max-zoom</code> must be inside the zoom range of the map source, or the command fails with <code>zoom_out_of_range</code> (#81).</p>
+<p>Exit codes (feature 07, #29):</p>
+<ul>
+<li>0: success
+</li>
+<li>1: error
+</li>
+<li>2: terms not accepted (#85)
+</li>
+<li>3: output file conflict
+</li>
+<li>4: tile cap exceeded (<code>--max-tiles</code>, default 500,000)
+</li>
+<li>5: job failed above failure tolerance
+</li>
+<li>130: cancelled
+</li>
+</ul>
 <h4 id="tile-download-module-contract">Module contract</h4>
 <p><code>internal/download</code>:</p>
 <ul>
@@ -481,121 +547,71 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 <li>`(<em>Engine).DownloadTiles(ctx, </em>MapSource, *GeographicBounds, zoomLevels []int,
 </li>
 </ul>
-<p>outputPath string, cb ProgressCallback) (bool, error)`. The callback returns false to cancel the job.</p>
+<p>outputPath string, cb ProgressCallback) (Result, error)<code>. The callback gets a copy of the progress counters, and it returns false to cancel the job. </code>Result.OK` is true when the job ends within its failure tolerance.</p>
 <ul>
 <li><code>GenerateOutputFilename(source, bounds, minZoom, maxZoom, customName) string</code>
 </li>
 <li><code>DownloadsDir() string</code>, which returns <code>./downloads</code> relative to the working directory.
 </li>
 </ul>
-<p><code>DownloadTiles</code> returns <code>(false, err)</code> for every failure. It never returns <code>(false, nil)</code>.</p>
+<p><code>DownloadTiles</code> returns <code>Result.OK</code> false and an error for every failure. It never returns <code>Result.OK</code> false with a nil error. The error is <code>write_failed</code> when the writer fails, and the engine keeps the output file.</p>
 <p><code>internal/mbtiles</code>:</p>
 <ul>
-<li><code>Create(path, metadata) (*sql.DB, error)</code>
-</li>
-<li><code>InsertTile(db, z, x, tmsY, data) error</code>
+<li><code>Open(path, metadata) (*Writer, error)</code> opens or creates the file, and it loads the
 </li>
 </ul>
-<p>The driver is <code>github.com/mattn/go-sqlite3</code> v1.14.24, which needs CGO.</p>
+<p>keys of the stored tiles. It never deletes a file. The CLI and the job API delete a file only for <code>--overwrite</code> or <code>"if_exists": "overwrite"</code> (#26).</p>
+<ul>
+<li><code>(<em>Writer).Has(z, x, y) bool</code> and <code>(</em>Writer).Put(z, x, y, data) error</code> take the XYZ
+</li>
+</ul>
+<p>row. The writer stores the TMS row.</p>
+<ul>
+<li><code>(*Writer).Close() error</code> commits the last transaction and returns the first write
+</li>
+</ul>
+<p>error. Then it runs <code>PRAGMA wal_checkpoint(TRUNCATE)</code> and <code>PRAGMA journal_mode=DELETE</code>. The output file is then one file with no <code>-wal</code> or <code>-shm</code> file, so ATAK can open it read-only.</p>
+<p>The driver is <code>modernc.org/sqlite</code> v1.62.0, a pure-Go driver, so the build needs no CGO (<code>mbtiles.go:11-12</code>, #63). See <a href="../../adr/0005-pure-go-sqlite.md">ADR 0005</a>.</p>
 <h3 id="tile-download-edge-cases-failures">Edge cases &amp; failures</h3>
 <p>What the code handles:</p>
 <ul>
 <li>Rate-limit statuses (403, 429, 503) get two retries.
 </li>
-<li>SIGINT and SIGTERM stop new tile requests and delete the partial output file.
-</li>
-<li>A failed tile insert counts as a failed tile.
+<li>SIGINT and SIGTERM stop new tile requests within 500 ms. The engine commits the stored
 </li>
 </ul>
+<p>tiles and keeps the output file (#26, #29).</p>
+<ul>
+<li>A failed tile write counts as a failed tile, and it stops the job with <code>write_failed</code>.
+</li>
+<li>TLS verification is on by default. A tile that fails verification counts as failed
+</li>
+</ul>
+<p>(#75).</p>
+<ul>
+<li><code>--concurrent</code> outside 1–32 and a zoom range outside the map source's zoom range stop
+</li>
+</ul>
+<p>the command before the job starts (#81).</p>
+<ul>
+<li>The build needs no CGO. <code>CGO_ENABLED=0</code> builds succeed for linux, darwin and windows on
+</li>
+</ul>
+<p>amd64 and arm64 (#63, #69).</p>
 <p>What the code does not handle:</p>
 <ul>
-<li><strong>TLS verification is off by default.</strong> <code>InsecureSkipVerify = true</code> unless
+<li><strong><code>serve</code> ignores the <code>os.MkdirAll</code> error for the downloads directory</strong>
 </li>
 </ul>
-<p><code>VerifySSL</code> is set (<code>download.go:100-103</code>). The CLI has no flag to turn it on.</p>
-<ul>
-<li><strong>The engine stores any HTTP 200 body as a tile.</strong> It does not check the content type
-</li>
-</ul>
-<p>or decode the image. An HTML error page or a "blocked" image goes into the output file.</p>
-<ul>
-<li><strong>The engine logs no detail for a failed tile.</strong> It counts the tile and drops the
-</li>
-</ul>
-<p>error (<code>download.go:194-200</code>).</p>
-<ul>
-<li><strong>Progress uses only the downloaded count.</strong> With any failed tile, the percentage never
-</li>
-</ul>
-<p>reaches 100, and the ETA is too long.</p>
-<ul>
-<li><strong>Data races.</strong> Many goroutines write <code>progress.CurrentTile</code>, <code>progress.CurrentURL</code>,
-</li>
-</ul>
-<p><code>progress.Downloaded</code> and <code>progress.Failed</code> with no lock (<code>download.go:191-212</code>). The CLI callback updates <code>lastPercent</code> with no lock (<code>commands/download.go:92-99</code>).</p>
-<ul>
-<li><strong>The failure path calls the callback before it updates <code>progress.Failed</code></strong>
-</li>
-</ul>
-<p>(<code>download.go:196-198</code>).</p>
-<ul>
-<li><strong>The retry waits ignore cancel.</strong> <code>time.Sleep</code> does not watch the context, and the
-</li>
-</ul>
-<p>request does not use <code>NewRequestWithContext</code>. A cancel can wait for running requests.</p>
-<ul>
-<li><strong>Retries do not read <code>Retry-After</code> and have no jitter.</strong>
-</li>
-<li><strong>A cancel leaves the tile producer goroutine blocked</strong> after <code>goto wait</code>
-</li>
-</ul>
-<p>(<code>download.go:174</code>).</p>
-<ul>
-<li><strong>A late cancel is lost.</strong> The engine checks the context only in the loop that starts
-</li>
-</ul>
-<p>tile requests (<code>download.go:171-176</code>). If the signal arrives after the last tile request starts, the job ends as a normal job. The CLI callback always returns true.</p>
-<ul>
-<li><strong>The engine deletes an existing output file with no warning</strong> (<code>mbtiles.go:18-22</code>).
-</li>
-</ul>
-<p>The generated name has no time stamp, so a repeat of the same request replaces the earlier output file.</p>
-<ul>
-<li><strong>A cancel throws away every tile already fetched.</strong> There is no resume.
-</li>
-<li><strong><code>--concurrent 0</code> blocks forever.</strong> The semaphore has no capacity. A negative value
-</li>
-</ul>
-<p>makes <code>make(chan)</code> panic.</p>
-<ul>
-<li><strong>No limit on the tile count or the zoom range.</strong>
-</li>
-<li><strong><code>os.MkdirAll</code> errors are ignored</strong> (<code>commands/download.go:79</code>).
-</li>
-<li><strong>The CLI prints <code>Error: context canceled</code> and the usage text after a cancel</strong>, because
-</li>
-</ul>
-<p><code>SilenceUsage</code> is not set.</p>
-<ul>
-<li><strong>The CGO dependency breaks cross-compiles.</strong> The README shows plain <code>GOOS</code>/<code>GOARCH</code>
-</li>
-</ul>
-<p>builds, which fail or produce a binary with no SQLite. On the maintainer's macOS 27 machine, <code>go run ./cmd/atak-dl</code> fails to link today: <code>ld: multiple errors: tapi error: malformed file ... unknown architecture</code>.</p>
-<ul>
-<li><strong>Rate limits do not exist.</strong> The engine sends requests as fast as the semaphore
-</li>
-</ul>
-<p>allows.</p>
+<p>(<code>commands/serve.go:53</code>). <code>mbtiles.Open</code> creates the directory again and returns the error, so a job reports it.</p>
 <p>Known defects and the planned feature that repairs each:</p>
 <div class="table-wrap"><table>
 <tr><th>Defect</th><th>Repaired by</th></tr>
-<tr><td>TLS off by default</td><td><code>security-hardening</code> (05)</td></tr>
-<tr><td>No rate limit, no <code>Retry-After</code>, fixed User-Agent, unused <code>DelayBetweenBatches</code></td><td><code>polite-downloading</code> (06)</td></tr>
+<tr><td>No rate limit, no <code>Retry-After</code>, fixed User-Agent</td><td><code>polite-downloading</code> (06)</td></tr>
 <tr><td>No check of tile content, no failed-tile log, no resume, no tile cap</td><td><code>robust-downloads</code> (07)</td></tr>
 <tr><td>Silent delete of an existing output file, delete on cancel</td><td><code>robust-downloads</code> (07)</td></tr>
-<tr><td>Data races, cancel that ignores retry waits, <code>--concurrent 0</code></td><td><code>robust-downloads</code> (07)</td></tr>
+<tr><td>Data races, cancel that ignores retry waits</td><td><code>robust-downloads</code> (07)</td></tr>
 <tr><td>Progress that never reaches 100 with failures</td><td><code>robust-downloads</code> (07)</td></tr>
-<tr><td>CGO driver and broken cross-compiles</td><td><code>foundation</code> (00)</td></tr>
 <tr><td>No <code>center</code> key, no other output formats</td><td><code>output-formats</code> (10)</td></tr>
 </table></div>
 <h3 id="tile-download-acceptance-criteria">Acceptance criteria</h3>
@@ -614,15 +630,20 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 </ul>
 <p><code>format</code>, <code>bounds</code>, <code>minzoom</code> and <code>maxzoom</code>.</p>
 <ul>
-<li>[ ] Ctrl-C during a job prints <code>Download cancelled.</code>, leaves no output file and exits
+<li>[ ] Ctrl-C during a job prints <code>Cancelled. N of T tiles stored. Run again with --resume.</code>,
 </li>
 </ul>
-<p>with code 1.</p>
+<p>keeps the output file and exits with code 130 (#29).</p>
 <ul>
 <li>[ ] <code>atak-dl download --source="USGS - Usgsbasemap" --bbox=40.75,-74.0,40.76,-73.99 --min-zoom=12 --max-zoom=10</code>
 </li>
 </ul>
-<p>prints <code>min-zoom cannot be greater than max-zoom</code> and exits with code 1.</p>
+<p>prints <code>Error: zoom_out_of_range: min_zoom 12 is above max_zoom 10</code> and exits with code 1 (#81).</p>
+<ul>
+<li>[ ] <code>atak-dl download --insecure</code> prints
+</li>
+</ul>
+<p><code>warning: TLS certificate verification is off for this job</code> to stderr (#75).</p>
 <h3 id="tile-download-out-of-scope">Out of scope</h3>
 <ul>
 <li>WMS map sources.

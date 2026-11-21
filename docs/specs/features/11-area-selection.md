@@ -2,7 +2,7 @@
 id: area-selection
 feature: Area selection
 epic: "Epic 7: Area selection"
-status: issued
+status: built
 issues: [50, 51, 52, 53, 54]
 mockups: [mockups/02-area-tools.html]
 ---
@@ -28,6 +28,8 @@ This feature adds polygons, GeoJSON and KML import, and route buffers. It also l
 - FR-area-selection-3 — A `route_buffer` area is a GeoJSON LineString or MultiLineString plus `buffer_m`, from 10 to 50,000.
 - FR-area-selection-4 — Each area has its own zoom range.
 - FR-area-selection-5 — A job holds 1 to 20 areas.
+- FR-area-selection-30 — An area holds at most 20,000 vertices. The API returns 400 `invalid_area` above the cap, and the CLI exits with code 1.
+- FR-area-selection-31 — A job holds at most 50,000 vertices over all its areas. The API and the CLI reject a larger job as in FR-area-selection-30.
 
 ### Tile selection
 
@@ -75,7 +77,8 @@ flowchart TD
   B -->|invalid file| X[Error banner: cannot read KML, line N]
   B -->|no polygon or line| Y[Error banner: file has no area]
   B -->|ok| C[Add areas to the area list, zoom range = sidebar default]
-  C --> D[User sets zoom range per area]
+  C --> M[Move the map to the new areas]
+  M --> D[User sets zoom range per area]
   D --> E[POST /api/estimate with areas]
   E --> F{Unique tiles > max-tiles?}
   F -->|yes| Z[Estimate card warning, Start disabled]
@@ -87,10 +90,11 @@ flowchart TD
 2. If the file is invalid, the web UI shows the parse error.
 3. If the file has no polygon and no line, the web UI says that the file has no area.
 4. The web UI adds one area per feature to the area list.
-5. The user sets the zoom range of each area.
-6. The web UI requests an estimate.
-7. If the unique tile count is above the tile cap, the web UI disables **Start**.
-8. The user selects **Start**, and the web UI sends the job with the areas.
+5. The web UI moves the map to show the new areas. A draw with a tool does not move the map.
+6. The user sets the zoom range of each area.
+7. The web UI requests an estimate.
+8. If the unique tile count is above the tile cap, the web UI disables **Start**.
+9. The user selects **Start**, and the web UI sends the job with the areas.
 
 ### Flow 2 — A route buffer from the CLI
 
@@ -148,6 +152,9 @@ Regions: the area toolbar, the import drop zone, the area list and the shaded ti
 - Geometry library: pick a maintained Go library for GeoJSON decoding (for example `github.com/paulmach/orb`). Read its current docs and license before you add it, and record the choice in an ADR.
 - Leaflet-Geoman draw modes `Polygon` and `Line`: https://github.com/geoman-io/leaflet-geoman (vendored in feature 08).
 - `POST /api/estimate` response adds `areas: [{name, tiles}]` and `unique_tiles`.
+- `POST /api/areas/parse` reads an area file for the web UI import, so the web UI has no second parser. The body is a multipart form with the field `file`, or the file itself. The query parameters `min_zoom`, `max_zoom` and `buffer_m` set the values that the file does not set. The response is `{areas, warnings}`, with `areas` in the shape of FR-area-selection-25. A file that does not decode returns 400 `invalid_area_file`.
+- `POST /api/areas/tiles` returns the tiles of one area at one zoom level for the map shading (FR-area-selection-24). The body is `{area, zoom}`, with `area` in the shape of FR-area-selection-25. The response is `{"tiles": [[x, y], …]}`. At 5,000 tiles or more it returns 413 `too_many_tiles`, and the map shows the outline only. A geometry that does not validate returns 400 `invalid_area` (#54).
+- `GET /api/config` adds `max_tiles`, the tile cap of a job. The web UI shows the unique total in red above it (#54).
 
 ## Edge cases & failures
 

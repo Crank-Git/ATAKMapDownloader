@@ -157,8 +157,8 @@ body.rv-open .layout { padding-right:21rem; }
 <h1>Feature: Map source catalog</h1>
 <p class="meta">Existing (built) &nbsp; <span class="badge">built</span></p>
 <h3 id="map-sources-purpose">Purpose</h3>
-<p>The source catalog tells the project which tile servers it can read. Each map source comes from one MOBAC XML source file in the <code>mapsources/</code> directory. The CLI and the web UI read the same source catalog, so a map source that loads is available everywhere.</p>
-<p>This file describes the behavior that exists today. It records the defects plainly and points each defect at the planned feature that repairs it.</p>
+<p>The source catalog tells the project which tile servers it can read. Each map source comes from one MOBAC XML source file in the embedded snapshot or in the user source directory. The CLI and the web UI read the same source catalog, so a map source that loads is available everywhere.</p>
+<p>This file describes the behavior that exists today. It records the defects plainly and points each defect at the feature that repairs it. Feature 09 (<code>09-source-sync.md</code>) holds the snapshot, the sync command and the precedence of the source files.</p>
 <h3 id="map-sources-user-stories">User stories</h3>
 <ul>
 <li>As a solo operator, I want to list the map sources, so that I can choose one by name.
@@ -174,10 +174,10 @@ body.rv-open .layout { padding-right:21rem; }
 <p>use a new tile server.</p>
 <h3 id="map-sources-functional-requirements">Functional requirements</h3>
 <ul>
-<li>FR-map-sources-1 — The project reads the source catalog from the directory that the
+<li>FR-map-sources-1 — The project reads the source catalog from the embedded snapshot and
 </li>
 </ul>
-<p><code>--mapsources-dir</code> flag names. The default directory is <code>mapsources</code>.</p>
+<p>from the user source directory that <code>--mapsources-dir</code> names. The default directory is <code>&lt;user config dir&gt;/atak-dl/mapsources</code> (FR-source-sync-4 to -7).</p>
 <ul>
 <li>FR-map-sources-2 — The project walks the directory recursively and reads every file
 </li>
@@ -215,10 +215,10 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-map-sources-10 — If <code>backgroundColor</code> is empty, the project sets it to <code>#000000</code>.
 </li>
-<li>FR-map-sources-11 — The project splits <code>serverParts</code> on white space into a list of
+<li>FR-map-sources-11 — The project splits <code>serverParts</code> on white space and on commas into
 </li>
 </ul>
-<p>server parts.</p>
+<p>a list of server parts (FR-source-sync-22).</p>
 <ul>
 <li>FR-map-sources-12 — The project identifies each map source by its trimmed <code>name</code>.
 </li>
@@ -232,12 +232,12 @@ body.rv-open .layout { padding-right:21rem; }
 <li>FR-map-sources-15 — The project substitutes <code>{$serverpart}</code> with the server part that
 </li>
 </ul>
-<p>the caller supplies. With no supplied server part, it uses the first server part.</p>
+<p>the caller supplies. With no supplied server part, it uses the server part of the tile key, <code>(x + y) mod len(serverParts)</code> (FR-source-sync-23).</p>
 <ul>
-<li>FR-map-sources-16 — The project keeps the parsed source catalog in memory. It scans
+<li>FR-map-sources-16 — The project reads the snapshot and the user source directory on
 </li>
 </ul>
-<p>again only when the modification time of the root directory is newer than the last scan.</p>
+<p>each call for the source catalog. It keeps no cache.</p>
 <ul>
 <li>FR-map-sources-17 — The <code>list-sources</code> command prints each map source, sorted by name,
 </li>
@@ -273,51 +273,48 @@ body.rv-open .layout { padding-right:21rem; }
 <h3 id="map-sources-user-flows">User flows</h3>
 <h4 id="map-sources-flow-1-the-project-loads-the-source-catalog">Flow 1 — The project loads the source catalog</h4>
 <div class="diagram"><pre class="mermaid">flowchart TD
-    A[Caller asks for the source catalog] --&gt; B{Root directory exists?}
-    B -- no --&gt; C[Return the cached source catalog, which can be empty]
-    B -- yes --&gt; D{Cache filled and directory mtime not newer than last scan?}
-    D -- yes --&gt; E[Return the cached source catalog]
-    D -- no --&gt; F[Walk the directory for .xml files]
-    F --&gt; G{Root element is customMapSource?}
-    G -- no --&gt; H[Skip the source file with no message]
-    G -- yes --&gt; I{name and url present?}
-    I -- no --&gt; J[Log the warning missing required fields and skip]
-    I -- yes --&gt; K[Apply the defaults and add the map source by name]
-    H --&gt; F
-    J --&gt; F
-    K --&gt; F
-    F -- walk done --&gt; L[Store the new source catalog and the scan time]
-    L --&gt; E</pre></div>
+    A[Caller asks for the source catalog] --&gt; B[Read the snapshot]
+    B --&gt; C[Read atak-maps/ in the user source directory]
+    C --&gt; D[Read the user's own files]
+    D --&gt; E{Each source file}
+    E -- root element is not customMapSource --&gt; F[Record skipped: parse_error]
+    E -- name or url empty --&gt; G[Record skipped: missing_name or missing_url]
+    E -- valid --&gt; H[Apply the defaults and add or replace the map source by name]
+    F --&gt; I[Return the source catalog]
+    G --&gt; I
+    H --&gt; I</pre></div>
 <ol>
 <li>A command or a server route asks for the source catalog.
 </li>
-<li>If the root directory does not exist, the project returns the cached source catalog.
-</li>
-</ol>
-<p>On the first call, the cached source catalog is empty.</p>
+<li>The project reads the layers in this order:
 <ol>
-<li>If the cache is filled and the directory modification time is not newer than the
+<li>the embedded snapshot, unless the command has <code>--no-snapshot</code>
+</li>
+<li><code>&lt;user source directory&gt;/atak-maps/</code>
+</li>
+<li>the other files in the user source directory
 </li>
 </ol>
-<p>last scan, the project returns the cached source catalog.</p>
+</li>
+<li>If the root element is not <code>&lt;customMapSource&gt;</code>, the project records the source file
+</li>
+</ol>
+<p>as skipped with reason <code>parse_error</code>.</p>
 <ol>
-<li>The project walks the directory and reads each <code>.xml</code> source file.
-</li>
-<li>If the root element is not <code>&lt;customMapSource&gt;</code>, the project skips the source file and
+<li>If <code>name</code> or <code>url</code> is empty, the project records the source file as skipped with
 </li>
 </ol>
-<p>shows no message.</p>
+<p>reason <code>missing_name</code> or <code>missing_url</code>.</p>
 <ol>
-<li>If <code>name</code> or <code>url</code> is empty, the project logs <code>missing required fields</code> and skips the
+<li>The project applies the defaults and adds the map source under its name. A map source
 </li>
 </ol>
-<p>source file.</p>
+<p>of a later layer replaces a map source of the same name (FR-source-sync-5).</p>
 <ol>
-<li>The project applies the defaults and adds the map source under its name.
-</li>
-<li>The project stores the new source catalog and the scan time, then returns it.
+<li>The project returns the source catalog. A missing user source directory adds no map
 </li>
 </ol>
+<p>source.</p>
 <h4 id="map-sources-flow-2-the-solo-operator-validates-a-map-source">Flow 2 — The solo operator validates a map source</h4>
 <div class="diagram"><pre class="mermaid">flowchart TD
     A[atak-dl validate-source --source NAME] --&gt; B{Map source found?}
@@ -352,24 +349,22 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>CLI output of <code>validate-source</code>. See Flow 2.
 </li>
-<li>The source picker <code>&lt;select id="mapSourceSelect"&gt;</code> in <code>web/index.html:36</code>, filled by
+<li>The source picker <code>&lt;select id="mapSourceSelect"&gt;</code> in <code>web/index.html</code>, filled by
 </li>
 </ul>
-<p><code>populateSourceSelect</code> in <code>web/static/js/app.js:200</code>. Loading state: <code>Loading sources...</code>. Populated state: one option per map source as <code>name (format) - Zoom min-max</code>. Error state: a status log line only. See <code>04-web-ui.md</code>.</p>
+<p><code>populateSourceSelect</code> in <code>web/static/js/app.js</code>. Loading state: <code>Loading sources...</code>. Populated state: one option per map source as <code>name (format) - Zoom min-max</code>. Error state: a status log line only. See <code>04-web-ui.md</code>.</p>
 <h3 id="map-sources-behaviour-rules">Behaviour rules</h3>
 <ul>
-<li>The source catalog holds one map source per name. When two source files have the same
+<li>The source catalog holds one map source per name. A map source of a later layer
 </li>
 </ul>
-<p>name, the source file that the walk reads last replaces the earlier one with no message.</p>
+<p>replaces a map source of the same name from an earlier layer, so the user's own file always wins (FR-source-sync-5).</p>
 <ul>
-<li>The cache check uses only the modification time of the root directory. An edit to a
+<li>In one directory of one layer, the second source file with a name is skipped with
 </li>
 </ul>
-<p>source file inside a subdirectory does not change that time.</p>
+<p>reason <code>duplicate_name</code> (FR-source-sync-31).</p>
 <ul>
-<li>When the source catalog is empty, the cache check always scans again.
-</li>
 <li><code>tileType</code> keeps the letter case of the source file. Two shipped source files use
 </li>
 </ul>
@@ -382,19 +377,22 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li><code>tileUpdate</code> and <code>backgroundColor</code> are display values only. No other code reads them.
 </li>
-<li>The <code>serve</code> command defines its own <code>--mapsources-dir</code> flag (<code>serve.go:21</code>). That flag
+<li><code>serve</code> uses the root <code>--mapsources-dir</code> flag and defines no local copy of it
 </li>
 </ul>
-<p>hides the root flag, so <code>atak-dl --mapsources-dir=X serve</code> uses <code>mapsources</code>.</p>
+<p>(FR-source-sync-9).</p>
 <ul>
-<li>The default slog level is Info. The skip messages for unparsable source files log at
+<li><code>list-sources --skipped</code>, <code>GET /api/sources/skipped</code> and the web UI show each skipped
 </li>
 </ul>
-<p>Debug level, so the solo operator does not see them.</p>
+<p>source file with its reason (FR-source-sync-26 to -30).</p>
 <h3 id="map-sources-data-touched">Data touched</h3>
 <ul>
-<li>Reads: every <code>*.xml</code> file under the source directory.
+<li>Reads: every <code><em>.xml</code> file under <code>maps/</code> in the snapshot, and every <code></em>.xml</code> file under
 </li>
+</ul>
+<p>the user source directory.</p>
+<ul>
 <li>Writes: nothing on disk.
 </li>
 <li>In memory, the <code>MapSource</code> struct (<code>internal/xmlparser/xmlparser.go:16</code>):
@@ -410,41 +408,49 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td><code>TileUpdate</code></td><td>string</td><td><code>tileUpdate</code></td><td><code>None</code></td></tr>
 <tr><td><code>BackgroundColor</code></td><td>string</td><td><code>backgroundColor</code></td><td><code>#000000</code></td></tr>
 <tr><td><code>IgnoreErrors</code></td><td>bool</td><td><code>ignoreErrors</code></td><td>false</td></tr>
-<tr><td><code>ServerParts</code></td><td>[]string</td><td><code>serverParts</code>, split on white space</td><td>empty</td></tr>
+<tr><td><code>ServerParts</code></td><td>[]string</td><td><code>serverParts</code>, split on white space and commas</td><td>empty</td></tr>
+<tr><td><code>InvertYCoordinate</code></td><td>bool</td><td><code>invertYCoordinate</code> is exactly <code>true</code></td><td>false</td></tr>
+<tr><td><code>Kind</code></td><td>string</td><td>the root element</td><td><code>tile</code></td></tr>
+<tr><td><code>Origin</code></td><td>string</td><td>the layer of the source file</td><td><code>snapshot</code> or <code>user</code></td></tr>
 </table></div>
-<p>The shipped <code>mapsources/</code> directory holds 33 source files from <a href="https://github.com/joshuafuller/ATAK-Maps">joshuafuller/ATAK-Maps</a> (MIT), copied on 2026-02-06. Three of them use <code>&lt;customWmsMapSource&gt;</code>, so 30 load.</p>
+<p>The binary embeds the 53 source files of <a href="https://github.com/joshuafuller/ATAK-Maps">joshuafuller/ATAK-Maps</a> v2.3.1 (MIT). Five of them use <code>&lt;customWmsMapSource&gt;</code> and one uses <code>&lt;customMultiLayerMapSource&gt;</code>, so 47 load.</p>
 <h3 id="map-sources-interfaces">Interfaces</h3>
 <h4 id="map-sources-cli">CLI</h4>
 <div class="table-wrap"><table>
 <tr><th>Command</th><th>Flags</th><th>Output</th><th>Exit code</th></tr>
-<tr><td><code>atak-dl list-sources</code></td><td><code>--mapsources-dir</code> (root flag, default <code>mapsources</code>)</td><td>See Screens &amp; states</td><td>0</td></tr>
+<tr><td><code>atak-dl list-sources</code></td><td><code>--mapsources-dir</code> (root flag, default <code>&lt;user config dir&gt;/atak-dl/mapsources</code>)</td><td>See Screens &amp; states</td><td>0</td></tr>
 <tr><td><code>atak-dl validate-source</code></td><td><code>--source</code> (required)</td><td>See Flow 2</td><td>0 valid, 1 not found or invalid</td></tr>
 </table></div>
 <h4 id="map-sources-http">HTTP</h4>
-<p><code>GET /api/sources</code> (<code>cmd/atak-dl/commands/web.go:136</code>). Any method is accepted.</p>
-<pre class="code"><code>[{"name": "Google - Satellite Only", "url": "https://...{$x}...", "min_zoom": 0,
-  "max_zoom": 20, "format": "jpg"}]</code></pre>
-<p>The response has no <code>Content-Type: application/json</code> header. With an empty source catalog, the body is <code>null</code>.</p>
-<p><code>POST /api/validate-source</code> (<code>web.go:231</code>). Request: <code>{"source_name": "&lt;name&gt;"}</code>.</p>
+<p><code>GET /api/sources</code> (<code>apiSources</code> in <code>cmd/atak-dl/commands/web.go</code>). Any method is accepted.</p>
+<pre class="code"><code>[{"name": "Google Satellite", "url": "https://...{$x}...", "min_zoom": 0,
+  "max_zoom": 20, "format": "jpg", "kind": "tile", "origin": "snapshot"}]</code></pre>
+<p>Each item also has the policy keys of feature 06.</p>
+<p>The response has the header <code>Content-Type: application/json</code>. With an empty source catalog, the body is <code>[]</code> (#74).</p>
+<p><code>POST /api/validate-source</code> (<code>cmd/atak-dl/commands/web.go</code>, <code>apiValidateSource</code>). Request: <code>{"source_name": "&lt;name&gt;"}</code>. An old map source name resolves to its new name, the response <code>source_name</code> is the new name, and the server log gets the deprecation warning (FR-source-sync-16).</p>
 <div class="table-wrap"><table>
 <tr><th>Status</th><th>Body</th></tr>
 <tr><td>200</td><td><code>{"valid": bool, "source_name", "url", "zoom_range": [min, max], "format", "issues": [string] or null}</code></td></tr>
-<tr><td>400</td><td><code>{"error":"Invalid request"}</code> as <code>text/plain</code></td></tr>
-<tr><td>404</td><td><code>{"error":"Source not found"}</code> as <code>text/plain</code></td></tr>
-<tr><td>405</td><td><code>Method not allowed</code> as <code>text/plain</code></td></tr>
+<tr><td>400</td><td><code>invalid_json</code></td></tr>
+<tr><td>404</td><td><code>unknown_source</code>, also for a map source that upstream removed</td></tr>
+<tr><td>405</td><td><code>method_not_allowed</code></td></tr>
+<tr><td>413</td><td><code>body_too_large</code> (#81)</td></tr>
 </table></div>
+<p>Every error body has the error shape <code>{"error": {"code": "&lt;code&gt;", "message": "&lt;text&gt;"}}</code> and <code>Content-Type: application/json</code> (#74).</p>
 <p>The web UI does not call this route.</p>
 <h4 id="map-sources-module-contract">Module contract</h4>
 <p><code>internal/xmlparser</code>:</p>
 <ul>
-<li><code>New(dir) *XMLParser</code>
+<li><code>New(dir) <em>XMLParser</code> and <code>NewWithSnapshot(fsys, dir) </em>XMLParser</code>
 </li>
-<li><code>DiscoverSources(forceRescan bool) map[string]*MapSource</code>
+<li><code>DiscoverSources() map[string]*MapSource</code>
 </li>
-<li><code>ParseFile(path) (*MapSource, error)</code>. It returns <code>nil, nil</code> for a source file with a
+<li><code>SkippedSources() []SkippedSource</code>
+</li>
+<li><code>ParseFile(path) (<em>MapSource, error)</code> and <code>ParseFS(fsys, name) (</em>MapSource, error)</code>.
 </li>
 </ul>
-<p>missing <code>name</code> or <code>url</code>.</p>
+<p>They are plain functions. They return a <code>*SkipError</code> for a source file with no valid <code>customMapSource</code>.</p>
 <ul>
 <li><code>GetSource(name) *MapSource</code>
 </li>
@@ -454,98 +460,67 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><code>(*MapSource).FormatURL(x, y, z int, serverPart string) string</code>
 </li>
-<li><code>(*MapSource).GetServerPart(tileIndex int) string</code>
+<li><code>(*MapSource).GetServerPart(x, y int) string</code>
 </li>
 </ul>
 <h3 id="map-sources-edge-cases-failures">Edge cases &amp; failures</h3>
 <p>What the code handles:</p>
 <ul>
-<li>A missing source directory gives an empty source catalog. <code>list-sources</code> prints the
+<li>A missing user source directory adds no map source. The snapshot still loads.
+</li>
+<li>A source file with an empty <code>name</code> or <code>url</code> is skipped with reason <code>missing_name</code> or
 </li>
 </ul>
-<p>empty-state hint, and <code>serve</code> prints <code>Warning: No map sources found in &lt;dir&gt;</code>.</p>
+<p><code>missing_url</code>.</p>
 <ul>
-<li>A source file with an empty <code>name</code> or <code>url</code> is skipped with a visible warning.
-</li>
-<li>A source file that is not valid XML is skipped.
+<li>A source file that is not valid XML is skipped with reason <code>parse_error</code>.
 </li>
 </ul>
 <p>What the code does not handle:</p>
 <ul>
-<li><strong>WMS source files are dropped with no message.</strong> <code>xml.Unmarshal</code> fails on
+<li><strong>WMS source files do not load.</strong> The five <code>&lt;customWmsMapSource&gt;</code> files of the
 </li>
 </ul>
-<p><code>&lt;customWmsMapSource&gt;</code>. The error text contains <code>customMapSource</code>, so the walk does not log it at all (<code>xmlparser.go:129-132</code>). Three shipped source files are affected:</p>
+<p>snapshot are skipped with reason <code>parse_error</code>. The WMS parser waits for #41.</p>
 <ul>
-<li><code>GRG/grg_FEMA_NFHL_Flood_Hazard_Zones.xml</code>
-<ul>
-<li><code>NaturalResourcesCanada/naturalresourcescanada_cbmt.xml</code>
-</li>
-<li><code>NaturalResourcesCanada/naturalresourcescanada_toporama.xml</code>
-</li>
-</ul>
-</li>
-</ul>
-<p>The project has no code that builds a WMS request.</p>
-<ul>
-<li><strong>Comma-separated server parts stay as one part.</strong> <code>t1,t2,t3</code> in
-</li>
-</ul>
-<p><code>openseamap/*.xml</code> becomes the single part <code>t1,t2,t3</code>. Those URL templates have no <code>{$serverpart}</code>, so the result does not change today.</p>
-<ul>
-<li><strong>Unknown placeholders stay in the URL.</strong> The project sends any MOBAC placeholder
-</li>
-</ul>
-<p>other than the five above to the tile server unchanged.</p>
-<ul>
-<li><strong><code>invertYCoordinate</code> is not read.</strong> No shipped source file uses it today.
-</li>
 <li><strong>A missing <code>tileType</code> defaults to <code>png</code> with no check of the URL.</strong>
 </li>
-</ul>
-<p><code>michelin/michelin_osm_michelin.xml</code> has no <code>tileType</code>.</p>
-<ul>
-<li><strong>The cache is not safe for concurrent use.</strong> Every server request calls
+<li><strong><code>fs.WalkDir</code> errors are ignored</strong> (<code>walkXML</code> in <code>internal/xmlparser/xmlparser.go</code>).
 </li>
 </ul>
-<p><code>DiscoverSources</code>, and the cache map has no lock (<code>xmlparser.go:93-97</code>).</p>
-<ul>
-<li><strong><code>filepath.WalkDir</code> errors are ignored</strong> (<code>xmlparser.go:123</code>). An unreadable
-</li>
-</ul>
-<p>directory looks the same as an empty one.</p>
-<ul>
-<li><strong>The shipped source files are out of date.</strong> ATAK-Maps v2.3.1 (2026-10-31) has 53
-</li>
-</ul>
-<p>source files in a new <code>maps/base/</code> and <code>maps/overlays/</code> layout. It renamed every map and removed some dead endpoints.</p>
+<p>An unreadable directory looks the same as an empty one.</p>
 <p>Known defects and the planned feature that repairs each:</p>
 <div class="table-wrap"><table>
-<tr><th>Defect</th><th>Repaired by</th></tr>
-<tr><td>WMS source files dropped with no message</td><td><code>source-sync</code> (09)</td></tr>
-<tr><td><code>invertYCoordinate</code> and other placeholders not read</td><td><code>source-sync</code> (09)</td></tr>
-<tr><td>Comma-separated server parts</td><td><code>source-sync</code> (09)</td></tr>
-<tr><td>Out-of-date source files, read from a folder next to the binary</td><td><code>source-sync</code> (09)</td></tr>
-<tr><td>No terms-of-use or rate-limit data per map source</td><td><code>polite-downloading</code> (06)</td></tr>
-<tr><td><code>serve</code> flag that hides <code>--mapsources-dir</code></td><td><code>source-sync</code> (09)</td></tr>
-<tr><td>Cache map with no lock</td><td><code>security-hardening</code> (05)</td></tr>
+<tr><th>Defect</th><th>Repaired by</th><th>State</th></tr>
+<tr><td>WMS source files dropped with no message</td><td><code>source-sync</code> (09)</td><td>Reported as skipped. The WMS parser waits for #41.</td></tr>
+<tr><td><code>invertYCoordinate</code> and other placeholders not read</td><td><code>source-sync</code> (09)</td><td>Repaired (#42)</td></tr>
+<tr><td>Comma-separated server parts</td><td><code>source-sync</code> (09)</td><td>Repaired (#42)</td></tr>
+<tr><td>Out-of-date source files, read from a folder next to the binary</td><td><code>source-sync</code> (09)</td><td>Repaired (#37, #39)</td></tr>
+<tr><td>No terms-of-use or rate-limit data per map source</td><td><code>polite-downloading</code> (06)</td><td>Repaired</td></tr>
+<tr><td><code>serve</code> flag that hides <code>--mapsources-dir</code></td><td><code>source-sync</code> (09)</td><td>Repaired (#37)</td></tr>
+<tr><td>Cache map with no lock</td><td><code>source-sync</code> (09)</td><td>Repaired: the cache is gone (#38)</td></tr>
 </table></div>
 <h3 id="map-sources-acceptance-criteria">Acceptance criteria</h3>
 <ul>
-<li>[ ] <code>atak-dl list-sources</code> in a fresh clone prints 30 map sources and
+<li>[ ] <code>atak-dl list-sources</code> on a clean machine prints 47 map sources and
 </li>
 </ul>
-<p><code>Found 30 map sources</code>.</p>
+<p><code>Found 47 map sources</code>.</p>
 <ul>
-<li>[ ] <code>atak-dl list-sources --mapsources-dir=/nonexistent</code> prints
+<li>[ ] <code>atak-dl --no-snapshot --mapsources-dir=/nonexistent list-sources</code> prints
 </li>
 </ul>
 <p><code>No map sources found.</code> and exits with code 0.</p>
 <ul>
-<li>[ ] <code>atak-dl validate-source --source="Google - Satellite Only"</code> prints
+<li>[ ] <code>atak-dl validate-source --source="Google Satellite"</code> prints
 </li>
 </ul>
-<p><code>✓ Source 'Google - Satellite Only' is valid</code> and exits with code 0.</p>
+<p><code>✓ Source 'Google Satellite' is valid</code> and exits with code 0.</p>
+<ul>
+<li>[ ] <code>atak-dl validate-source --source="Google - Satellite Only"</code> prints the deprecation
+</li>
+</ul>
+<p>warning and <code>✓ Source 'Google Satellite' is valid</code>.</p>
 <ul>
 <li>[ ] <code>atak-dl validate-source --source=missing</code> prints <code>Source 'missing' not found</code> and
 </li>
@@ -557,12 +532,12 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p><code>GetServerPart</code> tests.</p>
 <ul>
-<li>[ ] <code>GET /api/sources</code> returns a JSON array of 30 objects with the keys <code>name</code>, <code>url</code>,
+<li>[ ] <code>GET /api/sources</code> returns a JSON array of 47 objects with the keys <code>name</code>, <code>url</code>,
 </li>
 </ul>
-<p><code>min_zoom</code>, <code>max_zoom</code> and <code>format</code>.</p>
+<p><code>min_zoom</code>, <code>max_zoom</code>, <code>format</code>, <code>kind</code> and <code>origin</code>, and the policy keys of feature 06.</p>
 <ul>
-<li>[ ] No map source in the output of <code>list-sources</code> has a name from the three WMS source
+<li>[ ] No map source in the output of <code>list-sources</code> has a name from the five WMS source
 </li>
 </ul>
 <p>files.</p>

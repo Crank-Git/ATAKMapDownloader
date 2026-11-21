@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Output formats</h1>
-<p class="meta">Epic 6: Output formats &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 6: Output formats &nbsp; <span class="badge">built</span></p>
 <h3 id="output-formats-purpose">Purpose</h3>
 <p>Today the project writes one output format: an SQLite file with the four-column TMS <code>tiles</code> table and a <code>.sqlite</code> extension (<code>internal/mbtiles/mbtiles.go:29-34</code>). ATAK detects the format by schema, not by extension. The archived ATAK-CIV source shows three relevant SQLite readers:</p>
 <ul>
@@ -325,9 +325,13 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 </ul>
 </li>
-<li>The package name allows <code>[A-Za-z0-9 _-]</code>, 1 to 64 characters. Spaces become <code>_</code> in the file name.
+<li>The package name allows <code>[A-Za-z0-9 _-]</code>, 1 to 64 characters, after the CLI and the API trim the spaces around it. Spaces become <code>_</code> in the file name.
 </li>
 <li><code>--data-package</code> with <code>--resume</code> resumes the inner output file and then rebuilds the zip.
+</li>
+<li>If only the zip exists, a resume reads the inner output file out of the zip first. This applies to <code>--resume</code>, to <code>"if_exists": "resume"</code> and to <code>POST /api/jobs/{id}/resume</code>.
+</li>
+<li>If that zip holds no inner output file, the CLI exits with code 3. A job of the job API ends <code>failed</code>, and its error starts with "read the output file out of". The zip stays unchanged.
 </li>
 </ul>
 <h3 id="output-formats-data-touched">Data touched</h3>
@@ -362,9 +366,13 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h3 id="output-formats-edge-cases-failures">Edge cases &amp; failures</h3>
 <ul>
-<li>If the OSMDroid key overflows int64 above zoom level 20, the writer refuses zoom levels above 20 for <code>osmdroid</code> with error code <code>zoom_out_of_range</code>. Check the overflow point in <code>OSMUtils.java</code> first.
+<li>Every output format accepts zoom levels up to 25, the zoom cap of the job (<code>tilecalc.MaxZoomLevel</code>). A job above zoom level 25 fails with error code <code>zoom_out_of_range</code> before the writer opens.
+</li>
+<li>The OSMDroid writer also refuses zoom levels above 27 with <code>zoom_out_of_range</code>, because <code>OSMUtils.java</code> decodes no zoom level above 27. The key fits in int64 up to zoom level 29.
 </li>
 <li>If the map source tile type is <code>webp</code>, the CLI warns that ATAK WebP support is unverified.
+</li>
+<li>If the map source tile type is not <code>png</code>, <code>jpg</code> or <code>jpeg</code>, a <code>gpkg</code> job fails with error code <code>unsupported_tile_type</code> before the first request. GeoPackage 1.3.1 Requirements 36 and 37 allow only PNG and JPEG tile data.
 </li>
 <li>If the zip step fails, the job ends <code>failed</code> with reason <code>package_failed</code>, and the inner output file stays.
 </li>
