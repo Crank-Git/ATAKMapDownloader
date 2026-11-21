@@ -16,12 +16,10 @@ Today no code reads an environment variable. Planned variables:
 | Name | Where | Meaning |
 |---|---|---|
 | `GITHUB_TOKEN` | GitHub Actions (automatic) | Publishes GitHub Releases and pushes the GHCR image. |
-| `HOMEBREW_TAP_GITHUB_TOKEN` | Repository secret, set by the maintainer | A fine-grained token with `contents: write` on `Crank-Git/homebrew-tap`. TODO(Epic 0): create the token and the secret. |
 
 ## Repositories and registries
 
 - Code and tracker: https://github.com/Crank-Git/ATAKMapDownloader (public).
-- Homebrew tap: `Crank-Git/homebrew-tap`. TODO(Epic 0): create this repository before the first release tag.
 - Container image: `ghcr.io/crank-git/atak-map-downloader`.
 - Upstream source files: https://github.com/joshuafuller/ATAK-Maps (MIT). The pinned tag is in `internal/snapshot/VERSION` after Epic 5.
 

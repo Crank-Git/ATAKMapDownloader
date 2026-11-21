@@ -119,7 +119,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | Team preparer | Prepares output files for a SAR unit, a fire crew or a club, and gives them to members as files or data packages. | Every action. Often scripts the CLI. |
 | Server operator | Runs `atak-dl serve` on a LAN machine or in Docker for a team. | Sets the bind address, the token, the data directory and the worker count. |
 | Team member | Opens the server's web UI from a browser on the LAN. | With the token: submits jobs, cancels jobs and downloads output files. Without the token: nothing. |
-| OSS user | Finds the project on GitHub. Installs it from a release, Homebrew or Docker. | Same as the solo operator. |
+| OSS user | Finds the project on GitHub. Installs it from a release archive or Docker. | Same as the solo operator. |
 
 ## Feature map
 
@@ -181,7 +181,7 @@ Per component:
 - **Progress channel: SSE (planned).** SSE replaces `gorilla/websocket`, which has had no release since v1.5.3 in June 2024 (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions). Progress goes from the server to the browser only, and browser commands become POST requests. See [ADR 0006](../adr/0006-sse-job-api.md).
 - **Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman (planned), embedded with `embed.FS`.** Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
 - **Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).** Today there is a copied folder of 34 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See [ADR 0004](../adr/0004-mobac-xml-sources.md) and [ADR 0008](../adr/0008-embedded-source-snapshot.md).
-- **Release: GoReleaser v2 on GitHub Actions (planned).** Release targets are GitHub Releases, a GHCR image and a Homebrew cask in `Crank-Git/homebrew-tap`. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). `brews` is deprecated in favour of `homebrew_casks` (https://goreleaser.com/deprecations/).
+- **Release: GoReleaser v2 on GitHub Actions (planned).** Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
 - **Lint: golangci-lint v2 (planned).** Version v2.15.0, with the complexity linters enabled (https://github.com/golangci/golangci-lint/releases).
 
 Repository layout (current, plus planned additions in italics):
@@ -346,7 +346,7 @@ stateDiagram-v2
 
 ## Environments & config
 
-- **Environments.** One environment: the user's machine, or a LAN server or container. The project has no hosted deployment. Releases are the deploy target: GitHub Releases, `ghcr.io/crank-git/atak-map-downloader` and the Homebrew cask.
+- **Environments.** One environment: the user's machine, or a LAN server or container. The project has no hosted deployment. Releases are the deploy target: GitHub Releases and `ghcr.io/crank-git/atak-map-downloader`.
 - **Configuration.** Configuration is through flags today, and no code reads an environment variable. Planned environment variables:
 
 | Name | Feature | Meaning |
@@ -354,7 +354,7 @@ stateDiagram-v2
 | `ATAKDL_TOKEN` | 12 | The token for a server that is not on loopback. It has the same meaning as `--token`. |
 | `ATAKDL_DATA_DIR` | 12 | The directory for output files and the job store. It has the same meaning as `--data-dir`. The default is `./downloads`. |
 
-- **CI secrets** (names only; see [docs/external.md](../external.md)): `GITHUB_TOKEN` (provided by Actions) and `HOMEBREW_TAP_GITHUB_TOKEN` (a fine-grained token with write access to `Crank-Git/homebrew-tap`).
+- **CI secrets** (names only; see [docs/external.md](../external.md)): `GITHUB_TOKEN` (provided by Actions). No other secret is needed.
 - **Seed and demo data.** Epic 0 adds `testdata/` with three fixture source files (tile, quadkey and WMS) and a fake tile server for tests (`internal/testtiles`). The demo is `atak-dl download --source "OpenTopo - Opentopomap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12`, Mount Hood with about 60 tiles.
 
 ## Testing strategy
@@ -383,7 +383,7 @@ stateDiagram-v2
 
 | Milestone | Epics | What "shippable" means |
 |---|---|---|
-| v0.2.0: Modern build | 0 | Signed CGO-free binaries for 6 platforms, a GHCR image and a Homebrew cask. Behavior is unchanged. |
+| v0.2.0: Modern build | 0 | Signed CGO-free binaries for 6 platforms, and a GHCR image. Behavior is unchanged. |
 | v0.3.0: Safe by default | 1, 2 | The local server cannot be driven by other web pages. TLS is verified. Requests follow the tile and Nominatim policies. |
 | v0.4.0: Reliable jobs | 3, 4 | Resume, tile validation and tile caps. The web UI works offline and returns output files. |
 | v0.5.0: Current catalog | 5, 6 | The ATAK-Maps v2.3.1 snapshot with WMS support. Three output formats and data packages. |
@@ -435,3 +435,4 @@ Reconciliation of the existing documentation against the code (Phase 1):
 
 - 2026-11-21: Created by project-inherit. Features 01–04 are built and documented from the code. Features 00 and 05–12 are planned from the roadmap interview.
 - 2026-11-21: Approved by the maintainer after review round 1. Mockups 02, 03 and 04 were adjusted for heading sizes and borders.
+- 2026-11-21: Removed the Homebrew tap from the release targets, at the maintainer's request, to make releases simpler.

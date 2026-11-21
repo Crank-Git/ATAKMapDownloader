@@ -28,7 +28,6 @@ Audit of the Epic 0 items against the repository on 2026-11-21:
 ## User stories
 
 - As an OSS user, I want a release binary for my platform, so that I do not need a Go toolchain.
-- As a solo operator on macOS, I want `brew install`, so that updates are one command.
 - As a server operator, I want a container image, so that I run the server with no build step.
 - As the maintainer, I want CI on every PR, so that a worker's change cannot break the build silently.
 
@@ -61,11 +60,10 @@ Audit of the Epic 0 items against the repository on 2026-11-21:
 - FR-foundation-18 — `develop` is the default branch for pull requests.
 - FR-foundation-19 — `.goreleaser.yaml` builds six archives with checksums, an SBOM and cosign keyless signatures.
 - FR-foundation-20 — `.goreleaser.yaml` publishes a multi-arch image to `ghcr.io/crank-git/atak-map-downloader` on `gcr.io/distroless/static`.
-- FR-foundation-21 — `.goreleaser.yaml` publishes a Homebrew cask to `Crank-Git/homebrew-tap` through `homebrew_casks`.
-- FR-foundation-22 — `.github/workflows/release.yml` runs GoReleaser when a tag that matches `v*` is pushed.
-- FR-foundation-23 — `atak-dl --version` prints the version, the commit and the build date that GoReleaser sets.
-- FR-foundation-24 — The README build section documents `CGO_ENABLED=0` builds, the three install methods and `go test -race ./...`.
-- FR-foundation-25 — The README does not contain the claim "1:1 functionality matching the Python version".
+- FR-foundation-21 — `.github/workflows/release.yml` runs GoReleaser when a tag that matches `v*` is pushed.
+- FR-foundation-22 — `atak-dl --version` prints the version, the commit and the build date that GoReleaser sets.
+- FR-foundation-23 — The README build section documents `CGO_ENABLED=0` builds, the two install methods (release archive and Docker) and `go test -race ./...`.
+- FR-foundation-24 — The README does not contain the claim "1:1 functionality matching the Python version".
 
 ## User flows
 
@@ -100,14 +98,13 @@ flowchart TD
   C -->|build or sign fails| X[Workflow fails, no release published]
   C --> D[GitHub Release: 6 archives, checksums, SBOM, signatures]
   C --> E[GHCR image pushed]
-  C --> F[Homebrew cask committed to homebrew-tap]
 ```
 
 1. The maintainer merges `develop` into `main`.
 2. The maintainer pushes a tag that matches `v*`.
 3. The release workflow runs GoReleaser.
 4. If a build or a signature fails, the workflow fails and publishes nothing.
-5. GoReleaser publishes the GitHub Release, the GHCR image and the Homebrew cask.
+5. GoReleaser publishes the GitHub Release and the GHCR image.
 
 ## Screens & states
 
@@ -117,7 +114,6 @@ No screen. The CLI adds `--version`.
 
 - CI uses `actions/setup-go` with `go-version-file: go.mod`.
 - The release workflow has the permissions `contents: write`, `packages: write`, `id-token: write` and `attestations: write`.
-- If `HOMEBREW_TAP_GITHUB_TOKEN` is missing, GoReleaser skips the cask and still publishes the release. Use `skip_upload: auto` or the equivalent documented setting.
 - The Docker image runs as a non-root user. It exposes port 5000 and starts `atak-dl serve --addr 0.0.0.0:5000`.
 
 ## Data touched
@@ -127,14 +123,13 @@ No entity changes. The output file schema stays the same (FR-foundation-4).
 ## Interfaces
 
 - `modernc.org/sqlite` v1.62.0 registers the driver name `sqlite`, not `sqlite3`. Verify this at https://pkg.go.dev/modernc.org/sqlite before you change `sql.Open` (retrieved 2026-11-21).
-- GoReleaser v2.20.3. Use `homebrew_casks`, `archives.formats` and `snapshot.version_template`, per https://goreleaser.com/deprecations/. Use `dockers_v2` for the multi-arch image. Read https://goreleaser.com/customization/ before you write the config.
+- GoReleaser v2.20.3. Use `archives.formats` and `snapshot.version_template`, per https://goreleaser.com/deprecations/. Use `dockers_v2` for the multi-arch image. Read https://goreleaser.com/customization/ before you write the config.
 - golangci-lint v2.15.0 config format: https://golangci-lint.run/docs/configuration/ (`version: "2"`, `linters.default: standard`).
 - cosign keyless signing in GoReleaser: https://goreleaser.com/customization/sign/.
 
 ## Edge cases & failures
 
 - If modernc is slower than the engine's write rate, the writer becomes the bottleneck. Feature 07 adds batched transactions. This epic only switches the driver and keeps one insert per tile.
-- If the Homebrew tap repo does not exist, the cask step fails. `Crank-Git/homebrew-tap` must exist before the first tag. See `docs/external.md`.
 - If `gofmt` changes the five unformatted files, the diff is format-only. Commit it alone, before any logic change.
 
 ## Acceptance criteria
@@ -148,7 +143,6 @@ No entity changes. The output file schema stays the same (FR-foundation-4).
 - `scripts/smoke.sh` exits 0 locally and in CI.
 - A `v0.2.0-rc.1` tag produces a GitHub Release with 6 archives, `checksums.txt`, SBOM files and signatures.
 - `docker run ghcr.io/crank-git/atak-map-downloader:v0.2.0-rc.1 --version` prints the version.
-- `brew install crank-git/tap/atak-dl` installs the binary on macOS.
 - The README contains no "Python version" text.
 
 ## Out of scope

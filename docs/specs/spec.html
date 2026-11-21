@@ -259,7 +259,7 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>Team preparer</td><td>Prepares output files for a SAR unit, a fire crew or a club, and gives them to members as files or data packages.</td><td>Every action. Often scripts the CLI.</td></tr>
 <tr><td>Server operator</td><td>Runs <code>atak-dl serve</code> on a LAN machine or in Docker for a team.</td><td>Sets the bind address, the token, the data directory and the worker count.</td></tr>
 <tr><td>Team member</td><td>Opens the server's web UI from a browser on the LAN.</td><td>With the token: submits jobs, cancels jobs and downloads output files. Without the token: nothing.</td></tr>
-<tr><td>OSS user</td><td>Finds the project on GitHub. Installs it from a release, Homebrew or Docker.</td><td>Same as the solo operator.</td></tr>
+<tr><td>OSS user</td><td>Finds the project on GitHub. Installs it from a release archive or Docker.</td><td>Same as the solo operator.</td></tr>
 </table></div>
 <h2 id="feature-map">Feature map</h2>
 <div class="table-wrap"><table>
@@ -322,7 +322,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Today there is a copied folder of 34 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
 </li>
-<li><strong>Release: GoReleaser v2 on GitHub Actions (planned).</strong> Release targets are GitHub Releases, a GHCR image and a Homebrew cask in <code>Crank-Git/homebrew-tap</code>. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). <code>brews</code> is deprecated in favour of <code>homebrew_casks</code> (https://goreleaser.com/deprecations/).
+<li><strong>Release: GoReleaser v2 on GitHub Actions (planned).</strong> Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
 </li>
 <li><strong>Lint: golangci-lint v2 (planned).</strong> Version v2.15.0, with the complexity linters enabled (https://github.com/golangci/golangci-lint/releases).
 </li>
@@ -517,7 +517,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </ul>
 <h2 id="environments-config">Environments &amp; config</h2>
 <ul>
-<li><strong>Environments.</strong> One environment: the user's machine, or a LAN server or container. The project has no hosted deployment. Releases are the deploy target: GitHub Releases, <code>ghcr.io/crank-git/atak-map-downloader</code> and the Homebrew cask.
+<li><strong>Environments.</strong> One environment: the user's machine, or a LAN server or container. The project has no hosted deployment. Releases are the deploy target: GitHub Releases and <code>ghcr.io/crank-git/atak-map-downloader</code>.
 </li>
 <li><strong>Configuration.</strong> Configuration is through flags today, and no code reads an environment variable. Planned environment variables:
 </li>
@@ -528,7 +528,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <tr><td><code>ATAKDL_DATA_DIR</code></td><td>12</td><td>The directory for output files and the job store. It has the same meaning as <code>--data-dir</code>. The default is <code>./downloads</code>.</td></tr>
 </table></div>
 <ul>
-<li><strong>CI secrets</strong> (names only; see <a href="../external.md">docs/external.md</a>): <code>GITHUB_TOKEN</code> (provided by Actions) and <code>HOMEBREW_TAP_GITHUB_TOKEN</code> (a fine-grained token with write access to <code>Crank-Git/homebrew-tap</code>).
+<li><strong>CI secrets</strong> (names only; see <a href="../external.md">docs/external.md</a>): <code>GITHUB_TOKEN</code> (provided by Actions). No other secret is needed.
 </li>
 <li><strong>Seed and demo data.</strong> Epic 0 adds <code>testdata/</code> with three fixture source files (tile, quadkey and WMS) and a fake tile server for tests (<code>internal/testtiles</code>). The demo is <code>atak-dl download --source "OpenTopo - Opentopomap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12</code>, Mount Hood with about 60 tiles.
 </li>
@@ -574,7 +574,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <h2 id="milestones">Milestones</h2>
 <div class="table-wrap"><table>
 <tr><th>Milestone</th><th>Epics</th><th>What "shippable" means</th></tr>
-<tr><td>v0.2.0: Modern build</td><td>0</td><td>Signed CGO-free binaries for 6 platforms, a GHCR image and a Homebrew cask. Behavior is unchanged.</td></tr>
+<tr><td>v0.2.0: Modern build</td><td>0</td><td>Signed CGO-free binaries for 6 platforms, and a GHCR image. Behavior is unchanged.</td></tr>
 <tr><td>v0.3.0: Safe by default</td><td>1, 2</td><td>The local server cannot be driven by other web pages. TLS is verified. Requests follow the tile and Nominatim policies.</td></tr>
 <tr><td>v0.4.0: Reliable jobs</td><td>3, 4</td><td>Resume, tile validation and tile caps. The web UI works offline and returns output files.</td></tr>
 <tr><td>v0.5.0: Current catalog</td><td>5, 6</td><td>The ATAK-Maps v2.3.1 snapshot with WMS support. Three output formats and data packages.</td></tr>
@@ -659,6 +659,8 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <li>2026-11-21: Created by project-inherit. Features 01–04 are built and documented from the code. Features 00 and 05–12 are planned from the roadmap interview.
 </li>
 <li>2026-11-21: Approved by the maintainer after review round 1. Mockups 02, 03 and 04 were adjusted for heading sizes and borders.
+</li>
+<li>2026-11-21: Removed the Homebrew tap from the release targets, at the maintainer's request, to make releases simpler.
 </li>
 </ul><nav class="pager">
 <span></span>

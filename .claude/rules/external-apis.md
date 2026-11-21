@@ -31,4 +31,4 @@ Before you write code against any interface below, confirm the operation, the pa
 
 Tests never call a real tile server, Nominatim or GitHub. Use `httptest` fakes. A provider's terms of use can change, so re-read the reference before you change an entry in the policy table.
 
-Creating or changing the Homebrew tap repository, GHCR packages or release tags is an outward-facing action. Confirm it with the maintainer first.
+Creating or changing GHCR packages or release tags is an outward-facing action. Confirm it with the maintainer first.
