@@ -24,6 +24,8 @@ class ATAKDownloader {
         this.jobEvents = null;
         this.lastJobLog = null;
         this.isDarkMode = false;
+        // themeChosen is true after the user selects a theme, so a change of the system theme no longer applies.
+        this.themeChosen = false;
         this.isDownloading = false;
         this.previewLayer = null;
         this.searchMarker = null;
@@ -57,21 +59,40 @@ class ATAKDownloader {
         this.logStatus('Application initialized');
     }
     
+    // initTheme applies the stored theme, or the system theme until the user selects one (FR-offline-web-ui-29).
     initTheme() {
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        this.isDarkMode = savedTheme === 'dark';
+        const system = window.matchMedia('(prefers-color-scheme: dark)');
+        let saved = null;
+        try {
+            saved = localStorage.getItem('theme');
+        } catch {
+            // The browser blocks storage, so the theme follows the system.
+        }
+        this.themeChosen = saved === 'dark' || saved === 'light';
+        this.isDarkMode = this.themeChosen ? saved === 'dark' : system.matches;
         this.applyTheme();
+        system.addEventListener('change', (e) => {
+            if (this.themeChosen) return;
+            this.isDarkMode = e.matches;
+            this.applyTheme();
+        });
     }
     
     toggleTheme() {
         this.isDarkMode = !this.isDarkMode;
+        this.themeChosen = true;
         this.applyTheme();
-        localStorage.setItem('theme', this.isDarkMode ? 'dark' : 'light');
+        try {
+            localStorage.setItem('theme', this.isDarkMode ? 'dark' : 'light');
+        } catch (error) {
+            this.logStatus('The browser did not store the theme, so it applies to this page only: ' + error.message, 'warning');
+        }
     }
     
-    // The CSS shows the moon or the sun icon from data-theme, so the button needs no change here.
+    // The CSS shows the moon or the sun icon from data-theme. aria-pressed tells a screen reader the state of the toggle.
     applyTheme() {
         document.documentElement.setAttribute('data-theme', this.isDarkMode ? 'dark' : 'light');
+        document.getElementById('themeToggle').setAttribute('aria-pressed', String(this.isDarkMode));
     }
 
     initMap() {
@@ -452,16 +473,20 @@ class ATAKDownloader {
         if (this.selectedArea) {
             const bounds = this.selectedArea;
             const area = this.calculateArea(bounds);
-            infoDiv.innerHTML = `
-                <strong>Selected Area:</strong><br>
-                North: ${bounds.getNorth().toFixed(6)}°<br>
-                South: ${bounds.getSouth().toFixed(6)}°<br>
-                East: ${bounds.getEast().toFixed(6)}°<br>
-                West: ${bounds.getWest().toFixed(6)}°<br>
-                <small>Area: ~${area.toFixed(2)} km²</small>
-            `;
+            const title = document.createElement('strong');
+            title.textContent = 'Selected Area:';
+            const size = document.createElement('small');
+            size.textContent = 'Area: ~' + area.toFixed(2) + ' km²';
+            infoDiv.replaceChildren(title);
+            [
+                'North: ' + bounds.getNorth().toFixed(6) + '°',
+                'South: ' + bounds.getSouth().toFixed(6) + '°',
+                'East: ' + bounds.getEast().toFixed(6) + '°',
+                'West: ' + bounds.getWest().toFixed(6) + '°'
+            ].forEach(line => infoDiv.append(document.createElement('br'), line));
+            infoDiv.append(document.createElement('br'), size);
         } else {
-            infoDiv.innerHTML = 'Click "Draw Rectangle" to select an area on the map';
+            infoDiv.textContent = 'Click "Draw Rectangle" to select an area on the map';
         }
     }
     
@@ -702,9 +727,16 @@ class ATAKDownloader {
                 const first = result.results[0];
                 this.map.setView([first.lat, first.lon], 12);
                 if (this.searchMarker) this.map.removeLayer(this.searchMarker);
+                // Leaflet inserts a string popup as HTML, so the place name from Nominatim goes in a DOM node as text.
+                const popup = document.createElement('div');
+                const name = document.createElement('strong');
+                name.textContent = first.display_name;
+                const position = document.createElement('small');
+                position.textContent = 'Lat: ' + first.lat.toFixed(6) + ', Lon: ' + first.lon.toFixed(6);
+                popup.append(name, document.createElement('br'), position);
                 this.searchMarker = L.marker([first.lat, first.lon], { pmIgnore: true })
                     .addTo(this.map)
-                    .bindPopup('<strong>' + first.display_name + '</strong><br><small>Lat: ' + first.lat.toFixed(6) + ', Lon: ' + first.lon.toFixed(6) + '</small>')
+                    .bindPopup(popup)
                     .openPopup();
                 this.logStatus('Found: ' + first.display_name, 'success');
             } else if (response.status === 502) {

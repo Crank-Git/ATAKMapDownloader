@@ -183,6 +183,13 @@ label {
     font-size: 13px;
 }
 
+/* A heading can hold the label of its control, so the label takes the heading style. */
+h2 label {
+    display: inline;
+    margin: 0;
+    font-size: inherit;
+}
+
 label.check {
     display: flex;
     align-items: center;
@@ -606,6 +613,12 @@ option.policy-restricted {
     border: 1px solid var(--line);
     border-radius: 8px;
     font-size: 12px;
+}
+
+.basemap label {
+    margin: 0;
+    font-size: inherit;
+    font-weight: 600;
 }
 
 .basemap select {
