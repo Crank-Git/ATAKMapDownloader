@@ -393,7 +393,7 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 		writeError(w, http.StatusBadRequest, "invalid_rate_limit", fmt.Sprintf("rate_limit %g is not above 0", *req.RateLimit))
 		return nil, nil, "", false
 	}
-	if !checkOutputOptions(w, req) {
+	if !checkOutputOptions(w, req, source) {
 		return nil, nil, "", false
 	}
 	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
@@ -404,14 +404,14 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 	return source, areas, warning, true
 }
 
-// checkOutputOptions checks the output_format, if_exists and package_name fields of req.
+// checkOutputOptions checks the output_format, if_exists and package_name fields of req for a job of source.
 // It sets an empty output_format to output.MBTiles. It checks package_name only when data_package is true.
 // It writes the error response and returns false when a field is not valid.
-func checkOutputOptions(w http.ResponseWriter, req *jobRequest) bool {
+func checkOutputOptions(w http.ResponseWriter, req *jobRequest, source *xmlparser.MapSource) bool {
 	if req.OutputFormat == "" {
 		req.OutputFormat = output.MBTiles
 	}
-	if code, message := checkFormat("output_format", req.OutputFormat); code != "" {
+	if code, message := checkFormat("output_format", req.OutputFormat, source.TileType); code != "" {
 		writeError(w, http.StatusBadRequest, code, message)
 		return false
 	}

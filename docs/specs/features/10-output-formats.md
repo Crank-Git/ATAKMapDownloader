@@ -161,6 +161,7 @@ States: the default (MBTiles selected, no data package), a data package with an 
 
 - If the OSMDroid key overflows int64 above zoom level 20, the writer refuses zoom levels above 20 for `osmdroid` with error code `zoom_out_of_range`. Check the overflow point in `OSMUtils.java` first.
 - If the map source tile type is `webp`, the CLI warns that ATAK WebP support is unverified.
+- If the map source tile type is not `png`, `jpg` or `jpeg`, a `gpkg` job fails with error code `unsupported_tile_type` before the first request. GeoPackage 1.3.1 Requirements 36 and 37 allow only PNG and JPEG tile data.
 - If the zip step fails, the job ends `failed` with reason `package_failed`, and the inner output file stays.
 
 ## Acceptance criteria

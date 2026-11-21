@@ -70,7 +70,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	parser := getParser(cmd)
 	source := sourceFlag(cmd, parser)
 
-	format, pkg, err := outputFlags(cmd)
+	format, pkg, err := outputFlags(cmd, source)
 	if err != nil {
 		return err
 	}
@@ -152,13 +152,13 @@ func packageOutput(ctx context.Context, cmd *cobra.Command, output string, pkg *
 }
 
 // outputFlags returns the output format of the --format flag of cmd and the data package settings of packageFlags.
-// It returns the invalid_output_format or not_implemented error of checkFormat, and the error of packageFlags.
-func outputFlags(cmd *cobra.Command) (string, *packageOptions, error) {
+// It returns the error of checkFormat for the tile type of source, and the error of packageFlags.
+func outputFlags(cmd *cobra.Command, source *xmlparser.MapSource) (string, *packageOptions, error) {
 	format, err := cmd.Flags().GetString("format")
 	if err != nil {
 		return "", nil, fmt.Errorf("read --format: %w", err)
 	}
-	if code, message := checkFormat("--format", format); code != "" {
+	if code, message := checkFormat("--format", format, source.TileType); code != "" {
 		return "", nil, fmt.Errorf("%s: %s", code, message)
 	}
 	pkg, err := packageFlags(cmd)
