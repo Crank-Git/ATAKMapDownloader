@@ -370,6 +370,10 @@ func TestDeleteCancelsARunningJob(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("the job ended %v after the cancel, want less than 1 s", elapsed)
 	}
+	// A cancelled job keeps its output file (FR-robust-downloads-11).
+	if _, err := os.Stat(filepath.Join(s.handler.outputDir, rec.OutputFile)); err != nil {
+		t.Errorf("output file after the cancel: %v, want the file kept", err)
+	}
 }
 
 func TestAFailedJobRecordsTheEngineError(t *testing.T) {
