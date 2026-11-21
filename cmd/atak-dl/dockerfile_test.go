@@ -34,6 +34,7 @@ func TestDockerfileServesTheDataVolume(t *testing.T) {
 	}{
 		{"runs serve on port 5000 with the data directory /data", `CMD ["serve", "--addr", "0.0.0.0:5000", "--data-dir", "/data"]`},
 		{"declares /data as a volume", `VOLUME ["/data"]`},
+		{"creates /data as the nonroot user, so a new named volume is writable", "WORKDIR /data"},
 		{"starts from the distroless nonroot image", "FROM gcr.io/distroless/static:nonroot"},
 	}
 	for _, tt := range tests {
