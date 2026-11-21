@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
@@ -100,6 +101,20 @@ func TestDownloadIntoAnExistingOutputFile(t *testing.T) {
 			args:     []string{"--resume", "--force"},
 		},
 		{
+			name:       "refuses a text file with exit code 3 and --resume",
+			args:       []string{"--resume"},
+			exitCode:   3,
+			wantStderr: "not an output file",
+			unchanged:  true,
+		},
+		{
+			name:       "keeps the file when --overwrite comes with a flag that is not valid",
+			args:       []string{"--overwrite", "--rate-limit", "-1"},
+			exitCode:   1,
+			wantStderr: "invalid_rate_limit",
+			unchanged:  true,
+		},
+		{
 			name:       "rejects --resume together with --overwrite",
 			metadata:   map[string]string{"atakdl_source": "Test TLS"},
 			args:       []string{"--resume", "--overwrite"},
@@ -178,6 +193,28 @@ func runDownloadInto(t *testing.T, srv *testtiles.Server, output string, args []
 	}, args...))
 	err := root.Execute()
 	return stderr.String(), err
+}
+
+func TestJobAPIRefusesAResumeIntoATextFile(t *testing.T) {
+	s := newJobServer(t, nil)
+	b := boundsOf(fourTiles)
+	bounds, err := tilecalc.NewGeographicBounds(b[1], b[3], b[0], b[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(s.handler.outputDir, download.GenerateOutputFilename("Test Tiles", bounds, fourTiles.Zoom, fourTiles.Zoom, ""))
+	if err := os.WriteFile(path, []byte("my notes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	body := strings.TrimSuffix(jobBody(fourTiles), "}") + `,"if_exists":"resume"}`
+	checkError(t, s.request(t, http.MethodPost, "/api/jobs", body), http.StatusConflict, "output_exists")
+	if got := string(readFile(t, path)); got != "my notes" {
+		t.Errorf("file after the refused job = %q, want it unchanged", got)
+	}
+	if n := s.tiles.TotalRequests(); n != 0 {
+		t.Errorf("server got %d tile requests, want 0", n)
+	}
 }
 
 // fourTiles is a 2×2 tile area at zoom level 10.

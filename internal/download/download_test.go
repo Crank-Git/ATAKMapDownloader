@@ -1,6 +1,7 @@
 package download
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"os"
@@ -311,5 +312,35 @@ func TestEngineStopsTheJobWhenTheWriterFails(t *testing.T) {
 	}
 	if _, err := os.Stat(output); err != nil {
 		t.Errorf("output file after a write failure: %v, want the file kept", err)
+	}
+}
+
+func TestEngineReturnsWriteFailedWhenTheLastCommitFailsAfterACancel(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	source := loadFixture(t, "xyz.xml", srv)
+	output := filepath.Join(t.TempDir(), "out.sqlite")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// The job holds fewer than 500 tiles, so only the commit of Close writes them, and the missing table makes it fail.
+	var drop sync.Once
+	cb := func(Progress) bool {
+		drop.Do(func() {
+			db, err := sql.Open("sqlite", output+"?_busy_timeout=5000")
+			if err != nil {
+				t.Errorf("open output file: %v", err)
+				return
+			}
+			defer func() { _ = db.Close() }() // The DROP below already reports a failure of the file.
+			if _, err := db.ExecContext(t.Context(), "DROP TABLE tiles"); err != nil {
+				t.Errorf("drop the tiles table: %v", err)
+			}
+			cancel()
+		})
+		return true
+	}
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(ctx, source, areaBounds(t), []int{area.Zoom}, output, cb)
+	if res.OK || !errors.Is(err, ErrWriteFailed) {
+		t.Errorf("DownloadTiles = %v, %v; want false and write_failed, because a lost tile outranks the cancel", res.OK, err)
 	}
 }

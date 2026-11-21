@@ -1,7 +1,9 @@
 package download
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -112,7 +114,7 @@ func TestEngineRecordsAFailedTileWithItsReason(t *testing.T) {
 	}{
 		{"records a 404 as not_found and does not retry it", testtiles.NotFound, failedRow{"not_found", 1}, 1},
 		{"records an HTML body as not_image after the retry pass", testtiles.HTML, failedRow{"not_image", 2}, 2},
-		{"records a 503 as http_503 after the retry pass", testtiles.Unavailable, failedRow{"http_503", 2}, 2 * maxAttempts},
+		{"records a 503 as http_503 after one request in the retry pass", testtiles.Unavailable, failedRow{"http_503", 2}, maxAttempts + 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -176,5 +178,80 @@ func TestEngineRetriesTheFailedTilesOfAResumedFile(t *testing.T) {
 	}
 	if n := srv.Requests(notFound); n != 0 {
 		t.Errorf("the not_found tile got %d requests, want 0", n)
+	}
+}
+
+func TestEngineStopsTheRetryPassWithin500msOfACancel(t *testing.T) {
+	jobTile := testtiles.Tile{Z: singleTile.Zoom, X: singleTile.MinX, Y: singleTile.MinY}
+	// Each retried tile holds its slot for 2 s, so the cancel arrives while the retry pass waits for a slot.
+	table := testtiles.Table{}
+	var retried []testtiles.Tile
+	for i := range 5 {
+		tile := testtiles.Tile{Z: singleTile.Zoom, X: singleTile.MinX + 5 + i, Y: singleTile.MinY}
+		table[tile] = testtiles.Response{Kind: testtiles.PNG, Delay: 2 * time.Second}
+		retried = append(retried, tile)
+	}
+	srv := testtiles.New(t, table)
+	source := loadFixture(t, "xyz.xml", srv)
+	output := filepath.Join(t.TempDir(), "out.sqlite")
+
+	w, err := mbtiles.Open(output, map[string]string{"atakdl_source": "Test XYZ"})
+	if err != nil {
+		t.Fatalf("open output file: %v", err)
+	}
+	for _, tile := range retried {
+		if err := w.Fail(tile.Z, tile.X, tile.Y, "http_503"); err != nil {
+			t.Fatalf("Fail: %v", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close output file: %v", err)
+	}
+
+	cfg := testConfig()
+	cfg.MaxConcurrent = 1
+	e := politeEngine(cfg, 1e6)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	type outcome struct {
+		res Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := e.DownloadTiles(ctx, source, boundsOf(t, singleTile), []int{singleTile.Zoom}, output, nil)
+		done <- outcome{res, err}
+	}()
+	for srv.Requests(retried[0]) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	cancelled := time.Now()
+
+	select {
+	case o := <-done:
+		if elapsed := time.Since(cancelled); elapsed > 500*time.Millisecond {
+			t.Errorf("DownloadTiles returned %v after the cancel, want at most 500 ms", elapsed)
+		}
+		if !errors.Is(o.err, context.Canceled) {
+			t.Errorf("DownloadTiles error = %v, want context.Canceled", o.err)
+		}
+		// The cancel ends the retried tile, so the tile is neither downloaded nor failed.
+		if o.res.Downloaded != 1 || o.res.Failed != 0 {
+			t.Errorf("DownloadTiles counts %d downloaded and %d failed, want 1 and 0", o.res.Downloaded, o.res.Failed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("DownloadTiles did not return within 5 s of the cancel")
+	}
+	if n := srv.Requests(jobTile); n != 1 {
+		t.Errorf("the job tile got %d requests, want 1", n)
+	}
+	for _, tile := range retried[1:] {
+		if n := srv.Requests(tile); n != 0 {
+			t.Errorf("tile %v got %d requests after the cancel, want 0", tile, n)
+		}
+	}
+	if rows := failedRows(t, output); len(rows) != len(retried) {
+		t.Errorf("atakdl_failed_tiles holds %d rows, want %d: a cancel records no failure", len(rows), len(retried))
 	}
 }

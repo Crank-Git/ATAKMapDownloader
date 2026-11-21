@@ -98,7 +98,7 @@ func TestOpenWritesTheMBTilesSchemaAndTheFailedTileTable(t *testing.T) {
 	}
 }
 
-func TestCreateStoresTheMetadataKeys(t *testing.T) {
+func TestOpenStoresTheMetadataKeys(t *testing.T) {
 	meta := map[string]string{"name": "test", "format": "png", "minzoom": "0", "maxzoom": "2"}
 	w, path := create(t, meta)
 	closeWriter(t, w)
@@ -186,6 +186,32 @@ func TestOpenSetsWALAndTheBusyTimeout(t *testing.T) {
 				t.Errorf("PRAGMA %s = %q, want %q", tt.pragma, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCloseLeavesOneFileInRollbackJournalMode(t *testing.T) {
+	w, path := create(t, map[string]string{"name": "test"})
+	if err := w.Put(1, 0, 0, []byte{1}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	closeWriter(t, w)
+
+	// ATAK opens the file read-only, so a -wal or -shm file next to it is not readable to ATAK.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); !os.IsNotExist(err) {
+			t.Errorf("stat %s after Close: %v, want no file", filepath.Base(path+suffix), err)
+		}
+	}
+	db := openFile(t, path)
+	var mode string
+	if err := db.QueryRowContext(t.Context(), "PRAGMA journal_mode").Scan(&mode); err != nil {
+		t.Fatalf("PRAGMA journal_mode: %v", err)
+	}
+	if mode != "delete" {
+		t.Errorf("journal_mode after Close = %q, want delete", mode)
+	}
+	if n := count(t, db); n != 1 {
+		t.Errorf("tiles holds %d rows after Close, want 1", n)
 	}
 }
 
