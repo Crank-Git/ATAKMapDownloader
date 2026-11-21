@@ -277,13 +277,22 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		zoomBreakdown[z] = tb.TileCount()
 	}
 	estMB := float64(totalTiles) * tilecalc.TileSizeKB(tileType) / 1024
-	writeJSON(w, map[string]interface{}{
-		"total_tiles":       totalTiles,
-		"estimated_size_mb": estMB,
-		"zoom_breakdown":    zoomBreakdown,
-		"bounds":            req.Bounds,
-		"zoom_range":        []int{req.MinZoom, req.MaxZoom},
+	writeJSON(w, estimateResult{
+		TotalTiles:      totalTiles,
+		EstimatedSizeMB: estMB,
+		ZoomBreakdown:   zoomBreakdown,
+		Bounds:          req.Bounds,
+		ZoomRange:       []int{req.MinZoom, req.MaxZoom},
 	})
+}
+
+// estimateResult is the POST /api/estimate response. ZoomBreakdown maps each zoom level to its tile count.
+type estimateResult struct {
+	TotalTiles      int         `json:"total_tiles"`
+	EstimatedSizeMB float64     `json:"estimated_size_mb"`
+	ZoomBreakdown   map[int]int `json:"zoom_breakdown"`
+	Bounds          []float64   `json:"bounds"`
+	ZoomRange       []int       `json:"zoom_range"`
 }
 
 func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {

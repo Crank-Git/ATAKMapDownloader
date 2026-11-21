@@ -96,13 +96,14 @@ func (h *WebHandler) serveTile(w http.ResponseWriter, name string, zxy []string)
 		return
 	}
 	defer func() { _ = root.Close() }() // The root is read-only here, so a close error loses nothing.
-	// Lstat does not follow a symbolic link, and the check stops the driver from creating a missing file.
-	info, err := root.Lstat(name)
-	if err != nil || !info.Mode().IsRegular() {
+	// The check stops the driver from creating a missing file.
+	f, _, ok := openOutputFile(root, name)
+	if !ok {
 		notFound()
 		return
 	}
-	// SQLite opens a file by path, so ReadTile gets the path of the file that Lstat checked.
+	defer func() { _ = f.Close() }() // The file is read-only here, so a close error loses nothing.
+	// SQLite opens a file by path, so ReadTile gets the path of the file that openOutputFile checked.
 	data, ok, err := mbtiles.ReadTile(filepath.Join(h.outputDir, name), z, x, y)
 	if err != nil {
 		slog.Debug("reject a tile request for a file that is not an MBTiles output file", "name", name, "error", err)
@@ -179,14 +180,14 @@ func (h *WebHandler) outputFile(root *os.Root, name string, inProgress bool) (ou
 	if !validOutputFileName(name) {
 		return outputFileItem{}, false
 	}
-	// Lstat does not follow a symbolic link, so the metadata read below opens only a file inside the root.
-	info, err := root.Lstat(name)
-	if err != nil || !info.Mode().IsRegular() {
+	f, info, ok := openOutputFile(root, name)
+	if !ok {
 		return outputFileItem{}, false
 	}
+	defer func() { _ = f.Close() }() // The file is read-only here, so a close error loses nothing.
 	item := outputFileItem{Name: name, Size: info.Size(), Modified: info.ModTime(), InProgress: inProgress}
 
-	// SQLite opens a file by path, so ReadMetadata gets the path of the file that Lstat checked.
+	// SQLite opens a file by path, so ReadMetadata gets the path of the file that openOutputFile checked.
 	path := filepath.Join(h.outputDir, name)
 	meta := map[string]string{}
 	for _, key := range []string{"format", "atakdl_source", "minzoom", "maxzoom", "bounds"} {
@@ -207,6 +208,27 @@ func (h *WebHandler) outputFile(root *os.Root, name string, inProgress bool) (ou
 	item.MaxZoom, _ = strconv.Atoi(meta["maxzoom"])
 	item.Bounds = parseBounds(meta["bounds"])
 	return item, true
+}
+
+// openOutputFile opens the entry name in root and returns the file and its FileInfo.
+// It returns false when the entry is missing, is not a regular file, or is a symbolic link.
+// The checks read the open handle, so the FileInfo describes the file that the download sends.
+// The Lstat after the open rejects a link inside the root, and os.SameFile rejects an entry that changed after the open.
+// SQLite opens a file by path, so a swap after these checks can still reach the tile and metadata reads.
+func openOutputFile(root *os.Root, name string) (*os.File, fs.FileInfo, bool) {
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, nil, false
+	}
+	info, err := f.Stat()
+	if err == nil && info.Mode().IsRegular() {
+		entry, lerr := root.Lstat(name)
+		if lerr == nil && os.SameFile(info, entry) {
+			return f, info, true
+		}
+	}
+	_ = f.Close() // The file is read-only here, so a close error loses nothing.
+	return nil, nil, false
 }
 
 // parseBounds returns the four numbers of an MBTiles bounds row "west,south,east,north".
@@ -242,17 +264,12 @@ func (h *WebHandler) downloadFile(w http.ResponseWriter, r *http.Request, name s
 		return
 	}
 	defer func() { _ = root.Close() }() // The root is read-only here, so a close error loses nothing.
-	f, err := root.Open(name)
-	if err != nil {
+	f, info, ok := openOutputFile(root, name)
+	if !ok {
 		notFound()
 		return
 	}
 	defer func() { _ = f.Close() }() // The file is read-only here, so a close error loses nothing.
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		notFound()
-		return
-	}
 	// The name holds only [A-Za-z0-9._-], so it needs no escape inside the quotes.
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("Content-Type", "application/octet-stream")
