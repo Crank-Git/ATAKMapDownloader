@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+
+	"github.com/crank-git/atak-map-downloader/internal/output"
 
 	// The blank import registers the "sqlite" driver with database/sql.
 	_ "modernc.org/sqlite"
@@ -61,20 +65,11 @@ type op struct {
 
 // failedList is the answer of the writer goroutine to a Failed request.
 type failedList struct {
-	tiles []FailedTile
+	tiles []output.FailedTile
 	err   error
 }
 
-// FailedTile is one row of the atakdl_failed_tiles table. Y is the XYZ row.
-type FailedTile struct {
-	Z, X, Y int
-	// Reason is the failure reason of the last failure of the tile.
-	Reason string
-	// Attempts counts the calls of Fail for the tile, one per failed pass.
-	Attempts int
-}
-
-// Writer writes the tiles of one job to an output file.
+// Writer writes the tiles of one job to an MBTiles output file, and it satisfies output.Writer.
 // One writer goroutine owns the database, and it commits one transaction per 500 tiles.
 // Has, Put, Fail and Failed are safe for concurrent use. Close must not run at the same time as any of them.
 type Writer struct {
@@ -127,25 +122,105 @@ func Open(path string, metadata map[string]string) (*Writer, error) {
 	return w, nil
 }
 
-// ReadMetadata returns the value of the metadata row name in the output file at path, and true when the row exists.
-// It never writes to the file. Call it only for a file that exists, because the driver creates a missing file.
+func init() {
+	output.Register(output.MBTiles, readInfo, func(path string, metadata map[string]string) (output.Writer, error) {
+		w, err := Open(path, metadata)
+		if err != nil {
+			// A nil *Writer in a non-nil interface would look like a writer to the caller.
+			return nil, err
+		}
+		return w, nil
+	})
+}
+
+// tileColumns are the columns of the tiles table that mark an MBTiles file.
+// An OSMDroid file also has a tiles table, so the detector checks the columns and not the table name.
+var tileColumns = []string{"tile_column", "tile_data", "tile_row", "zoom_level"}
+
+// readInfo returns the Info of the MBTiles file at path, and false when the file has no tiles table with tileColumns.
+// It never writes to the file. A metadata row that is missing or not valid gives the zero value of its field.
 // It returns an error when the file is not an SQLite database or has no metadata table.
-func ReadMetadata(path, name string) (string, bool, error) {
+func readInfo(path string) (output.Info, bool, error) {
 	db, err := sql.Open("sqlite", path+"?_busy_timeout=5000&_query_only=1")
 	if err != nil {
-		return "", false, err
+		return output.Info{}, false, err
 	}
 	defer func() { _ = db.Close() }() // The file is read-only here, so a close error loses no data.
 
-	var value string
-	err = db.QueryRow("SELECT value FROM metadata WHERE name = ?", name).Scan(&value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
+	columns, err := tableColumns(db, "tiles")
 	if err != nil {
-		return "", false, fmt.Errorf("read metadata %s: %w", name, err)
+		return output.Info{}, false, err
 	}
-	return value, true, nil
+	for _, c := range tileColumns {
+		if !columns[c] {
+			return output.Info{}, false, nil
+		}
+	}
+	meta, err := readMetadata(db, "format", "atakdl_source", "minzoom", "maxzoom", "bounds")
+	if err != nil {
+		return output.Info{}, false, err
+	}
+	info := output.Info{TileFormat: meta["format"], Source: meta["atakdl_source"], Bounds: parseBounds(meta["bounds"])}
+	// A v0.1 output file can lack a zoom row, so a missing or bad row gives 0.
+	info.MinZoom, _ = strconv.Atoi(meta["minzoom"])
+	info.MaxZoom, _ = strconv.Atoi(meta["maxzoom"])
+	return info, true, nil
+}
+
+// tableColumns returns the set of the column names of table in db. A missing table gives an empty set.
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query("SELECT name FROM pragma_table_info(?)", table)
+	if err != nil {
+		return nil, fmt.Errorf("read the columns of %s: %w", table, err)
+	}
+	defer func() { _ = rows.Close() }() // rows.Err below reports a read failure.
+	columns := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("read the columns of %s: %w", table, err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read the columns of %s: %w", table, err)
+	}
+	return columns, nil
+}
+
+// readMetadata returns the value of each metadata row in names that db holds.
+func readMetadata(db *sql.DB, names ...string) (map[string]string, error) {
+	meta := map[string]string{}
+	for _, name := range names {
+		var value string
+		err := db.QueryRow("SELECT value FROM metadata WHERE name = ?", name).Scan(&value)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read metadata %s: %w", name, err)
+		}
+		meta[name] = value
+	}
+	return meta, nil
+}
+
+// parseBounds returns the four numbers of an MBTiles bounds row "west,south,east,north".
+// It returns nil when the row does not hold four numbers.
+func parseBounds(row string) []float64 {
+	parts := strings.Split(row, ",")
+	if len(parts) != 4 {
+		return nil
+	}
+	bounds := make([]float64, 4)
+	for i, p := range parts {
+		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+		if err != nil {
+			return nil
+		}
+		bounds[i] = v
+	}
+	return bounds
 }
 
 // ReadTile returns the tile data of the tile z, x, y in the output file at path, and true when the file holds the tile.
@@ -248,7 +323,7 @@ func (w *Writer) Fail(z, x, y int, reason string) error {
 // Failed returns the rows of atakdl_failed_tiles, with XYZ rows, in tile order.
 // The writer goroutine commits every queued operation first, so the rows include each Fail and Put before the call.
 // It returns the first write error of the writer, or the query error.
-func (w *Writer) Failed() ([]FailedTile, error) {
+func (w *Writer) Failed() ([]output.FailedTile, error) {
 	reply := make(chan failedList, 1)
 	w.queue <- op{reply: reply}
 	l := <-reply
@@ -389,9 +464,9 @@ func (w *Writer) listFailed() failedList {
 	}
 	defer func() { _ = rows.Close() }() // rows.Err below reports a read failure.
 
-	var tiles []FailedTile
+	var tiles []output.FailedTile
 	for rows.Next() {
-		var f FailedTile
+		var f output.FailedTile
 		if err := rows.Scan(&f.Z, &f.X, &f.Y, &f.Reason, &f.Attempts); err != nil {
 			return failedList{err: fmt.Errorf("read the failed tiles: %w", err)}
 		}

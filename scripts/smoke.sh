@@ -1,8 +1,9 @@
 #!/bin/sh
 # smoke.sh builds atak-dl, starts serve on a free port, and checks eleven responses and the bind warning.
-# It also checks the terms exit code, the output file exit code, the tile cap, --no-geocode and the sources sync command.
+# It also checks the terms exit code, the output file exit code, the tile cap, the output format, --no-geocode and the sources sync command.
 # FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25,
-# FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27, and FR-source-sync-10, -11, -16 and -29 define the checks.
+# FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27, FR-output-formats-1 and -3,
+# and FR-source-sync-10, -11, -16 and -29 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -183,6 +184,26 @@ if [ "$status" != "4" ] || ! grep -q "too_many_tiles" "$stderr_file"; then
 	exit 1
 fi
 echo "smoke: download above --max-tiles exited 4"
+
+# An unknown --format exits with code 1 and lists the valid values (FR-output-formats-1).
+# The output directory is a regular file, so a build without the check fails before it sends a request.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--format kmz --output "$terms_file/out.mbtiles" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q "invalid_output_format: --format \"kmz\" is not one of mbtiles, osmdroid, gpkg" "$stderr_file"; then
+	echo "smoke: download with --format kmz exited $status, want 1 and the valid values" >&2
+	exit 1
+fi
+echo "smoke: download with --format kmz exited 1 and listed the valid values"
+
+# The job API rejects an unknown output_format before it sends a request (FR-output-formats-3).
+curl -s -X POST -H 'Content-Type: application/json' \
+	-d '{"source":"USGS Topo","bounds":[-74.1,40.7,-74.0,40.8],"min_zoom":10,"max_zoom":10,"output_format":"kmz"}' "$base/api/jobs" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("error", {}).get("code") != "invalid_output_format":
+    sys.exit("smoke: POST /api/jobs with output_format kmz did not return invalid_output_format")
+'
+echo "smoke: POST /api/jobs with output_format kmz returned invalid_output_format"
 
 # serve --no-geocode removes the geocode route and reports geocode false (FR-polite-downloading-26).
 port2=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')

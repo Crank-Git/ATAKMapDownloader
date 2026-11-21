@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 )
@@ -35,11 +36,14 @@ type jobRequest struct {
 	RateLimit *float64 `json:"rate_limit"`
 	// IfExists is the rule for an existing output file. An empty value means ifExistsFail.
 	IfExists ifExists `json:"if_exists"`
+	// OutputFormat is one of output.Formats. checkJobRequest sets an empty value to output.MBTiles (FR-output-formats-3).
+	OutputFormat string `json:"output_format"`
 }
 
 // engineConfig returns the engine configuration for the request.
 func (req jobRequest) engineConfig() download.Config {
 	cfg := download.DefaultConfig()
+	cfg.Format = req.OutputFormat
 	if req.Concurrency != nil {
 		cfg.MaxConcurrent = *req.Concurrency
 	}
@@ -317,8 +321,8 @@ func (h *WebHandler) checkOutput(w http.ResponseWriter, req jobRequest, source *
 	if rule == "" {
 		rule = ifExistsFail
 	}
-	path := filepath.Join(h.outputDir, download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name))
-	err := prepareOutput(path, rule, source.Name, true)
+	path := filepath.Join(h.outputDir, download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name, req.OutputFormat))
+	err := prepareOutput(path, rule, source.Name, req.OutputFormat, true)
 	var conflict *outputConflict
 	switch {
 	case errors.Is(err, errOutputExists):
@@ -368,10 +372,7 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 		writeError(w, http.StatusBadRequest, "invalid_rate_limit", fmt.Sprintf("rate_limit %g is not above 0", *req.RateLimit))
 		return nil, nil, "", false
 	}
-	switch req.IfExists {
-	case "", ifExistsFail, ifExistsResume, ifExistsOverwrite:
-	default:
-		writeError(w, http.StatusBadRequest, "invalid_if_exists", fmt.Sprintf("if_exists %q is not fail, resume or overwrite", req.IfExists))
+	if !checkOutputOptions(w, req) {
 		return nil, nil, "", false
 	}
 	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
@@ -380,6 +381,25 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 		return nil, nil, "", false
 	}
 	return source, bounds, warning, true
+}
+
+// checkOutputOptions checks the output_format and if_exists fields of req, and it sets an empty output_format to output.MBTiles.
+// It writes the error response and returns false when a field is not valid.
+func checkOutputOptions(w http.ResponseWriter, req *jobRequest) bool {
+	if req.OutputFormat == "" {
+		req.OutputFormat = output.MBTiles
+	}
+	if code, message := checkFormat("output_format", req.OutputFormat); code != "" {
+		writeError(w, http.StatusBadRequest, code, message)
+		return false
+	}
+	switch req.IfExists {
+	case "", ifExistsFail, ifExistsResume, ifExistsOverwrite:
+		return true
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_if_exists", fmt.Sprintf("if_exists %q is not fail, resume or overwrite", req.IfExists))
+		return false
+	}
 }
 
 // maxConcurrency is the highest concurrency that a job accepts (FR-security-hardening-20).
@@ -442,7 +462,7 @@ func (h *WebHandler) newJob(req jobRequest, bounds *tilecalc.GeographicBounds, c
 			MinZoom:    req.MinZoom,
 			MaxZoom:    req.MaxZoom,
 			State:      jobRunning,
-			OutputFile: download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name),
+			OutputFile: download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name, req.OutputFormat),
 			Total:      tileCount(bounds, req.MinZoom, req.MaxZoom),
 			CreatedAt:  time.Now().UTC(),
 		},
