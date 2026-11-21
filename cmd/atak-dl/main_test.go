@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// The test names the source by its v0.1 name, so it also checks the alias to the v2 name (FR-source-sync-16).
 func TestDownloadOfAGoogleSourceWithoutAcceptTermsExitsWithCode2(t *testing.T) {
 	// The output directory is a regular file, so the engine fails before its first request if the terms check fails.
 	// Thus Google gets no request from this test, even from a build without the check.
@@ -32,7 +33,7 @@ func TestDownloadOfAGoogleSourceWithoutAcceptTermsExitsWithCode2(t *testing.T) {
 	cmd := exec.CommandContext(t.Context(), os.Args[0], //nolint:gosec // os.Args[0] is this test binary, and the arguments are constants.
 		"--mapsources-dir", t.TempDir(),
 		"download",
-		"--source", "Google Satellite",
+		"--source", "Google - Satellite Only",
 		"--bbox", "40.7,-74.1,40.8,-74.0",
 		"--min-zoom", "10", "--max-zoom", "10",
 		"--output", filepath.Join(blocker, "out.sqlite"),
@@ -46,9 +47,37 @@ func TestDownloadOfAGoogleSourceWithoutAcceptTermsExitsWithCode2(t *testing.T) {
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
 		t.Fatalf("Run() returned %v, want exit code 2; stderr %q", err, stderr.String())
 	}
-	const url = "https://developers.google.com/maps/documentation/tile/policies"
-	if !strings.Contains(stderr.String(), url) {
-		t.Errorf("stderr = %q, want it to hold %q", stderr.String(), url)
+	for _, want := range []string{
+		"https://developers.google.com/maps/documentation/tile/policies",
+		`Warning: "Google - Satellite Only" is an old map source name. The new name is "Google Satellite".`,
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr = %q, want it to hold %q", stderr.String(), want)
+		}
+	}
+}
+
+func TestDownloadOfARemovedSourceNamesTheUpstreamVersion(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), os.Args[0], //nolint:gosec // os.Args[0] is this test binary, and the arguments are constants.
+		"--mapsources-dir", t.TempDir(),
+		"download",
+		"--source", "Michelin - OSM Michelin",
+		"--bbox", "40.7,-74.1,40.8,-74.0",
+		"--min-zoom", "10", "--max-zoom", "10",
+		"--output", filepath.Join(t.TempDir(), "out.sqlite"),
+	)
+	cmd.Env = append(os.Environ(), runMainEnv+"=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("Run() returned %v, want exit code 1; stderr %q", err, stderr.String())
+	}
+	const want = "map source removed upstream in ATAK-Maps v1.10.1"
+	if !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want it to hold %q", stderr.String(), want)
 	}
 }
 
