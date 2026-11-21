@@ -300,14 +300,18 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, code, message)
 		return
 	}
-	tileType := ""
+	tileType, warning := "", ""
 	if req.Source != "" {
-		source := h.parser.GetSource(req.Source)
+		source, oldNameWarning, err := findSource(h.parser, req.Source)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "unknown_source", err.Error())
+			return
+		}
 		if source == nil {
 			writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
 			return
 		}
-		tileType = source.TileType
+		tileType, warning = source.TileType, oldNameWarning
 	}
 	count := tilecalc.CountJobTiles(areas)
 	perArea := make([]areaEstimate, len(areas))
@@ -324,6 +328,7 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		ZoomRange:       []int{minZoom, maxZoom},
 		Areas:           perArea,
 		UniqueTiles:     count.Unique,
+		Warning:         warning,
 	})
 }
 
@@ -337,6 +342,9 @@ type estimateResult struct {
 	ZoomRange       []int          `json:"zoom_range"`
 	Areas           []areaEstimate `json:"areas"`
 	UniqueTiles     int            `json:"unique_tiles"`
+	// Warning is the deprecation warning of a v0.1 map source name (FR-area-estimate-20).
+	// The field is absent for a v2 name, so the response for a v2 name keeps its shape.
+	Warning string `json:"warning,omitempty"`
 }
 
 // areaEstimate is the tile count of one area alone in the POST /api/estimate response.
