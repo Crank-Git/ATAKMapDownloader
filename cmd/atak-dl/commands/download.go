@@ -240,6 +240,10 @@ func checkOutput(cmd *cobra.Command, output, sourceName, format string, pkg *pac
 		return fmt.Errorf("read --force: %w", err)
 	}
 	if pkg != nil {
+		// The zip step removes the output file after the rename, so one path for both files loses the zip.
+		if filepath.Clean(pkg.zipPath(output)) == filepath.Clean(output) {
+			return fmt.Errorf("invalid_package_name: the data package %s is the --output path", output)
+		}
 		err = prepareDataPackage(pkg.zipPath(output), rule)
 	}
 	if err == nil {

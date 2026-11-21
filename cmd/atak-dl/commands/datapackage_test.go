@@ -141,6 +141,18 @@ func TestDownloadRejectsDataPackageFlagsThatAreNotValid(t *testing.T) {
 	}
 }
 
+func TestDownloadRejectsADataPackageAtTheOutputPath(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	path := filepath.Join(t.TempDir(), "hood.zip")
+	stderr, err := runDownloadInto(t, srv, path, []string{"--data-package", "--package-name", "hood"})
+	if got := ExitCode(err); got != 1 || !strings.Contains(stderr, "invalid_package_name") {
+		t.Errorf("ExitCode(%v) = %d, stderr %q; want 1 and invalid_package_name", err, got, stderr)
+	}
+	if n := srv.TotalRequests(); n != 0 {
+		t.Errorf("server got %d tile requests, want 0", n)
+	}
+}
+
 func TestDownloadWithDataPackageAndResumeResumesTheOutputFileAndRebuildsTheZip(t *testing.T) {
 	srv := testtiles.New(t, nil)
 	dir := t.TempDir()
