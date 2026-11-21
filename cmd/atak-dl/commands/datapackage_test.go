@@ -2,6 +2,7 @@ package commands
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/xml"
 	"io"
 	"io/fs"
@@ -16,6 +17,7 @@ import (
 	"github.com/crank-git/atak-map-downloader/internal/snapshot"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
+	"github.com/spf13/cobra"
 )
 
 // zipEntries returns the content of each entry of the zip at path, by entry name.
@@ -307,5 +309,27 @@ func TestJobAPIRefusesAnExistingDataPackage(t *testing.T) {
 	checkError(t, s.request(t, http.MethodPost, "/api/jobs", dataPackageJob("")), http.StatusConflict, "output_exists")
 	if got := string(readFile(t, zipPath)); got != "old zip" {
 		t.Errorf("zip after the refused job = %q, want it unchanged", got)
+	}
+}
+
+func TestPackageOutputReturnsAContextThatALaterCancelDoesNotEnd(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hood.mbtiles")
+	writeOutputFile(t, path, map[string]string{"atakdl_source": "Test TLS"}, oneTile)
+	ctx, cancel := context.WithCancel(t.Context())
+	cmd := &cobra.Command{}
+	cmd.SetOut(io.Discard)
+
+	fctx, got, err := packageOutput(ctx, cmd, path, &packageOptions{name: "hood"}, &xmlparser.MapSource{}, nil)
+	if err != nil {
+		t.Fatalf("packageOutput error = %v", err)
+	}
+	if want := filepath.Join(dir, "hood.zip"); got != want {
+		t.Errorf("packageOutput path = %q, want %q", got, want)
+	}
+	// The zip is complete and the output file is gone, so a later cancel must not print the resume line.
+	cancel()
+	if fctx.Err() != nil {
+		t.Errorf("context after the cancel = %v, want no error, because the job is complete", fctx.Err())
 	}
 }
