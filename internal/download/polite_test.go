@@ -110,8 +110,10 @@ func TestEngineWaitsForRetryAfterBeforeTheNextRequest(t *testing.T) {
 
 func TestEngineStopsTheJobWithServerRefused(t *testing.T) {
 	tests := []struct {
-		name         string
-		table        testtiles.Table
+		name  string
+		table testtiles.Table
+		// slots is the concurrency of the job. Zero keeps the default.
+		slots        int
 		wantRequests int
 	}{
 		{
@@ -120,8 +122,10 @@ func TestEngineStopsTheJobWithServerRefused(t *testing.T) {
 			wantRequests: 20,
 		},
 		{
-			name:         "stops at once when Retry-After is above 300 seconds",
-			table:        tableOf(area, testtiles.Response{Kind: testtiles.TooManyRequests, RetryAfter: "301"}),
+			name:  "stops at once when Retry-After is above 300 seconds",
+			table: tableOf(area, testtiles.Response{Kind: testtiles.TooManyRequests, RetryAfter: "301"}),
+			// With 5 slots, a second request can leave before the first 429 stops the job, so the case uses 1 slot.
+			slots:        1,
 			wantRequests: 1,
 		},
 	}
@@ -130,7 +134,11 @@ func TestEngineStopsTheJobWithServerRefused(t *testing.T) {
 			srv := testtiles.New(t, tt.table)
 			source := loadFixture(t, "xyz.xml", srv)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
-			e := politeEngine(testConfig(), 1000)
+			cfg := testConfig()
+			if tt.slots > 0 {
+				cfg.MaxConcurrent = tt.slots
+			}
+			e := politeEngine(cfg, 1000)
 			// A short base keeps 20 backoff waits inside the test time.
 			e.backoffBase = time.Millisecond
 

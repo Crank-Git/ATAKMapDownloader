@@ -24,6 +24,8 @@ type WebHandler struct {
 	mapsDir string
 	// outputDir is the directory of the output files of job API jobs.
 	outputDir string
+	// maxTiles is the tile cap of a job API job (FR-robust-downloads-27).
+	maxTiles  int
 	jobRoutes *http.ServeMux
 	// userAgent is the User-Agent of every tile request and every geocode request (FR-polite-downloading-14).
 	userAgent string
@@ -55,6 +57,7 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 		calc:       calc,
 		mapsDir:    mapsDir,
 		outputDir:  download.DownloadsDir(),
+		maxTiles:   defaultMaxTiles,
 		jobRoutes:  http.NewServeMux(),
 		userAgent:  userAgent,
 		geocodeURL: defaultGeocoderURL + "/search",

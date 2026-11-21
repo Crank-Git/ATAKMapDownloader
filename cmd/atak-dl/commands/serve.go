@@ -27,6 +27,7 @@ func NewServeCmd(userAgent string) *cobra.Command {
 	cmd.Flags().String("mapsources-dir", "mapsources", "Directory containing XML map source files")
 	cmd.Flags().String("geocoder-url", defaultGeocoderURL, "Base URL of the Nominatim geocoder for place search")
 	cmd.Flags().Bool("no-geocode", false, "Turn off place search and hide the search box in the web UI")
+	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job API job above this tile count")
 	return cmd
 }
 
@@ -55,6 +56,9 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 	wh := NewWebHandler(parser, calc, dir, userAgent)
 	if err := applyGeocodeFlags(cmd, wh); err != nil {
 		return err
+	}
+	if wh.maxTiles, err = cmd.Flags().GetInt("max-tiles"); err != nil {
+		return fmt.Errorf("read --max-tiles: %w", err)
 	}
 	handler := newServerHandler(wh)
 

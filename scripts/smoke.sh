@@ -1,8 +1,8 @@
 #!/bin/sh
 # smoke.sh builds atak-dl, starts serve on a free port, and checks six responses and the bind warning.
-# It also checks the terms exit code, the output file exit code and --no-geocode.
+# It also checks the terms exit code, the output file exit code, the tile cap and --no-geocode.
 # FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
-# and FR-robust-downloads-6 define the checks.
+# and FR-robust-downloads-6, -26 and -27 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -120,10 +120,21 @@ if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --over
 fi
 echo "smoke: download into an existing output file exited 3"
 
+# A job above --max-tiles exits with code 4 before it sends a request (FR-robust-downloads-26).
+# The output directory is a regular file, so a build without the check fails before it sends a request.
+status=0
+./atak-dl download --source "USGS - Usgsbasemap" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 12 \
+	--max-tiles 1 --output "$terms_file/out.sqlite" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "4" ] || ! grep -q "too_many_tiles" "$stderr_file"; then
+	echo "smoke: download above --max-tiles exited $status, want 4 and too_many_tiles" >&2
+	exit 1
+fi
+echo "smoke: download above --max-tiles exited 4"
+
 # serve --no-geocode removes the geocode route and reports geocode false (FR-polite-downloading-26).
 port2=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 base2="http://127.0.0.1:$port2"
-./atak-dl serve --addr "127.0.0.1:$port2" --no-geocode >/dev/null &
+./atak-dl serve --addr "127.0.0.1:$port2" --no-geocode --max-tiles 1 >/dev/null &
 off_pid=$!
 trap 'kill "$pid" "$open_pid" "$off_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file" "$exists_file"' EXIT INT TERM
 attempt=0
@@ -146,5 +157,14 @@ if json.load(sys.stdin).get("geocode") is not False:
     sys.exit("smoke: GET /api/config with --no-geocode did not return geocode false")
 '
 echo "smoke: serve --no-geocode returned 404 for POST /api/geocode and geocode false"
+
+# A job API job above serve --max-tiles returns 400 too_many_tiles before it sends a request (FR-robust-downloads-27).
+curl -s -X POST -H 'Content-Type: application/json' \
+	-d '{"source":"USGS - Usgsbasemap","bounds":[-74.1,40.7,-74.0,40.8],"min_zoom":10,"max_zoom":12}' "$base2/api/jobs" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("error", {}).get("code") != "too_many_tiles":
+    sys.exit("smoke: POST /api/jobs above serve --max-tiles did not return too_many_tiles")
+'
+echo "smoke: POST /api/jobs above serve --max-tiles returned too_many_tiles"
 
 echo "smoke: pass"

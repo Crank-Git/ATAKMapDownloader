@@ -30,7 +30,7 @@ func storeTiles(t *testing.T, path string, tiles []testtiles.Tile) {
 // tilesOf returns the XYZ tiles of tb.
 func tilesOf(tb tilecalc.TileBounds) []testtiles.Tile {
 	var tiles []testtiles.Tile
-	for pair := range tb.IterTiles() {
+	for pair := range tb.IterTiles(context.Background()) {
 		tiles = append(tiles, testtiles.Tile{Z: tb.Zoom, X: pair[0], Y: pair[1]})
 	}
 	return tiles

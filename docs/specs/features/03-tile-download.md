@@ -92,33 +92,35 @@ flowchart TD
     F --> G[Create the output file and write the metadata]
     G --> H[Request the tiles and print progress]
     H --> I{Result}
-    I -- SIGINT or SIGTERM --> J[Delete the output file, print Download cancelled., exit 1]
-    I -- failure rate above tolerance --> K[Keep the output file, print Download failed, exit 1]
-    I -- success --> L[Print Download complete. Saved to PATH, exit 0]
+    I -- SIGINT or SIGTERM --> J[Commit the stored tiles, print the stored count, exit 130]
+    I -- failure rate above tolerance --> K[Keep the output file, print the summary line and the failure rate, exit 5]
+    I -- success --> L[Print the summary line, exit 0]
 ```
 
 1. The solo operator runs `atak-dl download` with `--source` and `--bbox`.
 2. If the map source is not in the source catalog, the CLI prints
    `Source 'NAME' not found` and exits with code 1.
 3. If the bounds are not valid, the CLI prints the error and exits with code 1.
-4. The CLI checks the zoom range and `--concurrent` with `checkJobLimits`
-   (`cmd/atak-dl/commands/download.go:50-55`, #81). If a check fails, the CLI prints
-   `Error: <code>: <message>` with no usage text and exits with code 1. Examples:
+4. The CLI checks the zoom range, `--concurrent` and the tile count with `checkJobLimits`
+   (`cmd/atak-dl/commands/download.go:81-89`, #81, #29). If a check fails, the CLI prints
+   `Error: <code>: <message>` with no usage text. A tile count above `--max-tiles` exits
+   with code 4, and the other checks exit with code 1. Examples:
    - `Error: zoom_out_of_range: min_zoom 12 is above max_zoom 10`
    - `Error: invalid_concurrency: concurrency 0 is outside the range 1-32`
+   - `Error: too_many_tiles: the job has 600000 tiles, and the tile cap is 500000`
 5. The CLI uses `--output`, or builds a file name in `./downloads`.
 6. If `--insecure` is set, the CLI prints the TLS warning to stderr (#75).
 7. The engine deletes any file at the output path.
 8. The engine creates the output file and writes the metadata.
 9. The engine requests the tiles. The CLI prints progress.
-10. If the solo operator presses Ctrl-C, the engine deletes the output file. The CLI
-    prints `Download cancelled.`, then `Error: context canceled` and the usage text, and
-    exits with code 1.
-11. If the failure rate is above the failure tolerance, the CLI prints
-    `Download failed: failure rate N% exceeds threshold 20.0%` and exits with code 1. The
+10. If the solo operator presses Ctrl-C, the engine stops its requests within 500 ms and
+    commits the stored tiles (#29). The CLI prints
+    `Cancelled. N of T tiles stored. Run again with --resume.` and exits with code 130.
+11. If the failure rate is above the failure tolerance, the CLI prints the summary line,
+    then `Error: failure rate N% exceeds threshold 20.0%`, and exits with code 5. The
     output file stays on disk.
-12. If the job succeeds, the CLI prints `Download complete. Saved to PATH` and exits with
-    code 0.
+12. If the job succeeds, the CLI prints the summary line
+    `Done: N downloaded, N skipped, N failed in 2h41m -> PATH` and exits with code 0.
 
 ### Flow 2 — The engine processes one tile
 
@@ -162,11 +164,11 @@ flowchart TD
 
 CLI output of `download`:
 
-- Running: `\r12.0% (605/5044) - 31.2 tiles/s - ETA: 142s`, written over itself.
-- Success: `Download complete. Saved to downloads/<file>.sqlite`.
-- Failure: `Download failed: failure rate 35.0% exceeds threshold 20.0%`.
-- Cancelled: `Download cancelled.`, then cobra prints `Error: context canceled` and the
-  usage text.
+- Running: `\r37.4% (44,880/120,000) - 12.1 tiles/s - 1,200 skipped - 14 failed - ETA 1h43m`,
+  written over itself. The percentage counts downloaded, skipped and failed tiles (#29).
+- Success: `Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -> downloads/<file>.sqlite`.
+- Failure: the summary line, then `Error: failure rate 35.0% exceeds threshold 20.0%`.
+- Cancelled: `Cancelled. 41,200 of 120,000 tiles stored. Run again with --resume.`
 - The engine logs `starting download`, `download complete` and each retry through slog
   to stderr.
 
@@ -264,7 +266,15 @@ known.
 `--min-zoom` and `--max-zoom` must be inside the zoom range of the map source, or the
 command fails with `zoom_out_of_range` (#81).
 
-Exit codes: 0 on success, 2 when a restricted map source has no `--accept-terms` (#85), and 1 on any other error, failure or cancel.
+Exit codes (feature 07, #29):
+
+- 0: success
+- 1: error
+- 2: terms not accepted (#85)
+- 3: output file conflict
+- 4: tile cap exceeded (`--max-tiles`, default 500,000)
+- 5: job failed above failure tolerance
+- 130: cancelled
 
 ### Module contract
 
@@ -359,8 +369,8 @@ Known defects and the planned feature that repairs each:
 - [ ] For each tile, `tile_row` equals `2^zoom_level − 1 − y`, where `y` is the XYZ row.
 - [ ] The `metadata` table holds the keys `name`, `type`, `version`, `description`,
       `format`, `bounds`, `minzoom` and `maxzoom`.
-- [ ] Ctrl-C during a job prints `Download cancelled.`, leaves no output file and exits
-      with code 1.
+- [ ] Ctrl-C during a job prints `Cancelled. N of T tiles stored. Run again with --resume.`,
+      keeps the output file and exits with code 130 (#29).
 - [ ] `atak-dl download --source="USGS - Usgsbasemap" --bbox=40.75,-74.0,40.76,-73.99 --min-zoom=12 --max-zoom=10`
       prints `Error: zoom_out_of_range: min_zoom 12 is above max_zoom 10` and exits with
       code 1 (#81).
