@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -33,7 +34,7 @@ func TestDiscoverSourcesLetsAUserSourceReplaceTheSnapshotSourceOfTheSameName(t *
 	createTestXML(t, dir, "atak-maps/bravo.xml", sourceXML("Bravo", "https://user.test/b/{$z}/{$x}/{$y}.png"))
 	createTestXML(t, dir, "charlie.xml", sourceXML("Charlie", "https://user.test/c/{$z}/{$x}/{$y}.png"))
 
-	sources := NewWithSnapshot(testSnapshot(), dir).DiscoverSources(false)
+	sources := NewWithSnapshot(testSnapshot(), dir).DiscoverSources()
 
 	tests := []struct {
 		name   string
@@ -62,9 +63,9 @@ func TestDiscoverSourcesLetsAUserSourceReplaceTheSnapshotSourceOfTheSameName(t *
 func TestDiscoverSourcesLoadsTheSnapshotWhenTheUserSourceDirectoryIsMissing(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing")
 	parser := NewWithSnapshot(testSnapshot(), missing)
-	// The second call reads the cache, so it must return the snapshot too.
+	// Each call scans again, so the second call must return the snapshot too.
 	for i := range 2 {
-		sources := parser.DiscoverSources(false)
+		sources := parser.DiscoverSources()
 		if len(sources) != 2 || sources["Alpha"] == nil || sources["Bravo"] == nil {
 			t.Errorf("call %d: DiscoverSources() = %v, want Alpha and Bravo", i+1, sources)
 		}
@@ -75,9 +76,106 @@ func TestDiscoverSourcesWithoutASnapshotLoadsOnlyTheUserSourceDirectory(t *testi
 	dir := t.TempDir()
 	createTestXML(t, dir, "charlie.xml", sourceXML("Charlie", "https://user.test/c/{$z}/{$x}/{$y}.png"))
 
-	sources := New(dir).DiscoverSources(false)
+	sources := New(dir).DiscoverSources()
 
 	if len(sources) != 1 || sources["Charlie"] == nil || sources["Charlie"].Origin != OriginUser {
 		t.Errorf("DiscoverSources() = %v, want only Charlie with origin user", sources)
+	}
+}
+
+func TestDiscoverSourcesRecordsEachSkippedSourceFileWithItsReason(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "good"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"a_dup.xml":     sourceXML("Dup", "https://user.test/first/{$z}/{$x}/{$y}.png"),
+		"b_dup.xml":     sourceXML("Dup", "https://user.test/second/{$z}/{$x}/{$y}.png"),
+		"broken.xml":    "<customMapSource><name>Broken",
+		"noname.xml":    sourceXML(" ", "https://user.test/n/{$z}/{$x}/{$y}.png"),
+		"nourl.xml":     sourceXML("No URL", ""),
+		"wms.xml":       `<?xml version="1.0"?><customWmsMapSource><name>WMS</name><url>https://user.test/wms</url></customWmsMapSource>`,
+		"multi.xml":     `<?xml version="1.0"?><customMultiLayerMapSource><name>Multi</name></customMultiLayerMapSource>`,
+		"readme.txt":    "not a source file",
+		"good/good.xml": sourceXML("Good", "https://user.test/g/{$z}/{$x}/{$y}.png"),
+	}
+	for name, content := range files {
+		createTestXML(t, dir, name, content)
+	}
+
+	parser := New(dir)
+	sources := parser.DiscoverSources()
+	skipped := parser.SkippedSources()
+
+	if len(sources) != 2 || sources["Good"] == nil || sources["Dup"] == nil {
+		t.Errorf("DiscoverSources() = %v, want Good and Dup", sources)
+	}
+	// The walk is in lexical path order, so a_dup.xml loads and b_dup.xml is the duplicate.
+	if s := sources["Dup"]; s != nil && s.URL != "https://user.test/first/{$z}/{$x}/{$y}.png" {
+		t.Errorf("Dup URL = %q, want the URL of a_dup.xml", s.URL)
+	}
+	tests := []struct {
+		file   string
+		reason string
+		detail string
+	}{
+		{"b_dup.xml", SkipDuplicateName, "a_dup.xml"},
+		{"broken.xml", SkipParseError, "EOF"},
+		{"multi.xml", SkipParseError, "customMultiLayerMapSource"},
+		{"noname.xml", SkipMissingName, "<name>"},
+		{"nourl.xml", SkipMissingURL, "<url>"},
+		{"wms.xml", SkipParseError, "customWmsMapSource"},
+	}
+	if len(skipped) != len(tests) {
+		t.Fatalf("SkippedSources() = %+v, want %d entries", skipped, len(tests))
+	}
+	for i, tt := range tests {
+		got := skipped[i]
+		want := filepath.Join(dir, tt.file)
+		if got.Path != want || got.Reason != tt.reason || !strings.Contains(got.Detail, tt.detail) {
+			t.Errorf("SkippedSources()[%d] = %+v, want path %s, reason %s and a detail with %q", i, got, want, tt.reason, tt.detail)
+		}
+	}
+}
+
+func TestDiscoverSourcesLoadsADuplicateNameInAnotherDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	createTestXML(t, dir, "alpha.xml", sourceXML("Alpha", "https://user.test/top/{$z}/{$x}/{$y}.png"))
+	createTestXML(t, dir, "sub/alpha.xml", sourceXML("Alpha", "https://user.test/sub/{$z}/{$x}/{$y}.png"))
+
+	parser := NewWithSnapshot(testSnapshot(), dir)
+	sources := parser.DiscoverSources()
+
+	if got := parser.SkippedSources(); len(got) != 0 {
+		t.Errorf("SkippedSources() = %+v, want none", got)
+	}
+	if s := sources["Alpha"]; s == nil || s.Origin != OriginUser {
+		t.Errorf("Alpha = %+v, want the user map source", s)
+	}
+}
+
+func TestDiscoverSourcesReadsASourceFileThatChangedAfterTheLastScan(t *testing.T) {
+	dir := t.TempDir()
+	createTestXML(t, dir, "alpha.xml", sourceXML("Alpha", "https://user.test/old/{$z}/{$x}/{$y}.png"))
+	parser := New(dir)
+	if s := parser.DiscoverSources()["Alpha"]; s == nil {
+		t.Fatal("first DiscoverSources() has no Alpha")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createTestXML(t, dir, "alpha.xml", sourceXML("Alpha", "https://user.test/new/{$z}/{$x}/{$y}.png"))
+	// An edit in place can leave the directory time unchanged, so the test sets it back.
+	if err := os.Chtimes(dir, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	if s := parser.DiscoverSources()["Alpha"]; s == nil || s.URL != "https://user.test/new/{$z}/{$x}/{$y}.png" {
+		t.Errorf("second DiscoverSources() Alpha = %+v, want the new URL", s)
 	}
 }

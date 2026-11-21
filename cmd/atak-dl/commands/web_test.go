@@ -71,6 +71,7 @@ func TestErrorResponsesUseTheErrorShape(t *testing.T) {
 		{"geocode rejects GET", http.MethodGet, "/api/geocode", "", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{"geocode rejects a body that is not JSON", http.MethodPost, "/api/geocode", "{", http.StatusBadRequest, "invalid_json"},
 		{"geocode rejects an empty query", http.MethodPost, "/api/geocode", `{"query":"  "}`, http.StatusBadRequest, "invalid_query"},
+		{"sources/skipped rejects POST", http.MethodPost, "/api/sources/skipped", "", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{"api rejects an unknown route", http.MethodGet, "/api/nope", "", http.StatusNotFound, "not_found"},
 		{"static rejects a missing file", http.MethodGet, "/static/missing.js", "", http.StatusNotFound, "not_found"},
 		{"server rejects an unknown path", http.MethodGet, "/nope", "", http.StatusNotFound, "not_found"},
@@ -118,6 +119,7 @@ func TestSuccessResponsesSetTheJSONContentType(t *testing.T) {
 		body   string
 	}{
 		{"sources", http.MethodGet, "/api/sources", ""},
+		{"sources/skipped", http.MethodGet, "/api/sources/skipped", ""},
 		{"estimate", http.MethodPost, "/api/estimate", `{"bounds":[0,0,1,1],"min_zoom":1,"max_zoom":2}`},
 		{"tile-info", http.MethodPost, "/api/tile-info", `{"lat":1,"lon":1,"zoom":3}`},
 		{"validate-source", http.MethodPost, "/api/validate-source", `{"source_name":"Test Source"}`},
@@ -176,6 +178,93 @@ func TestSourcesReturnsThePolicyOfEachSource(t *testing.T) {
 			item.RequestsPerSecond != w.RequestsPerSecond || item.PolicyHost != w.PolicyHost || item.PolicyReason == "" {
 			t.Errorf("source %q = %+v, want the policy fields of %+v and a reason", item.Name, item, w)
 		}
+	}
+}
+
+func TestSourcesReturnsTheKindAndOriginOfEachSource(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	rec := serve(h, http.MethodGet, "/api/sources", "")
+
+	var got []struct {
+		Name   string `json:"name"`
+		Kind   string `json:"kind"`
+		Origin string `json:"origin"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Kind != xmlparser.KindTile || got[0].Origin != xmlparser.OriginUser {
+		t.Errorf("GET /api/sources = %+v, want Test Source with kind tile and origin user", got)
+	}
+}
+
+func TestSourcesSkippedReturnsThePathReasonAndDetailOfEachSkippedFile(t *testing.T) {
+	wmsXML := `<?xml version="1.0"?><customWmsMapSource><name>WMS</name><url>https://example.com/wms</url></customWmsMapSource>`
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "wms.xml": wmsXML})
+	rec := serve(h, http.MethodGet, "/api/sources/skipped", "")
+
+	var got []struct {
+		Path   string `json:"path"`
+		Reason string `json:"reason"`
+		Detail string `json:"detail"`
+	}
+	dec := json.NewDecoder(rec.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&got); err != nil {
+		t.Fatalf("body does not parse as [{path, reason, detail}]: %v", err)
+	}
+	if len(got) != 1 || filepath.Base(got[0].Path) != "wms.xml" || got[0].Reason != xmlparser.SkipParseError ||
+		!strings.Contains(got[0].Detail, "customWmsMapSource") {
+		t.Errorf("GET /api/sources/skipped = %+v, want wms.xml with reason parse_error and the root element", got)
+	}
+}
+
+func TestSourcesSkippedReturnsAnEmptyArray(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	rec := serve(h, http.MethodGet, "/api/sources/skipped", "")
+	if got := strings.TrimSpace(rec.Body.String()); got != "[]" {
+		t.Errorf("body = %q, want []", got)
+	}
+}
+
+// The browser behavior needs a manual check, so this test proves only that the served files carry the skipped list (FR-source-sync-30).
+func TestServedAssetsHoldTheSkippedSourcesLink(t *testing.T) {
+	h := newTestHandler(t, nil)
+	tests := []struct {
+		path string
+		want []string
+	}{
+		{"/", []string{
+			`<div id="skippedSources" class="small mt-1" hidden>`,
+			`id="skippedLink"`,
+			`<dialog id="skippedDialog"`,
+			`id="skippedList"`,
+		}},
+		{"/static/js/app.js", []string{
+			"fetch('/api/sources/skipped')",
+			"sources skipped",
+			"block.hidden = skipped.length === 0",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			body := serve(h, http.MethodGet, tt.path, "").Body.String()
+			for _, s := range tt.want {
+				if !strings.Contains(body, s) {
+					t.Errorf("%s does not contain %q", tt.path, s)
+				}
+			}
+		})
+	}
+	// The skipped list holds file paths from the server, so the code that builds it never sets innerHTML.
+	js := serve(h, http.MethodGet, "/static/js/app.js", "").Body.String()
+	start := strings.Index(js, "async loadSkippedSources()")
+	if start < 0 {
+		t.Fatal("app.js has no loadSkippedSources method")
+	}
+	end := strings.Index(js[start:], "\n    }\n")
+	if end < 0 || strings.Contains(js[start:start+end], "innerHTML") {
+		t.Error("loadSkippedSources sets innerHTML, want textContent only")
 	}
 }
 
