@@ -144,7 +144,6 @@ type Engine struct {
 	calc   *tilecalc.TileCalculator
 	client *http.Client
 	gates  *gateRegistry
-	crs    *crsCache
 	// backoffBase is the first wait of the backoff schedule. A test makes it short.
 	backoffBase time.Duration
 	// blocked is the set of SHA-256 hashes of the tiles that the engine rejects. A test adds a fixture hash.
@@ -172,7 +171,6 @@ func NewEngine(cfg Config) *Engine {
 		calc:        tilecalc.NewTileCalculator(),
 		client:      client,
 		gates:       hostGates,
-		crs:         wmsCRS,
 		backoffBase: time.Second,
 		blocked:     blockedHashes,
 	}
@@ -185,6 +183,7 @@ func NewEngine(cfg Config) *Engine {
 // The caller validates the areas, and areas holds at least one area.
 // The error is output.ErrNotRegistered when the output format of the job has no writer.
 // It is ErrServerRefused or ErrWriteFailed when either stops the job.
+// It is ErrUnsupportedCRS when a WMS server does not list EPSG:3857, and then the engine opens no output file.
 // It is the context error when the job is cancelled. Every outcome keeps the output file.
 func (e *Engine) DownloadTiles(
 	ctx context.Context,

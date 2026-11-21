@@ -42,9 +42,9 @@ func (e *Engine) checkCRS(ctx context.Context, jg *jobGate, source *xmlparser.Ma
 	capURL := source.CapabilitiesURL()
 	// The layers are part of the key, because two map sources can use one server with different layers.
 	key := capURL + "\n" + source.WMSLayers
-	e.crs.mu.Lock()
-	offered, ok := e.crs.offered[key]
-	e.crs.mu.Unlock()
+	wmsCRS.mu.Lock()
+	offered, ok := wmsCRS.offered[key]
+	wmsCRS.mu.Unlock()
 	if !ok {
 		doc, err := e.capabilities(ctx, jg, capURL)
 		if err != nil {
@@ -53,9 +53,9 @@ func (e *Engine) checkCRS(ctx context.Context, jg *jobGate, source *xmlparser.Ma
 		if offered, err = offersEPSG3857(doc, source.WMSLayers); err != nil {
 			return err
 		}
-		e.crs.mu.Lock()
-		e.crs.offered[key] = offered
-		e.crs.mu.Unlock()
+		wmsCRS.mu.Lock()
+		wmsCRS.offered[key] = offered
+		wmsCRS.mu.Unlock()
 	}
 	if !offered {
 		return fmt.Errorf("%w: the WMS server does not list %s for the layers %q, and the source file declares %s",
