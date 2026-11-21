@@ -80,6 +80,8 @@ The project exists because ATAK users often work with no network. Examples are s
 | resume | verb | To continue a job into an existing output file and skip the tiles it already holds (planned, feature 07). | restart, continue |
 | failure rate | noun | Failed tiles divided by processed tiles in one job. | error rate |
 | failure tolerance | noun | The highest failure rate at which a job still succeeds. Code: `MaxFailureRate`. | error budget |
+| failure reason | noun | The word that names why one tile failed, for example `not_image` or `http_404`. Code: `download.Reason`. | error code, cause |
+| placeholder image | noun | One image that a map source sends for many tiles in place of real map data. | dummy tile, filler |
 | server | noun | The HTTP process that `atak-dl serve` starts. | backend, daemon |
 | web UI | noun | The browser page that the server sends from the binary. | frontend, dashboard, web app |
 | CLI | noun | Command-line interface: the `atak-dl` subcommands. | terminal mode |

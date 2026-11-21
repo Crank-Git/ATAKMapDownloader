@@ -22,7 +22,7 @@ import (
 // Kind selects the response that the server sends for a tile.
 type Kind int
 
-// The response kinds that FR-foundation-10 names.
+// The response kinds that FR-foundation-10 and FR-robust-downloads-16 and -17 name.
 const (
 	// PNG sends a 256×256 PNG with status 200.
 	PNG Kind = iota
@@ -36,6 +36,10 @@ const (
 	Unavailable
 	// HTML sends an HTML page with status 200.
 	HTML
+	// Empty sends a body of 0 bytes with status 200.
+	Empty
+	// Garbage sends bytes that are not an image and not HTML, with status 200.
+	Garbage
 )
 
 // Response is the configured response for one tile.
@@ -197,10 +201,6 @@ func (s *Server) serveTile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch resp.Kind {
-	case PNG:
-		writeBody(w, "image/png", s.png)
-	case JPEG:
-		writeBody(w, "image/jpeg", s.jpeg)
 	case NotFound:
 		http.Error(w, "no tile", http.StatusNotFound)
 	case TooManyRequests:
@@ -212,8 +212,26 @@ func (s *Server) serveTile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 	case Unavailable:
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	default:
+		contentType, body := s.body(resp.Kind)
+		writeBody(w, contentType, body)
+	}
+}
+
+// body returns the content type and the body of a response kind with status 200.
+func (s *Server) body(kind Kind) (string, []byte) {
+	switch kind {
+	case JPEG:
+		return "image/jpeg", s.jpeg
 	case HTML:
-		writeBody(w, "text/html; charset=utf-8", []byte("<!DOCTYPE html><html><body>Access denied</body></html>"))
+		return "text/html; charset=utf-8", []byte("<!DOCTYPE html><html><body>Access denied</body></html>")
+	case Empty:
+		// A tile server that sends an empty tile usually keeps the image content type.
+		return "image/png", nil
+	case Garbage:
+		return "application/octet-stream", []byte{0x00, 0x01, 0x02, 0x03, 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x00}
+	default:
+		return "image/png", s.png
 	}
 }
 
