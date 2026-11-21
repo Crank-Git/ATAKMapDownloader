@@ -287,7 +287,7 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>Polite downloading</td><td><a href="html/feature-polite-downloading.html">features/06-polite-downloading.md</a></td><td>Epic 2: Polite downloading</td><td>built</td><td>04-source-policy-warning</td></tr>
 <tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>built</td><td>—</td></tr>
 <tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>built</td><td>01-workspace</td></tr>
-<tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>built, except WMS (#41)</td><td>—</td></tr>
+<tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>built</td><td>—</td></tr>
 <tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>built</td><td>03-export-options</td></tr>
 <tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>built</td><td>02-area-tools</td></tr>
 <tr><td>Team server</td><td><a href="html/feature-team-server.html">features/12-team-server.md</a></td><td>Epic 8: Team server</td><td>planned</td><td>05-jobs</td></tr>
@@ -379,7 +379,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
     string background_color
     bool ignore_errors
     string_list server_parts
-    string kind "tile or wms, wms waits for #41"
+    string kind "tile or wms"
     bool invert_y
   }
   SOURCE_FILE {
@@ -444,7 +444,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
   }</pre></div>
 <p>Per entity:</p>
 <ul>
-<li><strong>MAP_SOURCE</strong> (built, <code>internal/xmlparser/xmlparser.go:16-26</code>). The parser loads it from a <code>&lt;customMapSource&gt;</code> source file. <code>name</code> is the key. A map source of a later layer replaces one of the same name: the snapshot, then <code>atak-maps/</code>, then the user's own files (FR-source-sync-5). Defaults: if both zooms are 0, <code>max_zoom</code> is 18. <code>tile_type</code> is <code>png</code>, <code>tile_update</code> is <code>None</code> and <code>background_color</code> is <code>#000000</code>. It has <code>kind</code> (<code>tile</code>, and <code>wms</code> when #41 lands) and <code>invert_y</code> (feature 09).
+<li><strong>MAP_SOURCE</strong> (built, <code>internal/xmlparser/xmlparser.go:16-26</code>). The parser loads it from a <code>&lt;customMapSource&gt;</code> source file. <code>name</code> is the key. A map source of a later layer replaces one of the same name: the snapshot, then <code>atak-maps/</code>, then the user's own files (FR-source-sync-5). Defaults: if both zooms are 0, <code>max_zoom</code> is 18. <code>tile_type</code> is <code>png</code>, <code>tile_update</code> is <code>None</code> and <code>background_color</code> is <code>#000000</code>. It has <code>kind</code> (<code>tile</code> or <code>wms</code>) and <code>invert_y</code> (feature 09).
 </li>
 <li><strong>SOURCE_FILE</strong> (built). A MOBAC XML file in the snapshot or in the user source directory. <code>origin</code> is <code>snapshot</code> or <code>user</code> (feature 09).
 </li>
@@ -631,7 +631,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>Resolved — "1:1 functionality matching the Python version".</strong> No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim, and Epic 0 removed it from the README (#71).
 </li>
-<li><strong>Resolved — "30+ map sources".</strong> The snapshot holds 53 source files, and 47 load. <code>list-sources --skipped</code> reports the other 6 with reason <code>parse_error</code>: 5 WMS files, which wait for #41, and 1 multi-layer file (#37, #38).
+<li><strong>Resolved — "30+ map sources".</strong> The snapshot holds 53 source files, and 52 load, including 5 WMS files (#41). <code>list-sources --skipped</code> reports the other 1, a multi-layer file, with reason <code>parse_error</code> (#37, #38).
 </li>
 <li><strong>Contradicted — "MBTiles output".</strong> The output file has a <code>.sqlite</code> extension and lacks the <code>center</code> key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
 </li>
@@ -885,6 +885,14 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <li>The image creates <code>/data</code> with <code>WORKDIR</code>, so a named volume is writable by the nonroot user without <code>chown</code>. The release workflow pushes only after a container smoke check of <code>/healthz</code> (#60).
 </li>
 <li><code>/api/files</code> serves output files only (<code>.mbtiles</code>, <code>.sqlite</code>, <code>.gpkg</code>, <code>.zip</code>), so <code>jobs.jsonl</code> is not downloadable (batch fix).
+</li>
+</ul>
+</li>
+<li>2026-11-21: WMS map sources merged into <code>develop</code> (#142). Epic 5 is complete. Decisions:
+<ul>
+<li>The maintainer chose option 1 for FR-source-sync-20. The engine requests <code>EPSG:3857</code>, and if the source file declares another CRS, it reads GetCapabilities one time for each map source. A server that does not list <code>EPSG:3857</code> stops the job with <code>unsupported_crs</code> (#41).
+</li>
+<li><code>unsupported_crs</code> is a job error only, and it is no longer a skip reason (#41).
 </li>
 </ul>
 </li>
