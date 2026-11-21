@@ -80,12 +80,18 @@ type Progress struct {
 	StartTime time.Time
 }
 
-// ProgressPercent returns 0-100.
+// ProgressPercent returns the share of processed tiles from 0 to 100 (FR-robust-downloads-28).
+// A failed tile counts as processed, so a job with failed tiles reaches 100.
 func (p Progress) ProgressPercent() float64 {
 	if p.TotalTiles == 0 {
 		return 0
 	}
-	return float64(p.Downloaded+p.Skipped) / float64(p.TotalTiles) * 100
+	return float64(p.Processed()) / float64(p.TotalTiles) * 100
+}
+
+// Processed returns the number of downloaded, skipped and failed tiles.
+func (p Progress) Processed() int64 {
+	return p.Downloaded + p.Skipped + p.Failed
 }
 
 // Elapsed returns elapsed time.
@@ -108,7 +114,7 @@ func (p Progress) ETASeconds() float64 {
 	if rate == 0 {
 		return 0
 	}
-	remaining := p.TotalTiles - int(p.Downloaded+p.Skipped)
+	remaining := p.TotalTiles - int(p.Processed())
 	return float64(remaining) / rate
 }
 
@@ -198,7 +204,8 @@ func (e *Engine) DownloadTiles(
 	var wg sync.WaitGroup
 
 	for _, tb := range tileBoundsList {
-		for pair := range tb.IterTiles() {
+		// jobCtx ends when the job stops early, so the producer goroutine of IterTiles returns.
+		for pair := range tb.IterTiles(jobCtx) {
 			x, y := pair[0], pair[1]
 			z := tb.Zoom
 
@@ -212,8 +219,13 @@ func (e *Engine) DownloadTiles(
 			default:
 			}
 
+			// A full semaphore waits for a free slot, and a cancel ends that wait at once (FR-robust-downloads-30).
+			select {
+			case sem <- struct{}{}:
+			case <-jobCtx.Done():
+				goto wait
+			}
 			wg.Add(1)
-			sem <- struct{}{}
 			go func(x, y, z int) {
 				defer wg.Done()
 				defer func() { <-sem }()
@@ -244,7 +256,8 @@ wait:
 }
 
 // result returns the result of a job after its tile goroutines end and its writer closes.
-// A refusal stop or a write failure returns its cause. A cancel returns the context error.
+// A refusal stop or a write failure returns its cause.
+// A cancel of ctx returns the context error, and a cancel from the callback returns context.Canceled.
 func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr error) (bool, error) {
 	if cause := context.Cause(jobCtx); errors.Is(cause, ErrServerRefused) || errors.Is(cause, ErrWriteFailed) {
 		return false, cause
@@ -252,8 +265,11 @@ func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr e
 	if closeErr != nil {
 		return false, fmt.Errorf("%w: %w", ErrWriteFailed, closeErr)
 	}
-	if c.cancelled.Load() || ctx.Err() != nil {
+	if ctx.Err() != nil {
 		return false, ctx.Err()
+	}
+	if c.cancelled.Load() {
+		return false, context.Canceled
 	}
 	return e.outcome(c.downloaded.Load(), c.skipped.Load(), c.failed.Load())
 }
@@ -291,10 +307,24 @@ func (e *Engine) outcome(downloaded, skipped, failed int64) (bool, error) {
 	}
 	failureRate := float64(failed) / float64(processed)
 	if failureRate > e.cfg.MaxFailureRate {
-		return false, fmt.Errorf("failure rate %.1f%% exceeds threshold %.1f%%", failureRate*100, e.cfg.MaxFailureRate*100)
+		return false, &FailureRateError{Rate: failureRate, Limit: e.cfg.MaxFailureRate}
 	}
 
 	return true, nil
+}
+
+// FailureRateError is the error of a job whose failure rate is above the failure tolerance.
+// The CLI exits with code 5 for it.
+type FailureRateError struct {
+	// Rate is the failure rate of the job, from 0 to 1.
+	Rate float64
+	// Limit is the failure tolerance of the job, from 0 to 1.
+	Limit float64
+}
+
+// Error returns the text that the web UI shows (feature 04).
+func (e *FailureRateError) Error() string {
+	return fmt.Sprintf("failure rate %.1f%% exceeds threshold %.1f%%", e.Rate*100, e.Limit*100)
 }
 
 // tileCounters holds the counts that the tile goroutines of one job share.
@@ -322,7 +352,7 @@ func (c *tileCounters) snapshot() Progress {
 
 // fetchTile downloads one tile, sends it to w, and updates c.
 // It skips a tile that w holds (FR-robust-downloads-8).
-// It sets c.cancelled when the callback returns false, and it stops the job when w fails.
+// It cancels the job when the callback returns false, and it stops the job when w fails.
 func (e *Engine) fetchTile(
 	ctx context.Context,
 	jg *jobGate,
@@ -337,9 +367,7 @@ func (e *Engine) fetchTile(
 	}
 	if w.Has(z, x, y) {
 		c.skipped.Add(1)
-		if cb != nil && !cb(c.snapshot()) {
-			c.cancelled.Store(true)
-		}
+		report(cb, jg, c)
 		return
 	}
 
@@ -350,9 +378,7 @@ func (e *Engine) fetchTile(
 	if err != nil {
 		c.failed.Add(1)
 		e.tileFailed(z, x, y, reasonOf(err))
-		if cb != nil && !cb(c.snapshot()) {
-			c.cancelled.Store(true)
-		}
+		report(cb, jg, c)
 		return
 	}
 
@@ -370,8 +396,15 @@ func (e *Engine) fetchTile(
 	}
 
 	c.downloaded.Add(1)
+	report(cb, jg, c)
+}
+
+// report sends a copy of c to cb.
+// A false return cancels the job context, so the waits and requests of the other tiles end too (FR-robust-downloads-30).
+func report(cb ProgressCallback, jg *jobGate, c *tileCounters) {
 	if cb != nil && !cb(c.snapshot()) {
 		c.cancelled.Store(true)
+		jg.stop(context.Canceled)
 	}
 }
 

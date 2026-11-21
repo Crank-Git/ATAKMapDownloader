@@ -2,6 +2,7 @@
 package tilecalc
 
 import (
+	"context"
 	"fmt"
 	"math"
 )
@@ -36,14 +37,20 @@ func (t *TileBounds) ContainsTile(x, y int) bool {
 	return x >= t.MinX && x <= t.MaxX && y >= t.MinY && y <= t.MaxY
 }
 
-// IterTiles yields all (x, y) tile coordinates.
-func (t *TileBounds) IterTiles() <-chan [2]int {
+// IterTiles returns a channel that carries every (x, y) tile coordinate of t, row by row.
+// The producer goroutine closes the channel after the last tile, or when ctx ends.
+// A caller that stops early cancels ctx, so the producer does not stay blocked on a send.
+func (t *TileBounds) IterTiles(ctx context.Context) <-chan [2]int {
 	ch := make(chan [2]int)
 	go func() {
 		defer close(ch)
 		for y := t.MinY; y <= t.MaxY; y++ {
 			for x := t.MinX; x <= t.MaxX; x++ {
-				ch <- [2]int{x, y}
+				select {
+				case ch <- [2]int{x, y}:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()

@@ -344,7 +344,7 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xm
 		writeError(w, http.StatusBadRequest, "invalid_bounds", err.Error())
 		return nil, nil, false
 	}
-	if code, message := checkJobLimits(source, req.MinZoom, req.MaxZoom, req.engineConfig().MaxConcurrent); code != "" {
+	if code, message := checkJobLimits(source, bounds, req.MinZoom, req.MaxZoom, req.engineConfig().MaxConcurrent, h.maxTiles); code != "" {
 		writeError(w, http.StatusBadRequest, code, message)
 		return nil, nil, false
 	}
@@ -370,11 +370,17 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xm
 // maxConcurrency is the highest concurrency that a job accepts (FR-security-hardening-20).
 const maxConcurrency = 32
 
-// checkJobLimits returns an error code and a message when the zoom range or the concurrency of a job is not valid.
-// It returns "zoom_out_of_range" when the range from minZoom to maxZoom is empty or outside the zoom range of source.
-// It returns "invalid_concurrency" when concurrency is below 1 or above maxConcurrency.
-// It returns an empty code when both are valid.
-func checkJobLimits(source *xmlparser.MapSource, minZoom, maxZoom, concurrency int) (code, message string) {
+// defaultMaxTiles is the default tile cap of download --max-tiles and serve --max-tiles (FR-robust-downloads-26).
+const defaultMaxTiles = 500_000
+
+// checkJobLimits returns an error code and a message when the zoom range, the concurrency or the tile count of a job is not valid.
+// The tile count is the count of the tiles of bounds from minZoom to maxZoom. It returns these codes:
+//   - "zoom_out_of_range" when the range from minZoom to maxZoom is empty or outside the zoom range of source.
+//   - "invalid_concurrency" when concurrency is below 1 or above maxConcurrency.
+//   - "too_many_tiles" when the tile count is above maxTiles (FR-robust-downloads-26, -27).
+//
+// It returns an empty code when the job is valid.
+func checkJobLimits(source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds, minZoom, maxZoom, concurrency, maxTiles int) (code, message string) {
 	if minZoom > maxZoom {
 		return "zoom_out_of_range", fmt.Sprintf("min_zoom %d is above max_zoom %d", minZoom, maxZoom)
 	}
@@ -386,15 +392,25 @@ func checkJobLimits(source *xmlparser.MapSource, minZoom, maxZoom, concurrency i
 	if concurrency < 1 || concurrency > maxConcurrency {
 		return "invalid_concurrency", fmt.Sprintf("concurrency %d is outside the range 1-%d", concurrency, maxConcurrency)
 	}
+	// The check runs before any request, so a job above the tile cap sends none.
+	if tiles := tileCount(bounds, minZoom, maxZoom); tiles > maxTiles {
+		return "too_many_tiles", fmt.Sprintf("the job has %d tiles, and the tile cap is %d", tiles, maxTiles)
+	}
 	return "", ""
+}
+
+// tileCount returns the count of the tiles of bounds at every zoom level from minZoom to maxZoom.
+func tileCount(bounds *tilecalc.GeographicBounds, minZoom, maxZoom int) int {
+	calc := tilecalc.NewTileCalculator()
+	total := 0
+	for z := minZoom; z <= maxZoom; z++ {
+		total += calc.CalculateTileBounds(bounds, z).TileCount()
+	}
+	return total
 }
 
 // newJob returns a running job for req.
 func (h *WebHandler) newJob(req jobRequest, bounds *tilecalc.GeographicBounds, cancel context.CancelFunc) *job {
-	total := 0
-	for z := req.MinZoom; z <= req.MaxZoom; z++ {
-		total += h.calc.CalculateTileBounds(bounds, z).TileCount()
-	}
 	id := newJobID()
 	return &job{
 		id:     id,
@@ -412,7 +428,7 @@ func (h *WebHandler) newJob(req jobRequest, bounds *tilecalc.GeographicBounds, c
 			MaxZoom:    req.MaxZoom,
 			State:      jobRunning,
 			OutputFile: download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name),
-			Total:      total,
+			Total:      tileCount(bounds, req.MinZoom, req.MaxZoom),
 			CreatedAt:  time.Now().UTC(),
 		},
 	}

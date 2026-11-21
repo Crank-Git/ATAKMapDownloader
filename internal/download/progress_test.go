@@ -95,18 +95,12 @@ func TestEngineStopsAllRequestsWithin500msOfACancel(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			var mu sync.Mutex
-			var cancelled time.Time
+			var stop cancelTime
 			cb := func(Progress) bool {
-				if !tt.callbackCancels {
-					return true
+				if tt.callbackCancels {
+					stop.mark()
 				}
-				mu.Lock()
-				defer mu.Unlock()
-				if cancelled.IsZero() {
-					cancelled = time.Now()
-				}
-				return false
+				return !tt.callbackCancels
 			}
 			done := make(chan error, 1)
 			go func() {
@@ -117,33 +111,56 @@ func TestEngineStopsAllRequestsWithin500msOfACancel(t *testing.T) {
 				for srv.TotalRequests() < 3 {
 					time.Sleep(5 * time.Millisecond)
 				}
-				mu.Lock()
-				cancelled = time.Now()
-				mu.Unlock()
+				stop.mark()
 				cancel()
 			}
-
-			select {
-			case err := <-done:
-				if !errors.Is(err, context.Canceled) {
-					t.Errorf("DownloadTiles error = %v, want context.Canceled", err)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("DownloadTiles did not return within 5 s of the cancel")
-			}
-			mu.Lock()
-			stop := cancelled
-			mu.Unlock()
-			if elapsed := time.Since(stop); elapsed > 500*time.Millisecond {
-				t.Errorf("DownloadTiles returned %v after the cancel, want at most 500 ms", elapsed)
-			}
-			// A request that the engine sends late arrives after the return, so the test waits before it reads the log.
-			time.Sleep(300 * time.Millisecond)
-			for _, r := range srv.Log() {
-				if late := r.Time.Sub(stop); late > 500*time.Millisecond {
-					t.Errorf("server got a request for tile %v %v after the cancel, want none after 500 ms", r.Tile, late)
-				}
-			}
+			checkStopWithin500ms(t, srv, done, &stop)
 		})
+	}
+}
+
+// cancelTime records the time of the first cancel. The callback runs in many goroutines, so a mutex guards it.
+type cancelTime struct {
+	mu sync.Mutex
+	at time.Time
+}
+
+func (c *cancelTime) mark() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.at.IsZero() {
+		c.at = time.Now()
+	}
+}
+
+func (c *cancelTime) get() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
+}
+
+// checkStopWithin500ms checks that the job that sends its error to done returns within 500 ms of the cancel in c with context.Canceled.
+// It also checks that srv gets no request later than 500 ms after the cancel.
+func checkStopWithin500ms(t *testing.T, srv *testtiles.Server, done <-chan error, c *cancelTime) {
+	t.Helper()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("DownloadTiles error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("DownloadTiles did not return within 5 s of the cancel")
+	}
+	// The callback marks the cancel inside the job, so the check reads the time after the job returns.
+	stop := c.get()
+	if elapsed := time.Since(stop); elapsed > 500*time.Millisecond {
+		t.Errorf("DownloadTiles returned %v after the cancel, want at most 500 ms", elapsed)
+	}
+	// A request that the engine sends late arrives after the return, so the check waits before it reads the log.
+	time.Sleep(300 * time.Millisecond)
+	for _, r := range srv.Log() {
+		if late := r.Time.Sub(stop); late > 500*time.Millisecond {
+			t.Errorf("server got a request for tile %v %v after the cancel, want none after 500 ms", r.Tile, late)
+		}
 	}
 }
