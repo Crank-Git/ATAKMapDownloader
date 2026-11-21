@@ -2,10 +2,12 @@ package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -50,12 +52,35 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 // It rejects a cross-origin POST or DELETE with status 403 and the error code cross_origin
 // (FR-security-hardening-2, FR-security-hardening-3).
 // It passes a request with no Sec-Fetch-Site header and no Origin header, because curl and other clients send neither.
+// Every request body goes through limitBody.
 func newServerHandler(h http.Handler) http.Handler {
 	cop := http.NewCrossOriginProtection()
 	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusForbidden, "cross_origin", "Cross-origin request rejected")
 	}))
-	return cop.Handler(h)
+	return cop.Handler(limitBody(h))
+}
+
+// maxBodyBytes is the largest request body that the server reads (FR-security-hardening-17).
+const maxBodyBytes = 1 << 20
+
+// limitBody returns a handler that rejects a request body larger than maxBodyBytes (FR-security-hardening-17).
+// A body with a larger Content-Length gets 413 body_too_large at once.
+// A body with no Content-Length gets the limit on read, and decodeJSON writes the 413.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > maxBodyBytes {
+			writeBodyTooLarge(w)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeBodyTooLarge writes the 413 body_too_large error response.
+func writeBodyTooLarge(w http.ResponseWriter) {
+	writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("Request body is larger than %d bytes", maxBodyBytes))
 }
 
 // ServeHTTP implements http.Handler.
@@ -159,8 +184,7 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		MinZoom int       `json:"min_zoom"`
 		MaxZoom int       `json:"max_zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if len(req.Bounds) != 4 {
@@ -209,8 +233,7 @@ func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
 		Lon  float64 `json:"lon"`
 		Zoom int     `json:"zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.Zoom == 0 {
@@ -236,8 +259,7 @@ func (h *WebHandler) apiValidateSource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SourceName string `json:"source_name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	source := h.parser.GetSource(req.SourceName)
@@ -267,8 +289,7 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 		MinZoom int       `json:"min_zoom"`
 		MaxZoom int       `json:"max_zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.Source == "" {
@@ -343,8 +364,7 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query string `json:"query"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if len(strings.TrimSpace(req.Query)) == 0 {
@@ -375,10 +395,13 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 	}
 	var locations []map[string]interface{}
 	for _, r := range results {
-		var lat, lon float64
-		// A value that does not parse stays 0. #17 adds the input validation.
-		_, _ = fmt.Sscanf(r.Lat, "%f", &lat)
-		_, _ = fmt.Sscanf(r.Lon, "%f", &lon)
+		// Nominatim sends lat and lon as JSON strings.
+		lat, latErr := strconv.ParseFloat(r.Lat, 64)
+		lon, lonErr := strconv.ParseFloat(r.Lon, 64)
+		if latErr != nil || lonErr != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Geocoding failed: the result has a coordinate that is not a number")
+			return
+		}
 		locations = append(locations, map[string]interface{}{
 			"display_name": r.DisplayName,
 			"lat":          lat,
@@ -421,4 +444,22 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(apiError{Error: apiErrorDetail{Code: code, Message: message}})
+}
+
+// decodeJSON decodes the request body into v.
+// It returns false when it wrote an error response:
+//   - 413 body_too_large when the body is larger than maxBodyBytes.
+//   - 400 invalid_json when the body is not valid JSON.
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	err := json.NewDecoder(r.Body).Decode(v)
+	var tooLarge *http.MaxBytesError
+	switch {
+	case err == nil:
+		return true
+	case errors.As(err, &tooLarge):
+		writeBodyTooLarge(w)
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	}
+	return false
 }

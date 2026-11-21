@@ -47,8 +47,11 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 
 	minZoom, _ := cmd.Flags().GetInt("min-zoom")
 	maxZoom, _ := cmd.Flags().GetInt("max-zoom")
-	if minZoom > maxZoom {
-		exitErr("min-zoom cannot be greater than max-zoom")
+	concurrent, _ := cmd.Flags().GetInt("concurrent")
+	if code, message := checkJobLimits(source, minZoom, maxZoom, concurrent); code != "" {
+		// The flags are valid in form, so the usage text does not help the user.
+		cmd.SilenceUsage = true
+		return fmt.Errorf("%s: %s", code, message)
 	}
 
 	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
@@ -62,7 +65,7 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 	}
 
 	cfg := download.DefaultConfig()
-	cfg.MaxConcurrent, _ = cmd.Flags().GetInt("concurrent")
+	cfg.MaxConcurrent = concurrent
 	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
 	insecure, _ := cmd.Flags().GetBool("insecure")
 	cfg.VerifyTLS = !insecure

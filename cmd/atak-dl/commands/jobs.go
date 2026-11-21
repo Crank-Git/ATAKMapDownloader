@@ -261,8 +261,7 @@ func (h *WebHandler) routeJobs(mux *http.ServeMux) {
 // It returns 409 job_running when a job runs (FR-security-hardening-12).
 func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	var req jobRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	source, bounds, ok := h.checkJobRequest(w, req)
@@ -288,7 +287,7 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // checkJobRequest returns the map source and the bounds of req.
-// It writes the error response and returns false when req is not valid. #17 adds the remaining checks.
+// It writes the error response and returns false when req is not valid.
 func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xmlparser.MapSource, *tilecalc.GeographicBounds, bool) {
 	if req.Source == "" {
 		writeError(w, http.StatusBadRequest, "unknown_source", "Source name is required")
@@ -308,17 +307,33 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xm
 		writeError(w, http.StatusBadRequest, "invalid_bounds", err.Error())
 		return nil, nil, false
 	}
-	// The engine needs at least one zoom level, and a negative zoom level has no tile grid.
-	if req.MinZoom < 0 || req.MinZoom > req.MaxZoom {
-		writeError(w, http.StatusBadRequest, "zoom_out_of_range", "min_zoom must be 0 or more and not above max_zoom")
-		return nil, nil, false
-	}
-	// The engine semaphore holds concurrency slots, so 0 slots stop the job forever.
-	if req.Concurrency != nil && *req.Concurrency < 1 {
-		writeError(w, http.StatusBadRequest, "invalid_concurrency", "concurrency must be 1 or more")
+	if code, message := checkJobLimits(source, req.MinZoom, req.MaxZoom, req.engineConfig().MaxConcurrent); code != "" {
+		writeError(w, http.StatusBadRequest, code, message)
 		return nil, nil, false
 	}
 	return source, bounds, true
+}
+
+// maxConcurrency is the highest concurrency that a job accepts (FR-security-hardening-20).
+const maxConcurrency = 32
+
+// checkJobLimits returns an error code and a message when the zoom range or the concurrency of a job is not valid.
+// It returns "zoom_out_of_range" when the range from minZoom to maxZoom is empty or outside the zoom range of source.
+// It returns "invalid_concurrency" when concurrency is below 1 or above maxConcurrency.
+// It returns an empty code when both are valid.
+func checkJobLimits(source *xmlparser.MapSource, minZoom, maxZoom, concurrency int) (code, message string) {
+	if minZoom > maxZoom {
+		return "zoom_out_of_range", fmt.Sprintf("min_zoom %d is above max_zoom %d", minZoom, maxZoom)
+	}
+	if minZoom < source.MinZoom || maxZoom > source.MaxZoom {
+		return "zoom_out_of_range", fmt.Sprintf("zoom range %d-%d is outside the source zoom range %d-%d",
+			minZoom, maxZoom, source.MinZoom, source.MaxZoom)
+	}
+	// The engine semaphore holds concurrency slots, so 0 slots stop the job forever.
+	if concurrency < 1 || concurrency > maxConcurrency {
+		return "invalid_concurrency", fmt.Sprintf("concurrency %d is outside the range 1-%d", concurrency, maxConcurrency)
+	}
+	return "", ""
 }
 
 // newJob returns a running job for req.

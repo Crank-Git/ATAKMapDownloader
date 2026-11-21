@@ -1,6 +1,6 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port and checks four responses.
-# FR-foundation-13, FR-foundation-14, FR-security-hardening-3 and FR-security-hardening-9 define the checks.
+# smoke.sh builds atak-dl, starts serve on a free port, checks five responses and checks the bind warning.
+# FR-foundation-13, FR-foundation-14 and FR-security-hardening-3, -9, -17 and -25 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -57,5 +57,29 @@ if body.get("error", {}).get("code") != "cross_origin":
     sys.exit("smoke: a cross-site POST /api/jobs did not return cross_origin")
 print("smoke: a cross-site POST /api/jobs returned cross_origin")
 '
+
+# A body larger than 1 MiB returns 413 (FR-security-hardening-17).
+status=$(head -c 2097152 /dev/zero | curl -s -o /dev/null -w '%{http_code}' --data-binary @- "$base/api/jobs")
+if [ "$status" != "413" ]; then
+	echo "smoke: POST /api/jobs with a 2 MiB body returned $status, want 413" >&2
+	exit 1
+fi
+echo "smoke: POST /api/jobs with a 2 MiB body returned 413"
+
+# A server on an address that is not loopback prints the warning of FR-security-hardening-25.
+stderr_file=$(mktemp)
+./atak-dl serve --addr "0.0.0.0:0" >/dev/null 2>"$stderr_file" &
+open_pid=$!
+trap 'kill "$pid" "$open_pid" 2>/dev/null || true; rm -f "$stderr_file"' EXIT INT TERM
+attempt=0
+until grep -q "warning: the server has no authentication" "$stderr_file"; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 50 ]; then
+		echo "smoke: serve --addr 0.0.0.0:0 did not print the no-authentication warning within 10 s" >&2
+		exit 1
+	fi
+	sleep 0.2
+done
+echo "smoke: serve --addr 0.0.0.0:0 printed the no-authentication warning"
 
 echo "smoke: pass"
