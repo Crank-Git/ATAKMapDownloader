@@ -108,6 +108,32 @@ var responseCases = []struct {
 		},
 	},
 	{
+		name:       "returns an empty body with status 200",
+		response:   Response{Kind: Empty},
+		wantStatus: http.StatusOK,
+		checkBody: func(t *testing.T, body []byte) {
+			t.Helper()
+			if len(body) != 0 {
+				t.Errorf("body has %d bytes, want 0", len(body))
+			}
+		},
+	},
+	{
+		name:       "returns a body that is not an image with status 200",
+		response:   Response{Kind: Garbage},
+		wantStatus: http.StatusOK,
+		wantType:   "application/octet-stream",
+		checkBody: func(t *testing.T, body []byte) {
+			t.Helper()
+			if len(body) == 0 || strings.Contains(string(body), "<html>") {
+				t.Errorf("body = %q, want bytes that are not an image and not HTML", body)
+			}
+			if _, err := png.Decode(bytes.NewReader(body)); err == nil {
+				t.Error("body decodes as a PNG, want bytes that are not an image")
+			}
+		},
+	},
+	{
 		name:        "delays the response",
 		response:    Response{Kind: PNG, Delay: 50 * time.Millisecond},
 		wantStatus:  http.StatusOK,
