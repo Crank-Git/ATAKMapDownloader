@@ -28,7 +28,7 @@ func TestLookupMatchesTheEmbeddedTable(t *testing.T) {
 		{"matches the exact OSM tile host", "tile.openstreetmap.org", "tile.openstreetmap.org", Restricted, 1},
 		{"matches an OSM tile subdomain", "a.tile.openstreetmap.org", "tile.openstreetmap.org", Restricted, 1},
 		{"matches an OpenTopoMap subdomain", "a.tile.opentopomap.org", "*.opentopomap.org", Conditional, 2},
-		{"matches a CyclOSM subdomain", "a.tile-cyclosm.openstreetmap.fr", "*.tile-cyclosm.openstreetmap.fr", Conditional, 2},
+		{"matches a CyclOSM subdomain", "a.tile-cyclosm.openstreetmap.fr", "*.tile-cyclosm.openstreetmap.fr", Restricted, 1},
 		{"matches a USGS subdomain", "basemap.nationalmap.gov", "*.nationalmap.gov", Open, 8},
 		{"matches a USDA subdomain", "gis.apfo.usda.gov", "*.usda.gov", Open, 8},
 		{"matches the OpenRailwayMap tile host", "tiles.openrailwaymap.org", "*.openrailwaymap.org", Restricted, 1},

@@ -57,10 +57,10 @@
     "host_patterns": [
       "*.tile-cyclosm.openstreetmap.fr"
     ],
-    "policy_class": "conditional",
-    "requests_per_second": 2,
-    "reason": "Volunteers run this tile server. No published limit was found.",
-    "reference_url": "",
+    "policy_class": "restricted",
+    "requests_per_second": 1,
+    "reason": "Volunteers run this tile server. The CyclOSM site serves it \"under a fairuse tile policy\", the OSMF tile policy, which says: \"Bulk downloading is any pre-emptive fetching of tiles other than those a user is actively viewing.\"",
+    "reference_url": "https://www.cyclosm.org/",
     "retrieved": "2026-11-21"
   },
   {
@@ -69,8 +69,8 @@
     ],
     "policy_class": "conditional",
     "requests_per_second": 2,
-    "reason": "Volunteers run this tile server. No published limit was found.",
-    "reference_url": "",
+    "reason": "Volunteers run this tile server. The project publishes the chart tiles under CC BY-SA 2.0 and names no rate limit or bulk download rule.",
+    "reference_url": "https://wiki.openstreetmap.org/wiki/OpenSeaMap",
     "retrieved": "2026-11-21"
   },
   {
@@ -79,8 +79,8 @@
     ],
     "policy_class": "conditional",
     "requests_per_second": 2,
-    "reason": "Volunteers run this tile server. No published limit was found.",
-    "reference_url": "",
+    "reason": "Volunteers run this tile server. The site publishes no usage policy and no rate limit.",
+    "reference_url": "https://mtbmap.cz/",
     "retrieved": "2026-11-21"
   },
   {
@@ -89,8 +89,8 @@
     ],
     "policy_class": "conditional",
     "requests_per_second": 2,
-    "reason": "Volunteers run this tile server. No published limit was found.",
-    "reference_url": "",
+    "reason": "Volunteers run this tile server. Its usage policy allows \"moderate\" access rates and says: \"Mass download of tiles is strongly discouraged.\"",
+    "reference_url": "https://github.com/waymarkedtrails/waymarked-trails-site/blob/master/django/locale/en-gb/helppages.yaml",
     "retrieved": "2026-11-21"
   },
   {
