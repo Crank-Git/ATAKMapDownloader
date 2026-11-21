@@ -22,29 +22,39 @@ import (
 
 // WebHandler serves the web interface and API.
 type WebHandler struct {
-	parser   *xmlparser.XMLParser
-	calc     *tilecalc.TileCalculator
-	mapsDir  string
-	upgrader websocket.Upgrader
-	dlState  struct {
+	parser  *xmlparser.XMLParser
+	calc    *tilecalc.TileCalculator
+	mapsDir string
+	// outputDir is the directory of the output files of job API jobs.
+	outputDir string
+	upgrader  websocket.Upgrader
+	jobRoutes *http.ServeMux
+	// dlState is the one job lock. The websocket and the job API both take it, so two jobs never run at once.
+	dlState struct {
 		sync.Mutex
 		downloading bool
 		cancel      context.CancelFunc
+		// job is the last job that the job API started. It stays after the job ends, so GET can read its result.
+		job *job
 	}
 }
 
 // NewWebHandler creates a new web handler.
 func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir string) *WebHandler {
-	return &WebHandler{
-		parser:  parser,
-		calc:    calc,
-		mapsDir: mapsDir,
+	h := &WebHandler{
+		parser:    parser,
+		calc:      calc,
+		mapsDir:   mapsDir,
+		outputDir: download.DownloadsDir(),
 		upgrader: websocket.Upgrader{
 			CheckOrigin:     func(_ *http.Request) bool { return true },
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 		},
+		jobRoutes: http.NewServeMux(),
 	}
+	h.routeJobs(h.jobRoutes)
+	return h
 }
 
 // ServeHTTP implements http.Handler.
@@ -64,6 +74,8 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveIndex(w, r)
 	case r.URL.Path == "/ws":
 		h.serveWebSocket(w, r)
+	case r.URL.Path == "/api/jobs" || strings.HasPrefix(r.URL.Path, "/api/jobs/"):
+		h.jobRoutes.ServeHTTP(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		h.serveAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/static/"):
@@ -477,8 +489,7 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	})
 
 	engine := download.NewEngine(cfg)
-	// reportResult reads the result from success and ctx. #15 sends the error text to the client.
-	success, _ := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
+	success, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
 		sendJSON(conn, map[string]interface{}{
 			"type":       "download_progress",
 			"progress":   p.ProgressPercent(),
@@ -497,11 +508,12 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	h.dlState.cancel = nil
 	h.dlState.Unlock()
 
-	reportResult(ctx, conn, success, outputFilename, outputPath)
+	reportResult(ctx, conn, success, err, outputFilename, outputPath)
 }
 
 // reportResult sends the last websocket message of a job.
-func reportResult(ctx context.Context, conn *websocket.Conn, success bool, outputFilename, outputPath string) {
+// err is the engine error, and the message of a failed job carries it.
+func reportResult(ctx context.Context, conn *websocket.Conn, success bool, err error, outputFilename, outputPath string) {
 	if ctx.Err() != nil {
 		// The engine removes the file on cancel, so this removal usually finds no file.
 		_ = os.Remove(outputPath)
@@ -522,7 +534,7 @@ func reportResult(ctx context.Context, conn *websocket.Conn, success bool, outpu
 	} else {
 		sendJSON(conn, map[string]interface{}{
 			"type":    "download_error",
-			"message": "Download failed - too many tile errors. Try reducing concurrent downloads or enabling Ignore Errors.",
+			"message": fmt.Sprintf("Download failed - %v. Try reducing concurrent downloads or enabling Ignore Errors.", err),
 		})
 	}
 }
@@ -612,7 +624,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 // sendJSON sends v as one websocket message.
-// A failed write means that the client left, so the error is not used. #15 replaces the websocket.
+// A failed write means that the client left, so the error is not used. #16 removes the websocket.
 func sendJSON(conn *websocket.Conn, v interface{}) {
 	_ = conn.WriteJSON(v)
 }
