@@ -212,7 +212,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h4 id="security-hardening-limits-and-timeouts">Limits and timeouts</h4>
 <ul>
-<li>FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413. <code>POST /api/areas/parse</code> takes an area file of up to 5 MiB, so its limit is 5 MiB plus 64 KiB for the multipart form (feature 11).
+<li>FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413. A route that carries areas has a limit of 5 MiB plus 64 KiB, because its areas can come from a 5 MiB area file (feature 11). These routes are <code>POST /api/estimate</code>, <code>POST /api/jobs</code>, <code>POST /api/areas/parse</code> and <code>POST /api/areas/tiles</code>.
 </li>
 <li>FR-security-hardening-18 — The server sets <code>ReadHeaderTimeout</code> 10 s, <code>ReadTimeout</code> 30 s and <code>IdleTimeout</code> 120 s. The SSE route has no write timeout.
 </li>

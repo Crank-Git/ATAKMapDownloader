@@ -196,8 +196,9 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>zoom level</td><td>noun</td><td>An integer from 0 to 25 that selects the tile grid.</td><td>level, z (in prose)</td></tr>
 <tr><td>zoom range</td><td>noun</td><td>A minimum and a maximum zoom level, both included.</td><td>levels</td></tr>
 <tr><td>bounds</td><td>noun</td><td>A geographic rectangle: minimum and maximum latitude and longitude. The <code>--bbox</code> flag name stays as it is.</td><td>bbox (in prose), extent, box</td></tr>
-<tr><td>area</td><td>noun</td><td>The region that a job covers: bounds, a polygon or a route buffer (polygon and route buffer are planned, feature 11).</td><td>AOI, region, selection</td></tr>
-<tr><td>route buffer</td><td>noun</td><td>An area made from a line and a distance in metres on each side of it (planned).</td><td>corridor</td></tr>
+<tr><td>area</td><td>noun</td><td>The region that a job covers: bounds, a polygon or a route buffer (feature 11).</td><td>AOI, region, selection</td></tr>
+<tr><td>route buffer</td><td>noun</td><td>An area made from a line and a distance in metres on each side of it (feature 11).</td><td>corridor</td></tr>
+<tr><td>vertex</td><td>noun</td><td>One position of a polygon ring or of a line. An area holds at most 20,000 (feature 11).</td><td>node, corner</td></tr>
 <tr><td>estimate</td><td>noun</td><td>A prediction of the tile count, file size and time for an area and a zoom range. The <code>estimate</code> command name stays as it is.</td><td>quote, calculation</td></tr>
 <tr><td>preview</td><td>noun</td><td>A grid of sample tiles from a map source, shown on the map over the area.</td><td>thumbnail</td></tr>
 <tr><td>download</td><td>verb</td><td>To get tiles from a map source over HTTP and write them to an output file. Never a noun in this spec.</td><td>fetch, grab, scrape, pull</td></tr>
@@ -444,7 +445,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>JOB</strong> (built as one in-memory record, <code>cmd/atak-dl/commands/jobs.go:62-78</code>, #76). It has an <code>id</code>, and its state is <code>running</code>, <code>complete</code>, <code>failed</code> or <code>cancelled</code>. The server keeps only the last job (<code>web.go:29-35</code>). Planned (feature 12): the <code>queued</code> state and a persistent record in the data directory.
 </li>
-<li><strong>AREA</strong> (built as bounds only). Planned: polygon and route buffer geometry as GeoJSON, with a zoom range for each area (feature 11).
+<li><strong>AREA</strong> (built, feature 11). Its kind is <code>bounds</code>, <code>polygon</code> or <code>route_buffer</code>, with GeoJSON geometry and a zoom range for each area. A job holds 1 to 20 areas, and the output file metadata <code>atakdl_areas</code> stores them.
 </li>
 <li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row <code>atakdl_source</code> names the map source. Planned: an extension per output format (feature 10).
 </li>
@@ -484,7 +485,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li>Concurrency is from 1 to 32 (<code>invalid_concurrency</code>).
 </li>
-<li>A request body is at most 1 MiB (<code>body_too_large</code>, status 413, <code>web.go:64-79</code>).
+<li>A request body is at most 1 MiB (<code>body_too_large</code>, status 413, <code>limitBody</code> in <code>web.go</code>). A route that carries areas reads 5 MiB plus 64 KiB (FR-security-hardening-17).
 </li>
 <li>The server sets <code>ReadHeaderTimeout</code> 10 s, <code>ReadTimeout</code> 30 s and <code>IdleTimeout</code> 120 s, and no <code>WriteTimeout</code>, because an SSE stream stays open (<code>serve.go:91-99</code>).
 </li>

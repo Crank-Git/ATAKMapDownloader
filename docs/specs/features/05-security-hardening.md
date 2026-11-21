@@ -48,7 +48,7 @@ This feature closes these gaps. It also replaces the websocket with a small job 
 
 ### Limits and timeouts
 
-- FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413. `POST /api/areas/parse` takes an area file of up to 5 MiB, so its limit is 5 MiB plus 64 KiB for the multipart form (feature 11).
+- FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413. A route that carries areas has a limit of 5 MiB plus 64 KiB, because its areas can come from a 5 MiB area file (feature 11). These routes are `POST /api/estimate`, `POST /api/jobs`, `POST /api/areas/parse` and `POST /api/areas/tiles`.
 - FR-security-hardening-18 — The server sets `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s and `IdleTimeout` 120 s. The SSE route has no write timeout.
 - FR-security-hardening-19 — The server and the CLI reject a zoom range outside the map source's zoom range with error code `zoom_out_of_range`.
 - FR-security-hardening-20 — The server and the CLI reject a concurrency below 1 or above 32 with error code `invalid_concurrency`.

@@ -181,6 +181,10 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-area-selection-5 — A job holds 1 to 20 areas.
 </li>
+<li>FR-area-selection-30 — An area holds at most 20,000 vertices. The API returns 400 <code>invalid_area</code> above the cap, and the CLI exits with code 1.
+</li>
+<li>FR-area-selection-31 — A job holds at most 50,000 vertices over all its areas. The API and the CLI reject a larger job as in FR-area-selection-30.
+</li>
 </ul>
 <h4 id="area-selection-tile-selection">Tile selection</h4>
 <ul>
