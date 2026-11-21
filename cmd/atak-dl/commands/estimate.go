@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// NewEstimateCmd returns the estimate command, which prints the tile count and size of an area.
 func NewEstimateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "estimate",
@@ -21,8 +22,8 @@ func NewEstimateCmd() *cobra.Command {
 	cmd.Flags().Int("zoom", 0, "Single zoom level")
 	cmd.Flags().String("zoom-range", "", "Zoom range as min-max")
 	cmd.Flags().Int("max-tiles", 10000, "Maximum tiles for auto zoom")
-	cmd.MarkFlagRequired("source")
-	cmd.MarkFlagRequired("bbox")
+	cobra.CheckErr(cmd.MarkFlagRequired("source"))
+	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
 }
 
@@ -31,23 +32,7 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	calc := tilecalc.NewTileCalculator()
 
 	bboxStr, _ := cmd.Flags().GetString("bbox")
-	parts := strings.Split(bboxStr, ",")
-	if len(parts) != 4 {
-		exitErr("Bounding box must have 4 values: min_lat,min_lon,max_lat,max_lon")
-	}
-	var coords [4]float64
-	for i, p := range parts {
-		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
-		if err != nil {
-			exitErr("Invalid bbox value: " + p)
-		}
-		coords[i] = v
-	}
-
-	bounds, err := tilecalc.NewGeographicBounds(coords[0], coords[2], coords[1], coords[3])
-	if err != nil {
-		exitErr(err.Error())
-	}
+	bounds, coords := parseBBox(bboxStr)
 
 	sourceName, _ := cmd.Flags().GetString("source")
 	source := parser.GetSource(sourceName)
@@ -69,9 +54,7 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 		}
 		minZ, _ := strconv.Atoi(strings.TrimSpace(r[0]))
 		maxZ, _ := strconv.Atoi(strings.TrimSpace(r[1]))
-		for z := minZ; z <= maxZ; z++ {
-			zoomLevels = append(zoomLevels, z)
-		}
+		zoomLevels = zoomLevelsBetween(minZ, maxZ)
 	} else {
 		optZoom := calc.CalculateZoomForArea(bounds, maxTiles)
 		zoomLevels = []int{optZoom}

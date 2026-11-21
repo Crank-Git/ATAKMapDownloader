@@ -1,20 +1,19 @@
+// Package commands holds the cobra commands of the atak-dl CLI.
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
-	"context"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
-	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/spf13/cobra"
 )
 
+// NewDownloadCmd returns the download command, which writes the tiles of an area to an MBTiles file.
 func NewDownloadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "download",
@@ -29,8 +28,8 @@ func NewDownloadCmd() *cobra.Command {
 	cmd.Flags().String("name", "", "Custom filename (without extension)")
 	cmd.Flags().Int("concurrent", 5, "Concurrent downloads")
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
-	cmd.MarkFlagRequired("source")
-	cmd.MarkFlagRequired("bbox")
+	cobra.CheckErr(cmd.MarkFlagRequired("source"))
+	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
 }
 
@@ -43,23 +42,7 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 	}
 
 	bboxStr, _ := cmd.Flags().GetString("bbox")
-	parts := strings.Split(bboxStr, ",")
-	if len(parts) != 4 {
-		exitErr("Bounding box must have 4 values: min_lat,min_lon,max_lat,max_lon")
-	}
-	var coords [4]float64
-	for i, p := range parts {
-		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
-		if err != nil {
-			exitErr("Invalid bbox value: " + p)
-		}
-		coords[i] = v
-	}
-
-	bounds, err := tilecalc.NewGeographicBounds(coords[0], coords[2], coords[1], coords[3])
-	if err != nil {
-		exitErr(err.Error())
-	}
+	bounds, _ := parseBBox(bboxStr)
 
 	minZoom, _ := cmd.Flags().GetInt("min-zoom")
 	maxZoom, _ := cmd.Flags().GetInt("max-zoom")
@@ -67,16 +50,12 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 		exitErr("min-zoom cannot be greater than max-zoom")
 	}
 
-	var zoomLevels []int
-	for z := minZoom; z <= maxZoom; z++ {
-		zoomLevels = append(zoomLevels, z)
-	}
+	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
 
 	output, _ := cmd.Flags().GetString("output")
 	customName, _ := cmd.Flags().GetString("name")
 	if output == "" {
 		dlDir := download.DownloadsDir()
-		os.MkdirAll(dlDir, 0755)
 		fname := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
 		output = filepath.Join(dlDir, fname)
 	}

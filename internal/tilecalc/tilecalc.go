@@ -85,14 +85,14 @@ func (g *GeographicBounds) AreaDegrees() float64 {
 
 // TileCalculator handles tile coordinate calculations.
 type TileCalculator struct {
-	EarthRadius       float64
+	EarthRadius        float64
 	EarthCircumference float64
 }
 
 // NewTileCalculator creates a new TileCalculator.
 func NewTileCalculator() *TileCalculator {
 	return &TileCalculator{
-		EarthRadius:       EarthRadius,
+		EarthRadius:        EarthRadius,
 		EarthCircumference: 2 * math.Pi * EarthRadius,
 	}
 }

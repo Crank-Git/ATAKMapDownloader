@@ -4,6 +4,7 @@ package download
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,7 +25,7 @@ import (
 // Config holds download engine configuration.
 type Config struct {
 	MaxConcurrent       int
-	Timeout              time.Duration
+	Timeout             time.Duration
 	DelayBetweenBatches time.Duration
 	MaxFailureRate      float64
 	IgnoreErrors        bool
@@ -35,22 +36,22 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		MaxConcurrent:       5,
-		Timeout:              30 * time.Second,
-		DelayBetweenBatches:  200 * time.Millisecond,
-		MaxFailureRate:       0.2,
-		IgnoreErrors:         false,
-		VerifySSL:            false,
+		Timeout:             30 * time.Second,
+		DelayBetweenBatches: 200 * time.Millisecond,
+		MaxFailureRate:      0.2,
+		IgnoreErrors:        false,
+		VerifySSL:           false,
 	}
 }
 
 // Progress reports download progress.
 type Progress struct {
-	TotalTiles     int
-	Downloaded     int64
-	Failed         int64
-	CurrentTile    [3]int
-	CurrentURL     string
-	StartTime      time.Time
+	TotalTiles  int
+	Downloaded  int64
+	Failed      int64
+	CurrentTile [3]int
+	CurrentURL  string
+	StartTime   time.Time
 }
 
 // ProgressPercent returns 0-100.
@@ -136,22 +137,11 @@ func (e *Engine) DownloadTiles(
 
 	slog.Info("starting download", "tiles", totalTiles, "zoom_levels", len(zoomLevels))
 
-	metadata := map[string]string{
-		"name":        fmt.Sprintf("%s - %.4f,%.4f to %.4f,%.4f", source.Name, bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon),
-		"type":        "baselayer",
-		"version":    "1.0",
-		"description": "Downloaded from " + source.Name,
-		"format":      source.TileType,
-		"bounds":      fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", bounds.MinLon, bounds.MinLat, bounds.MaxLon, bounds.MaxLat),
-		"minzoom":     fmt.Sprintf("%d", zoomLevels[0]),
-		"maxzoom":     fmt.Sprintf("%d", zoomLevels[len(zoomLevels)-1]),
-	}
-
-	db, err := mbtiles.Create(outputPath, metadata)
+	db, err := mbtiles.Create(outputPath, outputMetadata(source, bounds, zoomLevels))
 	if err != nil {
 		return false, err
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck // A close error does not change the result today (#25).
 
 	progress := &Progress{
 		TotalTiles: totalTiles,
@@ -160,8 +150,7 @@ func (e *Engine) DownloadTiles(
 
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
 	var wg sync.WaitGroup
-	var cancelled int32
-	var downloaded, failed int64
+	var c tileCounters
 
 	for _, tb := range tileBoundsList {
 		for pair := range tb.IterTiles() {
@@ -170,7 +159,7 @@ func (e *Engine) DownloadTiles(
 
 			select {
 			case <-ctx.Done():
-				atomic.StoreInt32(&cancelled, 1)
+				atomic.StoreInt32(&c.cancelled, 1)
 				goto wait
 			default:
 			}
@@ -180,39 +169,7 @@ func (e *Engine) DownloadTiles(
 			go func(x, y, z int) {
 				defer wg.Done()
 				defer func() { <-sem }()
-
-				if atomic.LoadInt32(&cancelled) == 1 {
-					return
-				}
-
-				serverPart := source.GetServerPart(int(atomic.LoadInt64(&downloaded)))
-				url := source.FormatURL(x, y, z, serverPart)
-
-				progress.CurrentTile = [3]int{x, y, z}
-				progress.CurrentURL = url
-
-				data, err := e.downloadTileWithRetry(url, x, y, z)
-				if err != nil {
-					atomic.AddInt64(&failed, 1)
-					if cb != nil && !cb(progress) {
-						atomic.StoreInt32(&cancelled, 1)
-					}
-					return
-				}
-
-				tmsY := (1 << z) - 1 - y
-				if err := mbtiles.InsertTile(db, z, x, tmsY, data); err != nil {
-					slog.Error("insert tile failed", "x", x, "y", y, "z", z, "err", err)
-					atomic.AddInt64(&failed, 1)
-					return
-				}
-
-				atomic.AddInt64(&downloaded, 1)
-				progress.Downloaded = atomic.LoadInt64(&downloaded)
-				progress.Failed = atomic.LoadInt64(&failed)
-				if cb != nil && !cb(progress) {
-					atomic.StoreInt32(&cancelled, 1)
-				}
+				e.fetchTile(db, source, progress, cb, &c, x, y, z)
 			}(x, y, z)
 		}
 	}
@@ -220,8 +177,9 @@ func (e *Engine) DownloadTiles(
 wait:
 	wg.Wait()
 
-	progress.Downloaded = atomic.LoadInt64(&downloaded)
-	progress.Failed = atomic.LoadInt64(&failed)
+	downloaded, failed := c.downloaded, c.failed
+	progress.Downloaded = atomic.LoadInt64(&c.downloaded)
+	progress.Failed = atomic.LoadInt64(&c.failed)
 	if cb != nil {
 		cb(progress)
 	}
@@ -230,13 +188,34 @@ wait:
 		"downloaded", downloaded,
 		"failed", failed,
 		"total", totalTiles,
-		"cancelled", atomic.LoadInt32(&cancelled) == 1)
+		"cancelled", atomic.LoadInt32(&c.cancelled) == 1)
 
-	if atomic.LoadInt32(&cancelled) == 1 {
-		os.Remove(outputPath)
+	if atomic.LoadInt32(&c.cancelled) == 1 {
+		// A failed removal leaves a partial output file. #26 owns the output file rules.
+		_ = os.Remove(outputPath)
 		return false, ctx.Err()
 	}
 
+	return e.outcome(downloaded, failed)
+}
+
+// outputMetadata returns the MBTiles metadata rows for a job.
+func outputMetadata(source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds, zoomLevels []int) map[string]string {
+	return map[string]string{
+		"name":        fmt.Sprintf("%s - %.4f,%.4f to %.4f,%.4f", source.Name, bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon),
+		"type":        "baselayer",
+		"version":     "1.0",
+		"description": "Downloaded from " + source.Name,
+		"format":      source.TileType,
+		"bounds":      fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", bounds.MinLon, bounds.MinLat, bounds.MaxLon, bounds.MaxLat),
+		"minzoom":     fmt.Sprintf("%d", zoomLevels[0]),
+		"maxzoom":     fmt.Sprintf("%d", zoomLevels[len(zoomLevels)-1]),
+	}
+}
+
+// outcome returns the result of a job that was not cancelled.
+// It returns an error when no tile was processed or when the failure rate is above the limit.
+func (e *Engine) outcome(downloaded, failed int64) (bool, error) {
 	if e.cfg.IgnoreErrors {
 		return true, nil
 	}
@@ -251,6 +230,57 @@ wait:
 	}
 
 	return true, nil
+}
+
+// tileCounters holds the counts that the tile goroutines of one job share.
+type tileCounters struct {
+	downloaded int64
+	failed     int64
+	cancelled  int32
+}
+
+// fetchTile downloads one tile, stores it in db, and updates c and progress.
+// It sets c.cancelled when the callback returns false.
+func (e *Engine) fetchTile(
+	db *sql.DB,
+	source *xmlparser.MapSource,
+	progress *Progress,
+	cb ProgressCallback,
+	c *tileCounters,
+	x, y, z int,
+) {
+	if atomic.LoadInt32(&c.cancelled) == 1 {
+		return
+	}
+
+	serverPart := source.GetServerPart(int(atomic.LoadInt64(&c.downloaded)))
+	url := source.FormatURL(x, y, z, serverPart)
+
+	progress.CurrentTile = [3]int{x, y, z}
+	progress.CurrentURL = url
+
+	data, err := e.downloadTileWithRetry(url, x, y, z)
+	if err != nil {
+		atomic.AddInt64(&c.failed, 1)
+		if cb != nil && !cb(progress) {
+			atomic.StoreInt32(&c.cancelled, 1)
+		}
+		return
+	}
+
+	tmsY := (1 << z) - 1 - y
+	if err := mbtiles.InsertTile(db, z, x, tmsY, data); err != nil {
+		slog.Error("insert tile failed", "x", x, "y", y, "z", z, "err", err)
+		atomic.AddInt64(&c.failed, 1)
+		return
+	}
+
+	atomic.AddInt64(&c.downloaded, 1)
+	progress.Downloaded = atomic.LoadInt64(&c.downloaded)
+	progress.Failed = atomic.LoadInt64(&c.failed)
+	if cb != nil && !cb(progress) {
+		atomic.StoreInt32(&c.cancelled, 1)
+	}
 }
 
 func (e *Engine) downloadTileWithRetry(url string, x, y, z int) ([]byte, error) {
@@ -291,7 +321,7 @@ func (e *Engine) downloadTile(url string) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // The body is fully read, so a close error loses nothing.
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {

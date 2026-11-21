@@ -3,16 +3,18 @@ package mbtiles
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	// The blank import registers the "sqlite" driver with database/sql.
 	_ "modernc.org/sqlite"
 )
 
 // Create creates an MBTiles database with the given metadata.
 func Create(outputPath string, metadata map[string]string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil { //nolint:gosec // The mode 0755 is the existing behavior.
 		return nil, err
 	}
 	if _, err := os.Stat(outputPath); err == nil {
@@ -35,14 +37,12 @@ func Create(outputPath string, metadata map[string]string) (*sql.DB, error) {
 		CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);
 	`
 	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, err
+		return nil, errors.Join(err, db.Close())
 	}
 
 	for k, v := range metadata {
 		if _, err := db.Exec("INSERT INTO metadata (name, value) VALUES (?, ?)", k, v); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("insert metadata %s: %w", k, err)
+			return nil, errors.Join(fmt.Errorf("insert metadata %s: %w", k, err), db.Close())
 		}
 	}
 

@@ -300,7 +300,8 @@ What the code does not handle:
 - **`--concurrent 0` blocks forever.** The semaphore has no capacity. A negative value
   makes `make(chan)` panic.
 - **No limit on the tile count or the zoom range.**
-- **`os.MkdirAll` errors are ignored** (`commands/download.go:79`).
+- **`serve` ignores the `os.MkdirAll` error for the downloads directory** (`commands/serve.go`).
+  `mbtiles.Create` creates the directory again and returns the error, so a `download` run reports it.
 - **The CLI prints `Error: context canceled` and the usage text after a cancel**, because
   `SilenceUsage` is not set.
 - **The CGO dependency breaks cross-compiles.** The README shows plain `GOOS`/`GOARCH`

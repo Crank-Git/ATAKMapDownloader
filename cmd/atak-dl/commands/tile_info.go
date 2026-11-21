@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// NewTileInfoCmd returns the tile-info command, which prints the tile that holds a coordinate.
 func NewTileInfoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tile-info",
@@ -16,9 +17,9 @@ func NewTileInfoCmd() *cobra.Command {
 	cmd.Flags().Float64("lat", 0, "Latitude (required)")
 	cmd.Flags().Float64("lon", 0, "Longitude (required)")
 	cmd.Flags().Int("zoom", 10, "Zoom level (required)")
-	cmd.MarkFlagRequired("lat")
-	cmd.MarkFlagRequired("lon")
-	cmd.MarkFlagRequired("zoom")
+	cobra.CheckErr(cmd.MarkFlagRequired("lat"))
+	cobra.CheckErr(cmd.MarkFlagRequired("lon"))
+	cobra.CheckErr(cmd.MarkFlagRequired("zoom"))
 	return cmd
 }
 
