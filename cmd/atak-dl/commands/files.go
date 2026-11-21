@@ -114,7 +114,14 @@ func (h *WebHandler) serveTile(w http.ResponseWriter, name string, zxy []string)
 		return
 	}
 	// The engine stores only a PNG, JPEG, GIF or WebP body, and DetectContentType knows each signature.
-	w.Header().Set("Content-Type", http.DetectContentType(data))
+	contentType := http.DetectContentType(data)
+	// A copied-in file can hold any bytes, so a body that is not an image never goes out as HTML or script.
+	if !strings.HasPrefix(contentType, "image/") {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	//nolint:gosec // G705: The Content-Type is an image type or application/octet-stream with nosniff, so the browser runs no script from the body.
 	_, _ = w.Write(data) // A failed write means that the client closed the connection.
 }
 

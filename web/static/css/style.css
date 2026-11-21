@@ -594,3 +594,29 @@ option.policy-restricted {
 .file-list .file-name {
     overflow-wrap: anywhere;
 }
+
+/* Base map switcher (FR-offline-web-ui-15). It sits in a Leaflet control at the top right of the map. */
+.basemap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.basemap select {
+    max-width: 260px;
+}
+
+/* A base map with no tile shows the grid, so the map has a reference when the browser is offline. */
+#map.leaflet-container {
+    background-color: var(--bg);
+    background-image:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 64px 64px;
+}

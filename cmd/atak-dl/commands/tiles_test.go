@@ -48,6 +48,19 @@ func TestTileRouteReturnsTheStoredTileAtItsXYZPosition(t *testing.T) {
 	}
 }
 
+func TestTileRouteSendsATileThatIsNotAnImageAsOctetStream(t *testing.T) {
+	h := filesHandler(t)
+	writeTileFile(t, h, "area.mbtiles", 10, 300, 400, []byte("<html><script>alert(1)</script>"))
+
+	rec := serve(h, http.MethodGet, "/api/files/area.mbtiles/tiles/10/300/400", "")
+	if ct := rec.Header().Get("Content-Type"); ct != "application/octet-stream" {
+		t.Errorf("Content-Type = %q, want application/octet-stream", ct)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+}
+
 func TestTileRouteReturns204ForATileThatTheFileDoesNotHold(t *testing.T) {
 	h := filesHandler(t)
 	writeTileFile(t, h, "area.mbtiles", 10, 300, 400, pngTile)

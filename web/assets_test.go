@@ -251,7 +251,7 @@ func TestIndexHoldsTheBaseMapSwitcherWithTheOnlineBaseMap(t *testing.T) {
 	for _, want := range []string{
 		`id="baseMap" class="basemap"`,
 		`<select id="baseMapSelect">`,
-		`<option value="online">Online (OpenStreetMap)</option>`,
+		`<option value="">Online (OpenStreetMap)</option>`,
 	} {
 		if !strings.Contains(index, want) {
 			t.Errorf("index.html does not contain %q", want)

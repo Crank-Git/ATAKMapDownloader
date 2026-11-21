@@ -33,6 +33,16 @@ class ATAKDownloader {
         this.probeTimer = null;
         this.errorKey = null;
         this.retryRequest = null;
+        // startReady is true when the job settings allow Start. The connection state can still disable Start.
+        this.startReady = false;
+        // outputFiles is the last GET /api/files list, newest first, and null until the first list loads.
+        this.outputFiles = null;
+        // localBaseMap is the tile layer of the output file that the switcher selects, drawn over the online base map.
+        this.localBaseMap = null;
+        // baseMapChosen stops the offline fallback after the user or the fallback selects a base map.
+        this.baseMapChosen = false;
+        this.onlineTileLoaded = false;
+        this.onlineTileFailed = false;
 
         this.init();
     }
@@ -42,7 +52,7 @@ class ATAKDownloader {
         this.initMap();
         this.loadMapSources();
         this.loadConfig();
-        this.loadOutputFiles();
+        this.loadOutputFiles().then(() => this.fallBackToLocalBaseMap());
         this.bindEvents();
         this.logStatus('Application initialized');
     }
@@ -66,11 +76,27 @@ class ATAKDownloader {
 
     initMap() {
         this.map = L.map('map').setView([39.8283, -98.5795], 4);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        const online = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 19
         }).addTo(this.map);
-        
+        // A failed OSM tile before any OSM tile loads means that the browser has no internet at load time (Flow 1).
+        online.once('tileload', () => { this.onlineTileLoaded = true; });
+        online.once('tileerror', () => {
+            if (this.onlineTileLoaded) return;
+            this.onlineTileFailed = true;
+            this.fallBackToLocalBaseMap();
+        });
+
+        // A Leaflet control keeps the switcher on the map and stops its clicks from reaching the map.
+        const switcher = document.getElementById('baseMap');
+        L.DomEvent.disableClickPropagation(switcher);
+        L.DomEvent.disableScrollPropagation(switcher);
+        const control = L.control({ position: 'topright' });
+        control.onAdd = () => switcher;
+        control.addTo(this.map);
+        switcher.hidden = false;
+
         this.initDrawControls();
         this.logStatus('Map initialized');
     }
@@ -152,6 +178,71 @@ class ATAKDownloader {
         const chip = document.getElementById('connStatus');
         chip.className = 'chip ' + CONNECTION_LOOK[state][0];
         chip.textContent = CONNECTION_LOOK[state][1];
+        // The offline state disables Start, and a reconnect enables it again when it was ready (feature 08, offline state).
+        this.setStartEnabled(this.startReady);
+        if (state === 'offline') this.fallBackToLocalBaseMap();
+    }
+
+    // setStartEnabled is the one place that sets the disabled state of Start.
+    // ready tells whether the job settings allow Start. Start stays disabled while the indicator reads offline.
+    setStartEnabled(ready) {
+        this.startReady = ready;
+        document.getElementById('downloadBtn').disabled = !ready || this.connectionState === 'offline';
+    }
+
+    // setBaseMap draws the tiles of the output file name over the online base map. An empty name shows the online base map only.
+    setBaseMap(name) {
+        if (this.localBaseMap) {
+            this.map.removeLayer(this.localBaseMap);
+            this.localBaseMap = null;
+        }
+        const file = name && this.outputFiles && this.outputFiles.find(f => f.name === name);
+        if (!file) return;
+        const options = { maxZoom: 19 };
+        // Above the highest zoom level of the file, Leaflet scales its tiles up instead of requesting missing ones.
+        if (file.max_zoom > 0) options.maxNativeZoom = file.max_zoom;
+        // Bounds is [west, south, east, north], and Leaflet requests no tile outside it.
+        if (file.bounds) options.bounds = L.latLngBounds([file.bounds[1], file.bounds[0]], [file.bounds[3], file.bounds[2]]);
+        this.localBaseMap = L.tileLayer('/api/files/' + encodeURIComponent(name) + '/tiles/{z}/{x}/{y}', options).addTo(this.map);
+    }
+
+    // renderBaseMaps puts one switcher entry per output file after the online base map (FR-offline-web-ui-15).
+    // GET /api/files lists only files with a metadata table, so a data package gets no entry.
+    renderBaseMaps(files) {
+        const select = document.getElementById('baseMapSelect');
+        const selected = select.value;
+        select.replaceChildren(select.options[0]);
+        files.forEach(file => {
+            const option = document.createElement('option');
+            option.value = file.name;
+            option.textContent = file.name;
+            select.appendChild(option);
+        });
+        // A refresh can remove the selected file, and then the switcher goes back to the online base map.
+        if (!files.some(f => f.name === selected)) {
+            select.value = '';
+            this.setBaseMap('');
+        }
+    }
+
+    // fallBackToLocalBaseMap selects the most recent output file when the web UI loads with no internet (FR-offline-web-ui-16).
+    // Three signals mean offline: navigator.onLine, a failed first OSM tile, and the connection indicator.
+    // It selects a base map once, and never after the user selects one.
+    fallBackToLocalBaseMap() {
+        const offline = navigator.onLine === false || this.onlineTileFailed || this.connectionState === 'offline';
+        if (this.baseMapChosen || !offline || this.outputFiles === null) return;
+        this.baseMapChosen = true;
+        const newest = this.outputFiles[0];
+        if (!newest) {
+            this.showError('baseMap', 'Offline: no local base map', () => {
+                this.baseMapChosen = false;
+                this.loadOutputFiles().then(() => this.fallBackToLocalBaseMap());
+            });
+            return;
+        }
+        document.getElementById('baseMapSelect').value = newest.name;
+        this.setBaseMap(newest.name);
+        this.logStatus('Offline: the base map is the output file ' + newest.name, 'warning');
     }
 
     // requestJSON sends a request and returns the JSON body of a 2xx response.
@@ -334,6 +425,11 @@ class ATAKDownloader {
             if (e.key === 'Enter') this.searchAddress();
         });
         document.getElementById('mapSourceSelect').addEventListener('change', (e) => this.onSourceChange(e.target.value));
+        document.getElementById('baseMapSelect').addEventListener('change', (e) => {
+            this.baseMapChosen = true;
+            this.hideError('baseMap');
+            this.setBaseMap(e.target.value);
+        });
         document.getElementById('minZoom').addEventListener('change', () => this.validateZoomLevels());
         document.getElementById('maxZoom').addEventListener('change', () => this.validateZoomLevels());
     }
@@ -385,7 +481,7 @@ class ATAKDownloader {
     disableEstimation() {
         document.getElementById('estimateBtn').disabled = true;
         document.getElementById('previewBtn').disabled = true;
-        document.getElementById('downloadBtn').disabled = true;
+        this.setStartEnabled(false);
         document.getElementById('estimationResult').innerHTML = '';
         document.getElementById('estimationResult').className = '';
         this.clearPreview();
@@ -406,7 +502,7 @@ class ATAKDownloader {
         const button = document.getElementById('estimateBtn');
         const resultDiv = document.getElementById('estimationResult');
         this.setBusy(button, true);
-        document.getElementById('downloadBtn').disabled = true;
+        this.setStartEnabled(false);
         resultDiv.className = 'card';
         resultDiv.innerHTML = SPINNER;
         resultDiv.append(' Estimating the job size');
@@ -421,7 +517,7 @@ class ATAKDownloader {
             });
             this.displayEstimation(result);
             this.hideError('estimate');
-            document.getElementById('downloadBtn').disabled = false;
+            this.setStartEnabled(true);
             this.logStatus('Download estimation completed');
         } catch (error) {
             resultDiv.className = '';
@@ -527,6 +623,8 @@ class ATAKDownloader {
 
     // renderOutputFiles replaces the list with one row per file. Server strings go in through textContent only.
     renderOutputFiles(files) {
+        this.outputFiles = files;
+        this.renderBaseMaps(files);
         const list = document.getElementById('outputFileList');
         list.replaceChildren();
         document.getElementById('outputFileEmpty').hidden = files.length > 0;
@@ -715,7 +813,7 @@ class ATAKDownloader {
         }
 
         this.hideDownloadResults();
-        document.getElementById('downloadBtn').disabled = true;
+        this.setStartEnabled(false);
         document.getElementById('downloadBtn').innerHTML = SPINNER + ' Downloading...';
         try {
             const result = await this.postJSON('/api/jobs', request);
@@ -755,7 +853,7 @@ class ATAKDownloader {
     }
 
     resetDownloadUI() {
-        document.getElementById('downloadBtn').disabled = false;
+        this.setStartEnabled(true);
         document.getElementById('downloadBtn').innerHTML = ICON_DOWNLOAD + ' Start Download';
         document.getElementById('downloadProgress').hidden = true;
         this.showCancelButton(false);
