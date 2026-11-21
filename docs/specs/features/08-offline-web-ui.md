@@ -182,7 +182,7 @@ Regions:
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| GET | `/api/files` | 200 `[{name, size, modified, format, source, min_zoom, max_zoom, bounds, in_progress}]` | — |
+| GET | `/api/files` | 200 `[{name, size, modified, format, output_format, source, min_zoom, max_zoom, bounds, in_progress}]`. `format` is the tile format, or `data_package` for a data package. `output_format` is the output format, and it is empty for a data package. | — |
 | GET | `/api/files/{name}` | 200 attachment, `Content-Disposition: attachment` | 404 `file_not_found` |
 | GET | `/api/files/{name}/tiles/{z}/{x}/{y}` | 200 image, or 204 | 404 `file_not_found`, or 404 `not_found` for a tile outside its zoom level |
 

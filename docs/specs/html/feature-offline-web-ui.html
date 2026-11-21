@@ -380,7 +380,7 @@ body.rv-open .layout { padding-right:21rem; }
 <h3 id="offline-web-ui-interfaces">Interfaces</h3>
 <div class="table-wrap"><table>
 <tr><th>Method</th><th>Path</th><th>Success</th><th>Errors</th></tr>
-<tr><td>GET</td><td><code>/api/files</code></td><td>200 <code>[{name, size, modified, format, source, min_zoom, max_zoom, bounds, in_progress}]</code></td><td>—</td></tr>
+<tr><td>GET</td><td><code>/api/files</code></td><td>200 <code>[{name, size, modified, format, output_format, source, min_zoom, max_zoom, bounds, in_progress}]</code>. <code>format</code> is the tile format, or <code>data_package</code> for a data package. <code>output_format</code> is the output format, and it is empty for a data package.</td><td>—</td></tr>
 <tr><td>GET</td><td><code>/api/files/{name}</code></td><td>200 attachment, <code>Content-Disposition: attachment</code></td><td>404 <code>file_not_found</code></td></tr>
 <tr><td>GET</td><td><code>/api/files/{name}/tiles/{z}/{x}/{y}</code></td><td>200 image, or 204</td><td>404 <code>file_not_found</code>, or 404 <code>not_found</code> for a tile outside its zoom level</td></tr>
 </table></div>

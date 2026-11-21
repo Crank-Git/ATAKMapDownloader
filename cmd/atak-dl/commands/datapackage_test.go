@@ -254,8 +254,8 @@ func TestJobAPIWritesADataPackage(t *testing.T) {
 	}
 
 	items := listFiles(t, s.handler)
-	if len(items) != 1 || items[0].Name != "Mt_Hood_SAR.zip" || items[0].Format != "data_package" {
-		t.Errorf("GET /api/files = %+v, want Mt_Hood_SAR.zip with format data_package", items)
+	if len(items) != 1 || items[0].Name != "Mt_Hood_SAR.zip" || items[0].Format != "data_package" || items[0].OutputFormat != "" {
+		t.Errorf("GET /api/files = %+v, want Mt_Hood_SAR.zip with format data_package and no output_format", items)
 	}
 	if code := serve(s.handler, http.MethodGet, "/api/files/Mt_Hood_SAR.zip/tiles/10/300/400", "").Code; code != http.StatusNotFound {
 		t.Errorf("tile route status for the data package = %d, want 404", code)
