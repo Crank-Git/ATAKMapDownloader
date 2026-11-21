@@ -12,6 +12,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -286,17 +287,34 @@ func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr e
 	return e.outcome(c.downloaded.Load(), c.skipped.Load(), c.failed.Load())
 }
 
-// outputMetadata returns the MBTiles metadata rows for a job.
+// outputMetadata returns the MBTiles metadata rows for a job (FR-output-formats-7).
+// zoomLevels is in ascending order, so its first value is the minimum zoom level of the job.
 func outputMetadata(source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds, zoomLevels []int) map[string]string {
+	format := strings.ToLower(source.TileType)
+	// MBTiles 1.3 names the JPEG format jpg (FR-output-formats-8).
+	if format == "jpeg" {
+		format = "jpg"
+	}
+	layerType := "baselayer"
+	if source.Overlay {
+		layerType = "overlay"
+	}
+	attribution := source.File
+	if source.Origin == xmlparser.OriginSnapshot {
+		attribution = source.Name + " via ATAK-Maps"
+	}
+	minZoom := zoomLevels[0]
 	return map[string]string{
 		"name":        fmt.Sprintf("%s - %.4f,%.4f to %.4f,%.4f", source.Name, bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon),
-		"type":        "baselayer",
+		"type":        layerType,
 		"version":     "1.0",
 		"description": "Downloaded from " + source.Name,
-		"format":      source.TileType,
+		"attribution": attribution,
+		"format":      format,
 		"bounds":      fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", bounds.MinLon, bounds.MinLat, bounds.MaxLon, bounds.MaxLat),
-		"minzoom":     fmt.Sprintf("%d", zoomLevels[0]),
-		"maxzoom":     fmt.Sprintf("%d", zoomLevels[len(zoomLevels)-1]),
+		"center":      fmt.Sprintf("%.4f,%.4f,%d", (bounds.MinLon+bounds.MaxLon)/2, (bounds.MinLat+bounds.MaxLat)/2, minZoom),
+		"minzoom":     strconv.Itoa(minZoom),
+		"maxzoom":     strconv.Itoa(zoomLevels[len(zoomLevels)-1]),
 		// The resume check of the CLI reads this row (FR-robust-downloads-10).
 		"atakdl_source": source.Name,
 	}
