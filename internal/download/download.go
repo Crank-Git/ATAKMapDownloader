@@ -7,17 +7,19 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
@@ -58,6 +60,8 @@ type Config struct {
 	// RateLimit lowers the request rate of the job, in requests per second.
 	// Zero, or a value above the policy rate, keeps the policy rate.
 	RateLimit float64
+	// Format is the output format of the job. The engine opens the output file with output.Open.
+	Format string
 }
 
 // DefaultConfig returns default download config.
@@ -68,6 +72,7 @@ func DefaultConfig() Config {
 		MaxFailureRate: 0.2,
 		IgnoreErrors:   false,
 		VerifyTLS:      true,
+		Format:         output.MBTiles,
 	}
 }
 
@@ -171,12 +176,13 @@ func NewEngine(cfg Config) *Engine {
 	}
 }
 
-// DownloadTiles downloads the tiles of the areas, and one writer goroutine writes them to outputPath.
+// DownloadTiles downloads the tiles of the areas, and the writer of the output format writes them to outputPath.
 // Each area has its own zoom range. A tile that more than one area selects is requested once (FR-area-selection-8).
 // It opens an existing output file and skips each tile that the file holds, so the caller decides whether a file may exist.
 // After the main pass, a retry pass requests each tile in the atakdl_failed_tiles table of the file once more.
 // The caller validates the areas, and areas holds at least one area.
-// The error is ErrServerRefused or ErrWriteFailed when either stops the job.
+// The error is output.ErrNotRegistered when the output format of the job has no writer.
+// It is ErrServerRefused or ErrWriteFailed when either stops the job.
 // It is the context error when the job is cancelled. Every outcome keeps the output file.
 func (e *Engine) DownloadTiles(
 	ctx context.Context,
@@ -192,7 +198,7 @@ func (e *Engine) DownloadTiles(
 	if err != nil {
 		return Result{}, err
 	}
-	w, err := mbtiles.Open(outputPath, metadata)
+	w, err := output.Open(e.cfg.Format, outputPath, metadata)
 	if err != nil {
 		return Result{}, err
 	}
@@ -274,7 +280,7 @@ func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr e
 	return e.outcome(c.downloaded.Load(), c.skipped.Load(), c.failed.Load())
 }
 
-// outputMetadata returns the MBTiles metadata rows for a job of the areas.
+// outputMetadata returns the MBTiles metadata rows for a job of the areas (FR-output-formats-7).
 // bounds is the rectangle of all areas, and minzoom and maxzoom are the zoom range over all areas (FR-area-selection-27, -28).
 func outputMetadata(source *xmlparser.MapSource, areas []tilecalc.JobArea) (map[string]string, error) {
 	// The resume of a job reads this row to select the same tiles again (FR-area-selection-29).
@@ -282,17 +288,35 @@ func outputMetadata(source *xmlparser.MapSource, areas []tilecalc.JobArea) (map[
 	if err != nil {
 		return nil, err
 	}
+	format := strings.ToLower(source.TileType)
+	// MBTiles 1.3 names the JPEG format jpg (FR-output-formats-8).
+	if format == "jpeg" {
+		format = "jpg"
+	}
+	layerType := "baselayer"
+	if source.Overlay {
+		layerType = "overlay"
+	}
+	// The output file can go to other devices, so the attribution holds no directory of the operator.
+	attribution := filepath.Base(source.File)
+	if source.Origin == xmlparser.OriginSnapshot {
+		attribution = source.Name + " via ATAK-Maps"
+	}
+	// MBTiles 1.3 defines attribution as an HTML string, so a reader shows it as markup.
+	attribution = html.EscapeString(attribution)
 	b := tilecalc.JobBound(areas)
 	minZoom, maxZoom := tilecalc.JobZoomRange(areas)
 	return map[string]string{
 		"name":        fmt.Sprintf("%s - %.4f,%.4f to %.4f,%.4f", source.Name, b.Min[1], b.Min[0], b.Max[1], b.Max[0]),
-		"type":        "baselayer",
+		"type":        layerType,
 		"version":     "1.0",
 		"description": "Downloaded from " + source.Name,
-		"format":      source.TileType,
+		"attribution": attribution,
+		"format":      format,
 		"bounds":      fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", b.Min[0], b.Min[1], b.Max[0], b.Max[1]),
-		"minzoom":     fmt.Sprintf("%d", minZoom),
-		"maxzoom":     fmt.Sprintf("%d", maxZoom),
+		"center":      fmt.Sprintf("%.4f,%.4f,%d", (b.Min[0]+b.Max[0])/2, (b.Min[1]+b.Max[1])/2, minZoom),
+		"minzoom":     strconv.Itoa(minZoom),
+		"maxzoom":     strconv.Itoa(maxZoom),
 		// The resume check of the CLI reads this row (FR-robust-downloads-10).
 		"atakdl_source": source.Name,
 		"atakdl_areas":  string(encoded),
@@ -399,7 +423,7 @@ func (c *tileCounters) snapshot() Progress {
 func (e *Engine) fetchTile(
 	ctx context.Context,
 	jg *jobGate,
-	w *mbtiles.Writer,
+	w output.Writer,
 	source *xmlparser.MapSource,
 	cb ProgressCallback,
 	c *tileCounters,
@@ -463,7 +487,7 @@ func report(cb ProgressCallback, jg *jobGate, c *tileCounters) {
 
 // tileFailed records one failed tile and its reason in w (FR-robust-downloads-21).
 // It stops the job when w fails.
-func (e *Engine) tileFailed(jg *jobGate, w *mbtiles.Writer, z, x, y int, reason Reason) {
+func (e *Engine) tileFailed(jg *jobGate, w output.Writer, z, x, y int, reason Reason) {
 	if e.onTileFailed != nil {
 		e.onTileFailed(z, x, y, reason)
 	}
@@ -478,7 +502,7 @@ func (e *Engine) tileFailed(jg *jobGate, w *mbtiles.Writer, z, x, y int, reason 
 func (e *Engine) retryPass(
 	ctx context.Context,
 	jg *jobGate,
-	w *mbtiles.Writer,
+	w output.Writer,
 	source *xmlparser.MapSource,
 	cb ProgressCallback,
 	c *tileCounters,
@@ -655,8 +679,8 @@ func (e *Engine) downloadTile(ctx context.Context, jg *jobGate, url string) (til
 	return tileResponse{data: data, status: resp.StatusCode, retryAfter: resp.Header.Get("Retry-After")}, nil
 }
 
-// GenerateOutputFilename creates output path for downloaded tiles.
-func GenerateOutputFilename(sourceName string, bounds *tilecalc.GeographicBounds, minZoom, maxZoom int, customName string) string {
+// GenerateOutputFilename returns the output file name of a job, with the extension of the output format (FR-output-formats-2).
+func GenerateOutputFilename(sourceName string, bounds *tilecalc.GeographicBounds, minZoom, maxZoom int, customName, format string) string {
 	safe := func(s string) string {
 		var b strings.Builder
 		for _, r := range s {
@@ -668,11 +692,11 @@ func GenerateOutputFilename(sourceName string, bounds *tilecalc.GeographicBounds
 	}
 
 	if customName != "" {
-		return fmt.Sprintf("%s_z%d-%d.sqlite", safe(customName), minZoom, maxZoom)
+		return fmt.Sprintf("%s_z%d-%d%s", safe(customName), minZoom, maxZoom, output.Extension(format))
 	}
 	safeName := safe(sourceName)
-	return fmt.Sprintf("%s_%.4f_%.4f_to_%.4f_%.4f_z%d-%d.sqlite",
-		safeName, bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon, minZoom, maxZoom)
+	return fmt.Sprintf("%s_%.4f_%.4f_to_%.4f_%.4f_z%d-%d%s",
+		safeName, bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon, minZoom, maxZoom, output.Extension(format))
 }
 
 // DownloadsDir returns the downloads directory path.

@@ -1,12 +1,14 @@
 package commands
 
 import (
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 )
 
 // pngTile is a tile body that starts with the PNG signature, so the route detects image/png.
@@ -45,6 +47,60 @@ func TestTileRouteReturnsTheStoredTileAtItsXYZPosition(t *testing.T) {
 	// The output file stores TMS row 623 for XYZ row 400, so a request for XYZ row 623 is a different tile.
 	if rec := serve(h, http.MethodGet, "/api/files/area.mbtiles/tiles/10/300/623", ""); rec.Code != http.StatusNoContent {
 		t.Errorf("GET the XYZ row 623 status = %d, want 204", rec.Code)
+	}
+}
+
+// writeFormatFile writes an output file of the output format format at name in the output directory of h.
+// The file holds data at the XYZ tile z, x, y.
+func writeFormatFile(t *testing.T, h *WebHandler, format, name string, metadata map[string]string, z, x, y int, data []byte) {
+	t.Helper()
+	w, err := output.Open(format, filepath.Join(h.outputDir, name), metadata)
+	if err != nil {
+		t.Fatalf("open output file: %v", err)
+	}
+	if err := w.Put(z, x, y, data); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close output file: %v", err)
+	}
+}
+
+func TestTileRouteReadsTheTileOfEachOutputFormat(t *testing.T) {
+	noSource := maps.Clone(fileMetadata)
+	delete(noSource, "atakdl_source")
+	tests := []struct {
+		name     string
+		format   string
+		file     string
+		metadata map[string]string
+	}{
+		{"reads an MBTiles file", output.MBTiles, "area.mbtiles", fileMetadata},
+		{"reads a GeoPackage file", output.GeoPackage, "area.gpkg", fileMetadata},
+		// A map source with no name gives a tile pyramid table with the name tiles, the table name of MBTiles.
+		{"reads a GeoPackage file of a map source with no name", output.GeoPackage, "tiles.gpkg", noSource},
+		{"reads an OSMDroid file", output.OSMDroid, "area.sqlite", fileMetadata},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := filesHandler(t)
+			writeFormatFile(t, h, tt.format, tt.file, tt.metadata, 10, 300, 400, pngTile)
+			base := "/api/files/" + tt.file + "/tiles/"
+
+			rec := serve(h, http.MethodGet, base+"10/300/400", "")
+			if rec.Code != http.StatusOK || rec.Body.String() != string(pngTile) {
+				t.Fatalf("GET the stored tile: status = %d, body %q; want 200 and the stored tile", rec.Code, rec.Body)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+				t.Errorf("Content-Type = %q, want image/png", ct)
+			}
+			// Row 623 is row 400 flipped, so a reader that flips the row of a format with XYZ rows serves the tile there.
+			for _, path := range []string{"10/300/623", "10/301/400", "11/300/400", "30/0/0"} {
+				if rec := serve(h, http.MethodGet, base+path, ""); rec.Code != http.StatusNoContent {
+					t.Errorf("GET %s status = %d, want 204", path, rec.Code)
+				}
+			}
+		})
 	}
 }
 
@@ -99,7 +155,7 @@ func TestTileRouteServesTheCommittedTilesOfAnOpenOutputFile(t *testing.T) {
 	}
 }
 
-func TestTileRouteReturns404ForAFileThatIsNotAnMBTilesOutputFile(t *testing.T) {
+func TestTileRouteReturns404ForAFileThatIsNotAnOutputFile(t *testing.T) {
 	h := filesHandler(t)
 	writeTileFile(t, h, "area.mbtiles", 10, 300, 400, pngTile)
 	for name, body := range map[string]string{

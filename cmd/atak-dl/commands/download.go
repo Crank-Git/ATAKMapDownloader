@@ -8,11 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
-	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/paulmach/orb"
@@ -29,12 +30,12 @@ const (
 	exitCancelled = 130
 )
 
-// NewDownloadCmd returns the download command, which writes the tiles of an area to an MBTiles file.
+// NewDownloadCmd returns the download command, which writes the tiles of an area to an output file.
 // Every tile request of the command sends userAgent.
 func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "download",
-		Short: "Download tiles for an area to MBTiles file",
+		Short: "Download tiles for an area to an output file",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDownload(cmd, userAgent)
 		},
@@ -45,7 +46,8 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().Float64("buffer", 0, "Buffer in metres for each line of the --area file with no buffer_m property")
 	cmd.Flags().Int("min-zoom", 1, "Minimum zoom level")
 	cmd.Flags().Int("max-zoom", 15, "Maximum zoom level")
-	cmd.Flags().String("output", "", "Output file path (default: downloads/<name>.sqlite)")
+	cmd.Flags().String("format", output.MBTiles, "Output format: "+strings.Join(output.Formats, ", "))
+	cmd.Flags().String("output", "", "Output file path (default: downloads/<name> with the extension of --format)")
 	cmd.Flags().String("name", "", "Custom filename (without extension)")
 	cmd.Flags().Int("concurrent", 5, "Concurrent downloads")
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
@@ -56,6 +58,9 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().Bool("overwrite", false, "Delete the existing output file before the job starts")
 	cmd.Flags().Bool("force", false, "With --resume, accept an output file that names no map source (a v0.1 file)")
 	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job above this tile count")
+	cmd.Flags().Bool("data-package", false, "Wrap the output file in an ATAK data package <package name>.zip and remove the unzipped file")
+	cmd.Flags().Bool("include-source", false, "With --data-package, add the source file of the map source to the data package")
+	cmd.Flags().String("package-name", "", "With --data-package, the package name: 1 to 64 characters of A-Z, a-z, 0-9, space, _ and -")
 	cmd.MarkFlagsMutuallyExclusive("resume", "overwrite")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	return cmd
@@ -65,45 +70,38 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	parser := getParser(cmd)
 	source := sourceFlag(cmd, parser)
 
-	output, err := cmd.Flags().GetString("output")
+	format, pkg, err := outputFlags(cmd, source)
 	if err != nil {
-		return fmt.Errorf("read --output: %w", err)
+		return err
+	}
+	output, err := outputFlag(cmd, pkg)
+	if err != nil {
+		return err
 	}
 	areas, err := downloadAreas(cmd, output)
 	if err != nil {
 		return err
 	}
-	concurrent, err := cmd.Flags().GetInt("concurrent")
+	concurrent, err := jobLimits(cmd, source, areas)
 	if err != nil {
-		return fmt.Errorf("read --concurrent: %w", err)
-	}
-	maxTiles, err := cmd.Flags().GetInt("max-tiles")
-	if err != nil {
-		return fmt.Errorf("read --max-tiles: %w", err)
-	}
-	if code, message := checkJobLimits(source, areas, concurrent, maxTiles); code != "" {
-		// The flags are valid in form, so the usage text does not help the user.
-		cmd.SilenceUsage = true
-		err := fmt.Errorf("%s: %s", code, message)
-		if code == "too_many_tiles" {
-			return &ExitError{Code: exitTooManyTiles, Err: err}
-		}
 		return err
 	}
 	if err := checkTerms(cmd, source); err != nil {
 		return err
 	}
-
-	customName, _ := cmd.Flags().GetString("name")
-	if output == "" {
-		output = filepath.Join(download.DownloadsDir(), jobOutputFile(source.Name, areas, customName))
+	if err := warnWebP(cmd, source); err != nil {
+		return err
+	}
+	if output, err = defaultOutput(cmd, output, source, areas, format, pkg); err != nil {
+		return err
 	}
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {
 		return err
 	}
+	cfg.Format = format
 	// --overwrite deletes the file, so the check runs after every flag is valid.
-	if err := checkOutput(cmd, output, source.Name); err != nil {
+	if err := checkOutput(cmd, output, source.Name, format, pkg); err != nil {
 		return err
 	}
 
@@ -126,17 +124,55 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		}
 		return true
 	})
-	return finishDownload(ctx, cmd, res, err, output)
+	finishCtx, output, perr := packageOutput(ctx, cmd, output, pkg, source, err)
+	if perr != nil {
+		return perr
+	}
+	return finishDownload(finishCtx, cmd, res, err, output)
+}
+
+// packageOutput writes the data package of pkg for the job of the output file at output.
+// It returns the context and the path for finishDownload. The path is the zip path, or output when pkg is nil or the job did not complete.
+// A cancelled or failed job has an incomplete output file, so it gets no data package.
+// After the zip step, the context ignores a cancel, because the job is complete and its output file is gone.
+// It returns the package_failed error of writeDataPackage.
+func packageOutput(ctx context.Context, cmd *cobra.Command, output string, pkg *packageOptions,
+	source *xmlparser.MapSource, jobErr error) (context.Context, string, error) {
+	if pkg == nil || jobErr != nil || ctx.Err() != nil {
+		return ctx, output, nil
+	}
+	zipPath, err := writeDataPackage(output, pkg, source)
+	if err != nil {
+		// The error starts on a new line, because the progress line has no line end.
+		_, _ = fmt.Fprintln(cmd.OutOrStdout()) // The line end is only for the user, so a failed write loses nothing.
+		cmd.SilenceUsage = true
+		return ctx, "", err
+	}
+	return context.WithoutCancel(ctx), zipPath, nil
+}
+
+// outputFlags returns the output format of the --format flag of cmd and the data package settings of packageFlags.
+// It returns the error of checkFormat for the tile type of source, and the error of packageFlags.
+func outputFlags(cmd *cobra.Command, source *xmlparser.MapSource) (string, *packageOptions, error) {
+	format, err := cmd.Flags().GetString("format")
+	if err != nil {
+		return "", nil, fmt.Errorf("read --format: %w", err)
+	}
+	if code, message := checkFormat("--format", format, source.TileType); code != "" {
+		return "", nil, fmt.Errorf("%s: %s", code, message)
+	}
+	pkg, err := packageFlags(cmd)
+	return format, pkg, err
 }
 
 // downloadAreas returns the areas of the download command. It reads them from one of these:
 //   - The --area file, with --min-zoom, --max-zoom and --buffer for the values that the file does not set (FR-area-selection-11).
 //   - One bounds area from --bbox, --min-zoom and --max-zoom.
-//   - With neither, the atakdl_areas row of the existing file at output, for a --resume (FR-area-selection-29).
+//   - With neither, the atakdl_areas row of the existing file at path, for a --resume (FR-area-selection-29).
 //
 // It returns an error when the command has both --area and --bbox (FR-area-selection-16),
 // when it has neither and no resume, or when the file has no atakdl_areas row.
-func downloadAreas(cmd *cobra.Command, output string) ([]tilecalc.JobArea, error) {
+func downloadAreas(cmd *cobra.Command, path string) ([]tilecalc.JobArea, error) {
 	areaFile, bboxStr, err := areaOrBBox(cmd)
 	if err != nil {
 		return nil, err
@@ -161,19 +197,20 @@ func downloadAreas(cmd *cobra.Command, output string) ([]tilecalc.JobArea, error
 		b := orb.Bound{Min: orb.Point{bounds.MinLon, bounds.MinLat}, Max: orb.Point{bounds.MaxLon, bounds.MaxLat}}
 		return []tilecalc.JobArea{{Area: tilecalc.Area{Kind: tilecalc.AreaBounds, Geometry: b}, MinZoom: minZoom, MaxZoom: maxZoom}}, nil
 	}
-	if !resume || output == "" {
+	if !resume || path == "" {
 		return nil, errors.New("--bbox or --area is required, except with --resume --output <file>")
 	}
-	// ReadMetadata of a missing path can make an empty database, so the check for the file comes first.
-	if _, err := os.Stat(output); err != nil {
+	// ReadInfo of a missing path can make an empty database, so the check for the file comes first.
+	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("read the areas of the output file: %w", err)
 	}
 	cmd.SilenceUsage = true
-	stored, ok, err := mbtiles.ReadMetadata(output, areasKey)
+	info, err := output.ReadInfo(path)
 	if err != nil {
 		return nil, fmt.Errorf("read the areas of the output file: %w", err)
 	}
-	if !ok {
+	stored := info.Areas
+	if stored == "" {
 		return nil, fmt.Errorf("the output file has no %s row, so it names no areas: use --bbox", areasKey)
 	}
 	areas, err := tilecalc.DecodeAreas([]byte(stored))
@@ -220,9 +257,10 @@ func finishDownload(ctx context.Context, cmd *cobra.Command, res download.Result
 	return nil
 }
 
-// checkOutput applies the --resume, --overwrite and --force flags of cmd to the output file at output.
-// It returns an ExitError with exitOutputConflict when the flags do not accept the existing file.
-func checkOutput(cmd *cobra.Command, output, sourceName string) error {
+// checkOutput applies the --resume, --overwrite and --force flags of cmd to the output file at output of format.
+// When pkg is not nil, it also applies the flags to the data package of pkg.
+// It returns an ExitError with exitOutputConflict when the flags do not accept an existing file.
+func checkOutput(cmd *cobra.Command, output, sourceName, format string, pkg *packageOptions) error {
 	rule := ifExistsFail
 	for _, flag := range []struct {
 		name string
@@ -240,7 +278,16 @@ func checkOutput(cmd *cobra.Command, output, sourceName string) error {
 	if err != nil {
 		return fmt.Errorf("read --force: %w", err)
 	}
-	err = prepareOutput(output, rule, sourceName, force)
+	if pkg != nil {
+		// The zip step removes the output file after the rename, so one path for both files loses the zip.
+		if filepath.Clean(pkg.zipPath(output)) == filepath.Clean(output) {
+			return fmt.Errorf("invalid_package_name: the data package %s is the --output path", output)
+		}
+		err = prepareDataPackage(pkg.zipPath(output), rule)
+	}
+	if err == nil {
+		err = prepareOutput(output, rule, sourceName, format, force)
+	}
 	var conflict *outputConflict
 	if errors.As(err, &conflict) {
 		// The refusal protects the file and is not a flag error, so the usage text does not help the user.
@@ -325,4 +372,64 @@ func checkTerms(cmd *cobra.Command, source *xmlparser.MapSource) error {
 		return fmt.Errorf("print the terms warning: %w", err)
 	}
 	return nil
+}
+
+// warnWebP prints the WebP warning when source has WebP tiles.
+// Nobody has tested WebP tiles in ATAK, so the user gets the warning before the job starts.
+func warnWebP(cmd *cobra.Command, source *xmlparser.MapSource) error {
+	if !strings.EqualFold(source.TileType, "webp") {
+		return nil
+	}
+	if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: ATAK support for WebP tiles is unverified"); err != nil {
+		return fmt.Errorf("print the WebP warning: %w", err)
+	}
+	return nil
+}
+
+// outputFlag returns the --output path of cmd, and it calls unpackForResume for that path.
+func outputFlag(cmd *cobra.Command, pkg *packageOptions) (string, error) {
+	output, err := cmd.Flags().GetString("output")
+	if err != nil {
+		return "", fmt.Errorf("read --output: %w", err)
+	}
+	return output, unpackForResume(cmd, output, pkg)
+}
+
+// defaultOutput returns output when it is set, because outputFlag already prepared it.
+// With no output, it returns the path in the downloads directory with the name of jobOutputFile and the --name flag.
+// It calls unpackForResume for that path.
+func defaultOutput(cmd *cobra.Command, output string, source *xmlparser.MapSource, areas []tilecalc.JobArea, format string,
+	pkg *packageOptions) (string, error) {
+	if output != "" {
+		return output, nil
+	}
+	customName, err := cmd.Flags().GetString("name")
+	if err != nil {
+		return "", fmt.Errorf("read --name: %w", err)
+	}
+	output = filepath.Join(download.DownloadsDir(), jobOutputFile(source.Name, areas, customName, format))
+	return output, unpackForResume(cmd, output, pkg)
+}
+
+// jobLimits returns the --concurrent value after checkJobLimits accepts the job of the areas.
+// It returns an ExitError with exitTooManyTiles for a job above --max-tiles, and the other codes of checkJobLimits as plain errors.
+func jobLimits(cmd *cobra.Command, source *xmlparser.MapSource, areas []tilecalc.JobArea) (int, error) {
+	concurrent, err := cmd.Flags().GetInt("concurrent")
+	if err != nil {
+		return 0, fmt.Errorf("read --concurrent: %w", err)
+	}
+	maxTiles, err := cmd.Flags().GetInt("max-tiles")
+	if err != nil {
+		return 0, fmt.Errorf("read --max-tiles: %w", err)
+	}
+	if code, message := checkJobLimits(source, areas, concurrent, maxTiles); code != "" {
+		// The flags are valid in form, so the usage text does not help the user.
+		cmd.SilenceUsage = true
+		err := fmt.Errorf("%s: %s", code, message)
+		if code == "too_many_tiles" {
+			return 0, &ExitError{Code: exitTooManyTiles, Err: err}
+		}
+		return 0, err
+	}
+	return concurrent, nil
 }

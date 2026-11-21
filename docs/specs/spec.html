@@ -204,8 +204,9 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>download</td><td>verb</td><td>To get tiles from a map source over HTTP and write them to an output file. Never a noun in this spec.</td><td>fetch, grab, scrape, pull</td></tr>
 <tr><td>job</td><td>noun</td><td>One run of a download: map source, area, zoom range, settings, output file and state.</td><td>download (noun), task, run</td></tr>
 <tr><td>output file</td><td>noun</td><td>The SQLite or zip file that a job writes.</td><td>tileset, database, map file, archive</td></tr>
-<tr><td>output format</td><td>noun</td><td>The schema of the output file: <code>mbtiles</code>, <code>osmdroid</code> or <code>gpkg</code> (planned, feature 10).</td><td>file type</td></tr>
-<tr><td>data package</td><td>noun</td><td>An ATAK zip file with a <code>MANIFEST/manifest.xml</code> (planned, feature 10).</td><td>mission package (except in ATAK quotes)</td></tr>
+<tr><td>output format</td><td>noun</td><td>The schema of the output file: <code>mbtiles</code>, <code>osmdroid</code> or <code>gpkg</code> (built, feature 10).</td><td>file type</td></tr>
+<tr><td>data package</td><td>noun</td><td>An ATAK zip file with a <code>MANIFEST/manifest.xml</code> and the output file (built, feature 10).</td><td>mission package (except in ATAK quotes)</td></tr>
+<tr><td>package name</td><td>noun</td><td>The name of a data package: 1 to 64 characters of <code>A-Z</code>, <code>a-z</code>, <code>0-9</code>, space, <code>_</code> and <code>-</code>, after the spaces around it are trimmed. It gives the zip file name (feature 10).</td><td>zip name, bundle name</td></tr>
 <tr><td>retry</td><td>verb</td><td>To send a tile request again after it fails.</td><td>re-fetch</td></tr>
 <tr><td>resume</td><td>verb</td><td>To continue a job into an existing output file and skip the tiles it already holds (feature 07).</td><td>restart, continue</td></tr>
 <tr><td>failure rate</td><td>noun</td><td>Failed tiles divided by processed tiles in one job.</td><td>error rate</td></tr>
@@ -281,8 +282,8 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>built</td><td>—</td></tr>
 <tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>built</td><td>01-workspace</td></tr>
 <tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>built, except WMS (#41)</td><td>—</td></tr>
-<tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>planned</td><td>03-export-options</td></tr>
-<tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>planned</td><td>02-area-tools</td></tr>
+<tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>built</td><td>03-export-options</td></tr>
+<tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>built</td><td>02-area-tools</td></tr>
 <tr><td>Team server</td><td><a href="html/feature-team-server.html">features/12-team-server.md</a></td><td>Epic 8: Team server</td><td>planned</td><td>05-jobs</td></tr>
 </table></div>
 <h2 id="architecture-stack">Architecture &amp; stack</h2>
@@ -297,7 +298,7 @@ body.rv-open .layout { padding-right:21rem; }
     Policy["Source policy table (planned)"]
     TileCalc["tilecalc: tile math (built)"]
     Engine["Download engine (built, reworked)"]
-    Writer["Output writer: mbtiles / osmdroid / gpkg (built mbtiles)"]
+    Writer["Output writer: mbtiles / osmdroid / gpkg (built)"]
     Jobs["Job queue and store (planned)"]
   end
   Browser["Browser"] --&gt;|HTTP + SSE| Server
@@ -340,7 +341,9 @@ internal/xmlparser/     source file parser (built)
 internal/tilecalc/      Web Mercator tile math (built)
 internal/download/      download engine (built)
 internal/mbtiles/       MBTiles writer (built)
-internal/output/        planned: one writer per output format
+internal/output/        output format registry, and the osmdroid and gpkg writers (built)
+internal/output/sqlitequeue/  writer core that the three output formats share (built)
+internal/datapackage/   ATAK data package zip and manifest (built)
 internal/policy/        planned: source policy table and rate limits
 internal/jobs/          planned: job queue and job store
 internal/server/        planned: HTTP handlers moved out of commands/web.go
@@ -449,7 +452,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row <code>atakdl_source</code> names the map source. Planned: an extension per output format (feature 10).
 </li>
-<li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:31-33</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
+<li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:20,22</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
 </li>
 <li><strong>METADATA_ENTRY</strong> (built). Keys: <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code>, <code>maxzoom</code>, <code>atakdl_source</code> and <code>atakdl_areas</code>. The <code>--resume</code> check reads <code>atakdl_source</code> (feature 07, #26), and it rebuilds the tile set from <code>atakdl_areas</code> (feature 11). Planned: <code>center</code> and <code>attribution</code> (feature 10).
 </li>

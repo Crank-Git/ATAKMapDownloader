@@ -42,15 +42,21 @@ func newJobServer(t *testing.T, table testtiles.Table) *jobServer {
 // newNamedJobServer starts a server whose one map source name points at a tile server with table.
 func newNamedJobServer(t *testing.T, table testtiles.Table, name string) *jobServer {
 	t.Helper()
+	return newTypedJobServer(t, table, name, "png")
+}
+
+// newTypedJobServer starts a server whose one map source name has the tile type tileType and points at a tile server with table.
+func newTypedJobServer(t *testing.T, table testtiles.Table, name, tileType string) *jobServer {
+	t.Helper()
 	tiles := testtiles.New(t, table)
 	xml := fmt.Sprintf(`<?xml version="1.0"?>
 <customMapSource>
     <name>%s</name>
     <minZoom>0</minZoom>
     <maxZoom>18</maxZoom>
-    <tileType>png</tileType>
+    <tileType>%s</tileType>
     <url>%s</url>
-</customMapSource>`, name, tiles.URLTemplate())
+</customMapSource>`, name, tileType, tiles.URLTemplate())
 	h := newTestHandler(t, map[string]string{"tiles.xml": xml})
 	h.outputDir = t.TempDir()
 	// A 1000-tile job at the default rate of 4 per second takes minutes, so the test tile server gets a high rate.

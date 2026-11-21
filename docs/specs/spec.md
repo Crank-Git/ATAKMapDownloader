@@ -76,8 +76,9 @@ The project exists because ATAK users often work with no network. Examples are s
 | download | verb | To get tiles from a map source over HTTP and write them to an output file. Never a noun in this spec. | fetch, grab, scrape, pull |
 | job | noun | One run of a download: map source, area, zoom range, settings, output file and state. | download (noun), task, run |
 | output file | noun | The SQLite or zip file that a job writes. | tileset, database, map file, archive |
-| output format | noun | The schema of the output file: `mbtiles`, `osmdroid` or `gpkg` (planned, feature 10). | file type |
-| data package | noun | An ATAK zip file with a `MANIFEST/manifest.xml` (planned, feature 10). | mission package (except in ATAK quotes) |
+| output format | noun | The schema of the output file: `mbtiles`, `osmdroid` or `gpkg` (built, feature 10). | file type |
+| data package | noun | An ATAK zip file with a `MANIFEST/manifest.xml` and the output file (built, feature 10). | mission package (except in ATAK quotes) |
+| package name | noun | The name of a data package: 1 to 64 characters of `A-Z`, `a-z`, `0-9`, space, `_` and `-`, after the spaces around it are trimmed. It gives the zip file name (feature 10). | zip name, bundle name |
 | retry | verb | To send a tile request again after it fails. | re-fetch |
 | resume | verb | To continue a job into an existing output file and skip the tiles it already holds (feature 07). | restart, continue |
 | failure rate | noun | Failed tiles divided by processed tiles in one job. | error rate |
@@ -141,8 +142,8 @@ The project exists because ATAK users often work with no network. Examples are s
 | Robust downloads | [features/07-robust-downloads.md](features/07-robust-downloads.md) | Epic 3: Robust downloads | built | — |
 | Offline web UI | [features/08-offline-web-ui.md](features/08-offline-web-ui.md) | Epic 4: Offline web UI | built | 01-workspace |
 | Source sync and WMS | [features/09-source-sync.md](features/09-source-sync.md) | Epic 5: Source sync and WMS | built, except WMS (#41) | — |
-| Output formats | [features/10-output-formats.md](features/10-output-formats.md) | Epic 6: Output formats | planned | 03-export-options |
-| Area selection | [features/11-area-selection.md](features/11-area-selection.md) | Epic 7: Area selection | planned | 02-area-tools |
+| Output formats | [features/10-output-formats.md](features/10-output-formats.md) | Epic 6: Output formats | built | 03-export-options |
+| Area selection | [features/11-area-selection.md](features/11-area-selection.md) | Epic 7: Area selection | built | 02-area-tools |
 | Team server | [features/12-team-server.md](features/12-team-server.md) | Epic 8: Team server | planned | 05-jobs |
 
 ## Architecture & stack
@@ -160,7 +161,7 @@ flowchart LR
     Policy["Source policy table (planned)"]
     TileCalc["tilecalc: tile math (built)"]
     Engine["Download engine (built, reworked)"]
-    Writer["Output writer: mbtiles / osmdroid / gpkg (built mbtiles)"]
+    Writer["Output writer: mbtiles / osmdroid / gpkg (built)"]
     Jobs["Job queue and store (planned)"]
   end
   Browser["Browser"] -->|HTTP + SSE| Server
@@ -198,7 +199,9 @@ internal/xmlparser/     source file parser (built)
 internal/tilecalc/      Web Mercator tile math (built)
 internal/download/      download engine (built)
 internal/mbtiles/       MBTiles writer (built)
-internal/output/        planned: one writer per output format
+internal/output/        output format registry, and the osmdroid and gpkg writers (built)
+internal/output/sqlitequeue/  writer core that the three output formats share (built)
+internal/datapackage/   ATAK data package zip and manifest (built)
 internal/policy/        planned: source policy table and rate limits
 internal/jobs/          planned: job queue and job store
 internal/server/        planned: HTTP handlers moved out of commands/web.go
@@ -306,7 +309,7 @@ Per entity:
 - **JOB** (built as one in-memory record, `cmd/atak-dl/commands/jobs.go:62-78`, #76). It has an `id`, and its state is `running`, `complete`, `failed` or `cancelled`. The server keeps only the last job (`web.go:29-35`). Planned (feature 12): the `queued` state and a persistent record in the data directory.
 - **AREA** (built, feature 11). Its kind is `bounds`, `polygon` or `route_buffer`, with GeoJSON geometry and a zoom range for each area. A job holds 1 to 20 areas, and the output file metadata `atakdl_areas` stores them.
 - **OUTPUT_FILE** (built). Path: `./downloads/<name>_z<min>-<max>.sqlite`. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row `atakdl_source` names the map source. Planned: an extension per output format (feature 10).
-- **TILE** (built, `internal/mbtiles/mbtiles.go:31-33`). `UNIQUE (zoom_level, tile_column, tile_row)`. `tile_row` is TMS: `(1<<z)-1-y`. `tile_data` holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
+- **TILE** (built, `internal/mbtiles/mbtiles.go:20,22`). `UNIQUE (zoom_level, tile_column, tile_row)`. `tile_row` is TMS: `(1<<z)-1-y`. `tile_data` holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
 - **METADATA_ENTRY** (built). Keys: `name`, `type`, `version`, `description`, `format`, `bounds`, `minzoom`, `maxzoom`, `atakdl_source` and `atakdl_areas`. The `--resume` check reads `atakdl_source` (feature 07, #26), and it rebuilds the tile set from `atakdl_areas` (feature 11). Planned: `center` and `attribution` (feature 10).
 - **FAILED_TILE** (built, feature 07, #28). A table `atakdl_failed_tiles` in the output file. The retry pass and `--resume` request each tile in it again, except a `not_found` tile. ATAK reads only the `tiles` and `metadata` tables, so an extra table is safe. This is inferred from ATAK-CIV `TilesetInfo.java` and is a risk item.
 - **JOB_EVENT** (built in memory, #76). An SSE message: `progress`, `state` or `log`. The server does not store it.

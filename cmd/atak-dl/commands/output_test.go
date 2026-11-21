@@ -11,6 +11,7 @@ import (
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/spf13/cobra"
@@ -204,7 +205,7 @@ func TestJobAPIRefusesAResumeIntoATextFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(s.handler.outputDir, download.GenerateOutputFilename("Test Tiles", bounds, fourTiles.Zoom, fourTiles.Zoom, ""))
+	path := filepath.Join(s.handler.outputDir, download.GenerateOutputFilename("Test Tiles", bounds, fourTiles.Zoom, fourTiles.Zoom, "", output.MBTiles))
 	if err := os.WriteFile(path, []byte("my notes"), 0o600); err != nil {
 		t.Fatal(err)
 	}

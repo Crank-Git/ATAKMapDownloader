@@ -13,7 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/datapackage"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 )
 
 // outputFileItem is one output file in the GET /api/files response (FR-offline-web-ui-7).
@@ -23,13 +24,20 @@ type outputFileItem struct {
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
 	Format   string    `json:"format"`
-	Source   string    `json:"source"`
-	MinZoom  int       `json:"min_zoom"`
-	MaxZoom  int       `json:"max_zoom"`
-	Bounds   []float64 `json:"bounds"`
+	// OutputFormat is the output format that output.ReadInfo detects. It is empty for a data package.
+	// The web UI reads it to lock the output format of a resumed job.
+	OutputFormat string    `json:"output_format"`
+	Source       string    `json:"source"`
+	MinZoom      int       `json:"min_zoom"`
+	MaxZoom      int       `json:"max_zoom"`
+	Bounds       []float64 `json:"bounds"`
 	// InProgress is true while a job writes the file, so the web UI disables its Download button.
 	InProgress bool `json:"in_progress"`
 }
+
+// formatDataPackage is the format of a data package in the GET /api/files response.
+// The zip has no tile metadata of its own, so its item has no source, zoom range or bounds.
+const formatDataPackage = "data_package"
 
 // outputFileName matches the names that the file routes accept.
 // The pattern has no "/", so a name never holds a path.
@@ -68,7 +76,7 @@ func (h *WebHandler) serveFiles(w http.ResponseWriter, r *http.Request) {
 // It writes:
 //   - 204 when the output file does not hold the tile (FR-offline-web-ui-14).
 //   - 404 not_found when zxy is not a tile at its zoom level.
-//   - 404 file_not_found when name is not an MBTiles output file in the output directory, for example a data package.
+//   - 404 file_not_found when name is not an output file in the output directory, for example a data package.
 func (h *WebHandler) serveTile(w http.ResponseWriter, name string, zxy []string) {
 	notFound := func() { writeError(w, http.StatusNotFound, "file_not_found", "Output file not found") }
 	if !validOutputFileName(name) {
@@ -104,9 +112,9 @@ func (h *WebHandler) serveTile(w http.ResponseWriter, name string, zxy []string)
 	}
 	defer func() { _ = f.Close() }() // The file is read-only here, so a close error loses nothing.
 	// SQLite opens a file by path, so ReadTile gets the path of the file that openOutputFile checked.
-	data, ok, err := mbtiles.ReadTile(filepath.Join(h.outputDir, name), z, x, y)
+	data, ok, err := output.ReadTile(filepath.Join(h.outputDir, name), z, x, y)
 	if err != nil {
-		slog.Debug("reject a tile request for a file that is not an MBTiles output file", "name", name, "error", err)
+		slog.Debug("reject a tile request for a file that is not an output file", "name", name, "error", err)
 		notFound()
 		return
 	}
@@ -174,8 +182,8 @@ func (h *WebHandler) runningOutputFile() string {
 }
 
 // outputFile returns the list item of the entry name in root, and false when the entry is not an output file.
-// An entry is an output file when it is a regular file with an allowed name and a readable metadata table.
-// The metadata of a running job can be absent for a moment after the engine creates the file, so inProgress keeps that file.
+// An entry is an output file when it is a regular file with an allowed name that output.ReadInfo accepts.
+// The schema of a running job can be absent for a moment after the engine creates the file, so inProgress keeps that file.
 func (h *WebHandler) outputFile(root *os.Root, name string, inProgress bool) (outputFileItem, bool) {
 	if !validOutputFileName(name) {
 		return outputFileItem{}, false
@@ -186,27 +194,27 @@ func (h *WebHandler) outputFile(root *os.Root, name string, inProgress bool) (ou
 	}
 	defer func() { _ = f.Close() }() // The file is read-only here, so a close error loses nothing.
 	item := outputFileItem{Name: name, Size: info.Size(), Modified: info.ModTime(), InProgress: inProgress}
-
-	// SQLite opens a file by path, so ReadMetadata gets the path of the file that openOutputFile checked.
-	path := filepath.Join(h.outputDir, name)
-	meta := map[string]string{}
-	for _, key := range []string{"format", "atakdl_source", "minzoom", "maxzoom", "bounds"} {
-		value, _, err := mbtiles.ReadMetadata(path, key)
-		if err != nil {
-			if !inProgress {
-				slog.Debug("omit a file that is not an output file", "name", name, "error", err)
-				return outputFileItem{}, false
-			}
-			break
-		}
-		meta[key] = value
+	// A data package is a zip, so the SQLite detectors of output.ReadInfo cannot read it.
+	if datapackage.Detect(f, info.Size()) {
+		item.Format = formatDataPackage
+		return item, true
 	}
-	item.Format = meta["format"]
-	item.Source = meta["atakdl_source"]
-	// A v0.1 output file can lack a row, so a missing or bad zoom row gives 0.
-	item.MinZoom, _ = strconv.Atoi(meta["minzoom"])
-	item.MaxZoom, _ = strconv.Atoi(meta["maxzoom"])
-	item.Bounds = parseBounds(meta["bounds"])
+
+	// SQLite opens a file by path, so ReadInfo gets the path of the file that openOutputFile checked.
+	meta, err := output.ReadInfo(filepath.Join(h.outputDir, name))
+	if err != nil {
+		if !inProgress {
+			slog.Debug("omit a file that is not an output file", "name", name, "error", err)
+			return outputFileItem{}, false
+		}
+		return item, true
+	}
+	item.Format = meta.TileFormat
+	item.OutputFormat = meta.Format
+	item.Source = meta.Source
+	item.MinZoom = meta.MinZoom
+	item.MaxZoom = meta.MaxZoom
+	item.Bounds = meta.Bounds
 	return item, true
 }
 
@@ -229,24 +237,6 @@ func openOutputFile(root *os.Root, name string) (*os.File, fs.FileInfo, bool) {
 	}
 	_ = f.Close() // The file is read-only here, so a close error loses nothing.
 	return nil, nil, false
-}
-
-// parseBounds returns the four numbers of an MBTiles bounds row "west,south,east,north".
-// It returns nil when the row does not hold four numbers.
-func parseBounds(row string) []float64 {
-	parts := strings.Split(row, ",")
-	if len(parts) != 4 {
-		return nil
-	}
-	bounds := make([]float64, 4)
-	for i, p := range parts {
-		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
-		if err != nil {
-			return nil
-		}
-		bounds[i] = v
-	}
-	return bounds
 }
 
 // downloadFile writes the output file name as an attachment (FR-offline-web-ui-8).
