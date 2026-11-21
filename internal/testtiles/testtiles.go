@@ -45,6 +45,9 @@ type Response struct {
 	RetryAfter string
 	// Delay is the time that the server waits before it sends the response.
 	Delay time.Duration
+	// Times is the number of requests for the tile that get this response.
+	// Later requests get a PNG. Zero gives this response to every request.
+	Times int
 }
 
 // Tile identifies one tile by zoom level, column and XYZ row.
@@ -54,6 +57,14 @@ type Tile struct {
 
 // Table maps a tile to its response. A tile that the table omits gets a PNG.
 type Table map[Tile]Response
+
+// Request is one tile request that the server received.
+type Request struct {
+	Tile Tile
+	// Time is the time at which the server received the request.
+	Time      time.Time
+	UserAgent string
+}
 
 // Server is a test tile server.
 type Server struct {
@@ -66,6 +77,7 @@ type Server struct {
 
 	mu       sync.Mutex
 	requests map[Tile]int
+	log      []Request
 }
 
 // New starts a tile server that sends the responses in table.
@@ -134,6 +146,13 @@ func (s *Server) TotalRequests() int {
 	return total
 }
 
+// Log returns the tile requests that the server received, in the order of arrival.
+func (s *Server) Log() []Request {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Request(nil), s.log...)
+}
+
 // Quadkey returns the Bing Maps quadkey of tile.
 func Quadkey(tile Tile) string {
 	var b strings.Builder
@@ -160,9 +179,14 @@ func (s *Server) serveTile(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	s.requests[tile]++
+	n := s.requests[tile]
+	s.log = append(s.log, Request{Tile: tile, Time: time.Now(), UserAgent: r.UserAgent()})
 	s.mu.Unlock()
 
 	resp := s.table[tile]
+	if resp.Times > 0 && n > resp.Times {
+		resp = Response{Kind: PNG}
+	}
 	if resp.Delay > 0 {
 		// The select stops the wait when the client leaves, so Close does not block on it.
 		select {

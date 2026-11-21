@@ -222,3 +222,36 @@ func TestURLTemplateUsesTheMapSourcePlaceholders(t *testing.T) {
 		t.Errorf("URLTemplate() = %q, want %q", got, want)
 	}
 }
+
+func TestServerSendsAResponseWithTimesOnlyForTheFirstRequests(t *testing.T) {
+	srv := New(t, Table{{Z: 1, X: 0, Y: 0}: {Kind: Unavailable, Times: 2}})
+	want := []int{http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusOK}
+	for i, w := range want {
+		if status, _, _ := get(t, srv.URL+"/1/0/0.png"); status != w {
+			t.Errorf("request %d got status %d, want %d", i+1, status, w)
+		}
+	}
+}
+
+func TestServerLogsEachRequestWithItsUserAgent(t *testing.T) {
+	srv := New(t, nil)
+	before := time.Now()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/2/1/3.png", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("User-Agent", "test-agent/1")
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // The URL comes from the test server.
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	_ = resp.Body.Close() // The test reads no body, so a close error changes no result.
+
+	log := srv.Log()
+	if len(log) != 1 {
+		t.Fatalf("Log() holds %d requests, want 1", len(log))
+	}
+	if got := log[0]; got.Tile != (Tile{Z: 2, X: 1, Y: 3}) || got.UserAgent != "test-agent/1" || got.Time.Before(before) {
+		t.Errorf("Log()[0] = %+v, want tile 2/1/3, User-Agent test-agent/1 and a time after %v", got, before)
+	}
+}
