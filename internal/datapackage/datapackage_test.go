@@ -273,3 +273,45 @@ func TestDetect(t *testing.T) {
 		})
 	}
 }
+
+func TestExtract(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "p.zip")
+	if err := datapackage.Write(pkg, "p", []datapackage.File{bytesFile("a.mbtiles", "tiles")}); err != nil {
+		t.Fatal(err)
+	}
+	notZip := filepath.Join(dir, "n.zip")
+	if err := os.WriteFile(notZip, []byte("old zip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		zipPath string
+		entry   string
+		want    string
+		wantErr error
+	}{
+		{"writes the entry to the file", pkg, "a.mbtiles", "tiles", nil},
+		{"returns ErrNoEntry for a missing entry", pkg, "b.mbtiles", "", datapackage.ErrNoEntry},
+		{"returns an error for a file that is not a zip", notZip, "a.mbtiles", "", zip.ErrFormat},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dest := filepath.Join(t.TempDir(), "a.mbtiles")
+			err := datapackage.Extract(tt.zipPath, tt.entry, dest)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Extract error = %v, want %v", err, tt.wantErr)
+			}
+			got, readErr := os.ReadFile(dest) //nolint:gosec // G304: The test chose the path.
+			if tt.wantErr != nil {
+				if !os.IsNotExist(readErr) {
+					t.Errorf("ReadFile(dest) error = %v, want no file after a failed Extract", readErr)
+				}
+				return
+			}
+			if readErr != nil || string(got) != tt.want {
+				t.Errorf("dest = %q, %v; want %q", got, readErr, tt.want)
+			}
+		})
+	}
+}

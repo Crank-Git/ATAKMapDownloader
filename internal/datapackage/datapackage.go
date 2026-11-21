@@ -120,6 +120,65 @@ func Write(zipPath, name string, files []File) (err error) {
 	return nil
 }
 
+// ErrNoEntry is the error of Extract for a zip that holds no entry of the name that the caller asks for.
+var ErrNoEntry = errors.New("the data package holds no such entry")
+
+// Extract writes the entry of the zip zipPath to the file dest.
+// It writes a temporary file in the directory of dest and renames it, so dest is never a partial file.
+// It returns ErrNoEntry when the zip holds no entry, and other errors when zipPath is not a zip or a step fails.
+func Extract(zipPath, entry, dest string) (err error) {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("open the data package: %w", err)
+	}
+	defer func() {
+		if cerr := zr.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close the data package: %w", cerr)
+		}
+	}()
+	var f *zip.File
+	for _, zf := range zr.File {
+		if zf.Name == entry {
+			f = zf
+			break
+		}
+	}
+	if f == nil {
+		return fmt.Errorf("%w: %s", ErrNoEntry, entry)
+	}
+	r, err := f.Open()
+	if err != nil {
+		return fmt.Errorf("open %s in the data package: %w", entry, err)
+	}
+	defer func() { _ = r.Close() }() // The read is complete or failed, so a close error adds nothing.
+
+	tmp, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create the output file: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			// The temporary file holds a partial copy, so it goes with the error.
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	// The size is the uncompressed size that the zip header states, so a damaged entry cannot fill the disk.
+	if _, err := io.CopyN(tmp, r, int64(f.UncompressedSize64)); err != nil { //nolint:gosec // G115: A zip entry size fits in int64.
+		return fmt.Errorf("copy %s out of the data package: %w", entry, err)
+	}
+	if err := tmp.Chmod(0o644); err != nil { //nolint:gosec // G302: An output file is readable by other users.
+		return fmt.Errorf("set the mode of the output file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close the output file: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), dest); err != nil {
+		return fmt.Errorf("rename the output file: %w", err)
+	}
+	return nil
+}
+
 // writeManifest adds ManifestEntry to zw, for the package name name and files.
 func writeManifest(zw *zip.Writer, name string, files []File) error {
 	m := manifest{

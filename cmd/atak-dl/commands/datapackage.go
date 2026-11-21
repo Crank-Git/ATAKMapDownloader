@@ -92,6 +92,40 @@ func prepareDataPackage(zipPath string, rule ifExists) error {
 	}
 }
 
+// unpackForResume writes the output file at path out of its data package, for a job with --resume and --data-package.
+// The zip step removed the output file, so the resume reads the tiles and the areas of the job from the zip.
+// It does nothing in each of these cases:
+//   - pkg is nil, the command has no --resume, or path is empty.
+//   - A file exists at path, or no file exists at the zip path.
+//
+// It returns an ExitError with exitOutputConflict when the zip is not a data package that holds the output file.
+func unpackForResume(cmd *cobra.Command, path string, pkg *packageOptions) error {
+	resume, err := cmd.Flags().GetBool("resume")
+	if err != nil {
+		return fmt.Errorf("read --resume: %w", err)
+	}
+	if pkg == nil || !resume || path == "" {
+		return nil
+	}
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check the output file: %w", err)
+	}
+	zipPath := pkg.zipPath(path)
+	if _, err := os.Stat(zipPath); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("check the data package: %w", err)
+	}
+	if err := datapackage.Extract(zipPath, filepath.Base(path), path); err != nil {
+		// The zip stays unchanged, and the user decides between --overwrite and another --package-name.
+		cmd.SilenceUsage = true
+		return &ExitError{Code: exitOutputConflict, Err: fmt.Errorf("read the output file out of %s: %w", zipPath, err)}
+	}
+	return nil
+}
+
 // writeDataPackage writes the data package of opts beside the output file at outputPath and returns its path.
 // With opts.includeSource, the data package also holds the source file of source.
 // After the zip is complete, it removes the output file (FR-output-formats-19).

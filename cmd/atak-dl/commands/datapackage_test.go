@@ -425,3 +425,22 @@ func TestDownloadResumeWithDataPackageReadsTheOutputFileOutOfTheZip(t *testing.T
 		t.Errorf("Stat(%s) error = %v, want the unzipped output file removed after the resume", path, err)
 	}
 }
+
+func TestDownloadResumeWithDataPackageRefusesAZipWithoutTheOutputFile(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "hood.zip")
+	if err := os.WriteFile(zipPath, []byte("old zip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runDownloadInto(t, srv, filepath.Join(dir, "hood.mbtiles"), []string{"--resume", "--data-package", "--package-name", "hood"})
+	if got := ExitCode(err); got != exitOutputConflict {
+		t.Errorf("ExitCode(%v) = %d, want %d", err, got, exitOutputConflict)
+	}
+	if n := srv.TotalRequests(); n != 0 {
+		t.Errorf("server got %d tile requests, want 0", n)
+	}
+	if got := string(readFile(t, zipPath)); got != "old zip" {
+		t.Errorf("zip after the refused job = %q, want it unchanged", got)
+	}
+}

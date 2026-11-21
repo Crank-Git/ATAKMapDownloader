@@ -74,9 +74,9 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	if err != nil {
 		return err
 	}
-	output, err := cmd.Flags().GetString("output")
+	output, err := outputFlag(cmd, pkg)
 	if err != nil {
-		return fmt.Errorf("read --output: %w", err)
+		return err
 	}
 	areas, err := downloadAreas(cmd, output)
 	if err != nil {
@@ -92,7 +92,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	if err := warnWebP(cmd, source); err != nil {
 		return err
 	}
-	if output, err = defaultOutput(cmd, output, source, areas, format); err != nil {
+	if output, err = defaultOutput(cmd, output, source, areas, format, pkg); err != nil {
 		return err
 	}
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
@@ -386,9 +386,20 @@ func warnWebP(cmd *cobra.Command, source *xmlparser.MapSource) error {
 	return nil
 }
 
-// defaultOutput returns output when it is set.
+// outputFlag returns the --output path of cmd, and it calls unpackForResume for that path.
+func outputFlag(cmd *cobra.Command, pkg *packageOptions) (string, error) {
+	output, err := cmd.Flags().GetString("output")
+	if err != nil {
+		return "", fmt.Errorf("read --output: %w", err)
+	}
+	return output, unpackForResume(cmd, output, pkg)
+}
+
+// defaultOutput returns output when it is set, because outputFlag already prepared it.
 // With no output, it returns the path in the downloads directory with the name of jobOutputFile and the --name flag.
-func defaultOutput(cmd *cobra.Command, output string, source *xmlparser.MapSource, areas []tilecalc.JobArea, format string) (string, error) {
+// It calls unpackForResume for that path.
+func defaultOutput(cmd *cobra.Command, output string, source *xmlparser.MapSource, areas []tilecalc.JobArea, format string,
+	pkg *packageOptions) (string, error) {
 	if output != "" {
 		return output, nil
 	}
@@ -396,7 +407,8 @@ func defaultOutput(cmd *cobra.Command, output string, source *xmlparser.MapSourc
 	if err != nil {
 		return "", fmt.Errorf("read --name: %w", err)
 	}
-	return filepath.Join(download.DownloadsDir(), jobOutputFile(source.Name, areas, customName, format)), nil
+	output = filepath.Join(download.DownloadsDir(), jobOutputFile(source.Name, areas, customName, format))
+	return output, unpackForResume(cmd, output, pkg)
 }
 
 // jobLimits returns the --concurrent value after checkJobLimits accepts the job of the areas.
