@@ -150,6 +150,9 @@ CLI only in this feature. Feature 08 shows `skipped` and the `if_exists` choice 
 ## Behaviour rules
 
 - Tile attempts: 3 in the main pass and 1 in the retry pass.
+- If a cancel or a refusal stop ends a tile before it uses its attempts, the tile counts as neither downloaded nor failed. A resume requests it again.
+- The progress percentage stops at 100. The retry pass of a resume can store a failed tile from outside the bounds, so the processed count can be above the total.
+- When the writer closes, it runs `PRAGMA wal_checkpoint(TRUNCATE)` and then `PRAGMA journal_mode=DELETE`. The output file is then one file with no `-wal` or `-shm` file, so ATAK can open it read-only.
 - The tile key set for `--resume` loads into memory. 500,000 keys take about 12 MB.
 - A job with `--ignore-errors` succeeds whatever its failure rate is. It still records failed tiles.
 - `blocked.json` starts empty. Add a hash only together with a test fixture of that image.
@@ -180,6 +183,11 @@ CLI only in this feature. Feature 08 shows `skipped` and the `if_exists` choice 
 - If the disk fills, the writer fails. The engine stops the job with state `failed` and reason `write_failed`, and it keeps the committed tiles.
 - If the process is killed with SIGKILL, at most 500 tiles are lost. WAL mode keeps the file consistent.
 - If `--resume` opens a file with no `atakdl_source` key (a file from v0.1), the CLI accepts it only with `--resume --force`.
+- If `POST /api/jobs` resumes into a file with no `atakdl_source` key, the server accepts it. The API has no `force` field.
+- If `--resume` or `"if_exists": "resume"` finds a file that is not SQLite or has no `metadata` table, the CLI exits with code 3 and the API returns 409 `output_exists`. The message starts with "not an output file".
+- `--overwrite` also deletes the `-wal` and `-shm` files of the output file, because they belong to the old file.
+- The CLI deletes a file for `--overwrite` only after every other flag is valid.
+- If the writer fails after a cancel, the job ends with `write_failed` and exit code 1, not 130. The cancel line counts the tiles as stored, but the output file lost them.
 - If a server returns a valid image for a missing tile (for example a "no data" tile), validation passes. A blocked-image hash catches only known images.
 - The ATAK reader ignores the `atakdl_failed_tiles` table. That is inferred from ATAK-CIV `TilesetInfo.java`, which inspects only `tiles`, and is a risk item in `spec.md`.
 

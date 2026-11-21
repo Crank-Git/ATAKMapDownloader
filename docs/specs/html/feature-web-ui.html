@@ -378,7 +378,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ol>
 <p>still shows <code>running</code> (#76).</p>
 <ol>
-<li>When the engine returns, the engine deletes the output file.
+<li>The engine commits the stored tiles and keeps the output file (#26).
 </li>
 <li>The server sends <code>state</code> with <code>cancelled</code> and ends the stream.
 </li>
@@ -698,9 +698,10 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><code>state</code> is <code>running</code>, <code>complete</code>, <code>failed</code> or <code>cancelled</code>.
 </li>
-<li><code>skipped</code> is always 0, because only resume skips a tile.
+<li><code>skipped</code> counts the tiles that the output file already holds. Only <code>"if_exists": "resume"</code>
 </li>
 </ul>
+<p>makes it above 0 (#26).</p>
 <p>SSE events on <code>GET /api/jobs/{id}/events</code>:</p>
 <div class="table-wrap"><table>
 <tr><th><code>event</code></th><th><code>data</code></th><th>When</th></tr>

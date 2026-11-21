@@ -70,9 +70,7 @@ func boundsOf(tb tilecalc.TileBounds) [4]float64 {
 // jobBody returns a POST /api/jobs body for the tiles of tb.
 func jobBody(tb tilecalc.TileBounds) string {
 	b := boundsOf(tb)
-	// TODO(#25): Remove the concurrency of 1 when the engine updates progress with atomic operations only.
-	// Every tile goroutine writes the shared Progress fields, so a concurrent job fails under -race.
-	return fmt.Sprintf(`{"source":"Test Tiles","bounds":[%f,%f,%f,%f],"min_zoom":%d,"max_zoom":%d,"concurrency":1}`,
+	return fmt.Sprintf(`{"source":"Test Tiles","bounds":[%f,%f,%f,%f],"min_zoom":%d,"max_zoom":%d}`,
 		b[0], b[1], b[2], b[3], tb.Zoom, tb.Zoom)
 }
 
@@ -332,8 +330,8 @@ func TestJobAPIRejectsASecondJobWhileOneRuns(t *testing.T) {
 
 	closeBody(s.request(t, http.MethodDelete, "/api/jobs/"+rec.ID, ""))
 	s.finalRecord(t, rec.ID)
-	// The job lock is free again after the job ends.
-	next := s.startJob(t, jobBody(slowArea))
+	// The job lock is free again after the job ends. The first job kept its output file, so the next one overwrites it.
+	next := s.startJob(t, strings.TrimSuffix(jobBody(slowArea), "}")+`,"if_exists":"overwrite"}`)
 	closeBody(s.request(t, http.MethodDelete, "/api/jobs/"+next.ID, ""))
 	s.finalRecord(t, next.ID)
 }
@@ -371,6 +369,10 @@ func TestDeleteCancelsARunningJob(t *testing.T) {
 	// One tile takes 100 ms, so a job that stops after the current tile ends well within 1 s.
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("the job ended %v after the cancel, want less than 1 s", elapsed)
+	}
+	// A cancelled job keeps its output file (FR-robust-downloads-11).
+	if _, err := os.Stat(filepath.Join(s.handler.outputDir, rec.OutputFile)); err != nil {
+		t.Errorf("output file after the cancel: %v, want the file kept", err)
 	}
 }
 

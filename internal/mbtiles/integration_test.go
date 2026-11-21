@@ -29,41 +29,44 @@ func fetch(t *testing.T, srv *testtiles.Server, path string) []byte {
 	return data
 }
 
-func TestInsertTileStoresTheTestServerTileBytes(t *testing.T) {
+func TestPutStoresTheTestServerTileBytes(t *testing.T) {
 	srv := testtiles.New(t, testtiles.Table{{Z: 1, X: 1, Y: 0}: {Kind: testtiles.JPEG}})
-	db, err := Create(filepath.Join(t.TempDir(), "out.mbtiles"), map[string]string{"name": "test"})
+	path := filepath.Join(t.TempDir(), "out.mbtiles")
+	w, err := Open(path, map[string]string{"name": "test"})
 	if err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Error(err)
-		}
-	})
 
 	tests := []struct {
 		name string
 		path string
-		tms  testtiles.Tile
+		tile testtiles.Tile
+		tmsY int
 	}{
-		{"stores a PNG tile unchanged", "/1/0/0.png", testtiles.Tile{Z: 1, X: 0, Y: 1}},
-		{"stores a JPEG tile unchanged", "/1/1/0.jpg", testtiles.Tile{Z: 1, X: 1, Y: 1}},
+		{"stores a PNG tile unchanged", "/1/0/0.png", testtiles.Tile{Z: 1, X: 0, Y: 0}, 1},
+		{"stores a JPEG tile unchanged", "/1/1/0.jpg", testtiles.Tile{Z: 1, X: 1, Y: 0}, 1},
 	}
-	for _, tt := range tests {
+	want := make([][]byte, len(tests))
+	for i, tt := range tests {
+		want[i] = fetch(t, srv, tt.path)
+		if err := w.Put(tt.tile.Z, tt.tile.X, tt.tile.Y, want[i]); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+	}
+	closeWriter(t, w)
+
+	db := openFile(t, path)
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			want := fetch(t, srv, tt.path)
-			if err := InsertTile(db, tt.tms.Z, tt.tms.X, tt.tms.Y, want); err != nil {
-				t.Fatalf("InsertTile: %v", err)
-			}
 			var got []byte
 			err := db.QueryRowContext(t.Context(),
 				"SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?",
-				tt.tms.Z, tt.tms.X, tt.tms.Y).Scan(&got)
+				tt.tile.Z, tt.tile.X, tt.tmsY).Scan(&got)
 			if err != nil {
 				t.Fatalf("read tile: %v", err)
 			}
-			if !bytes.Equal(got, want) {
-				t.Errorf("stored %d bytes, want the %d bytes that the server sent", len(got), len(want))
+			if !bytes.Equal(got, want[i]) {
+				t.Errorf("stored %d bytes, want the %d bytes that the server sent", len(got), len(want[i]))
 			}
 		})
 	}

@@ -133,7 +133,7 @@ Feature 08 redesigns the screens.
 - `id` is 12 lowercase hex characters from `crypto/rand`.
 - Job states in this feature: `running`, `complete`, `failed` and `cancelled`. Feature 12 adds `queued`.
 - The `delay_between_batches` setting is removed. The engine never read it (`internal/download/download.go:28`). Feature 06 replaces it with rate limits.
-- Error codes: `cross_origin`, `invalid_json`, `invalid_bounds`, `zoom_out_of_range`, `invalid_concurrency`, `unknown_source`, `job_running`, `job_not_found`, `body_too_large`, `internal`, `invalid_query`, `not_found`, `method_not_allowed`.
+- Error codes: `cross_origin`, `invalid_json`, `invalid_bounds`, `zoom_out_of_range`, `invalid_concurrency`, `unknown_source`, `job_running`, `job_not_found`, `invalid_if_exists`, `body_too_large`, `internal`, `invalid_query`, `not_found`, `method_not_allowed`. Later epics add `terms_not_accepted` and `invalid_rate_limit` (feature 06), and `output_exists` and `too_many_tiles` (feature 07).
 - `invalid_query` is for an empty `/api/geocode` query, `not_found` is for a route that does not exist, and `method_not_allowed` comes with status 405. The PM accepted these three codes at the #74 gate.
 
 ## Data touched
@@ -145,7 +145,7 @@ Feature 08 redesigns the screens.
 
 | Method | Path | Request | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/jobs` | `{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?}` | 202 job record | 400, 403, 404 `unknown_source`, 409, 413 |
+| POST | `/api/jobs` | `{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?, if_exists?}` | 202 job record | 400, 403, 404 `unknown_source`, 409 `job_running` or `output_exists`, 413 |
 | GET | `/api/jobs/{id}` | — | 200 job record | 404 `job_not_found` |
 | GET | `/api/jobs/{id}/events` | — | 200 `text/event-stream` | 404 |
 | DELETE | `/api/jobs/{id}` | — | 202 job record | 403, 404 |

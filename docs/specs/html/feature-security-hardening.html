@@ -321,7 +321,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The <code>delay_between_batches</code> setting is removed. The engine never read it (<code>internal/download/download.go:28</code>). Feature 06 replaces it with rate limits.
 </li>
-<li>Error codes: <code>cross_origin</code>, <code>invalid_json</code>, <code>invalid_bounds</code>, <code>zoom_out_of_range</code>, <code>invalid_concurrency</code>, <code>unknown_source</code>, <code>job_running</code>, <code>job_not_found</code>, <code>body_too_large</code>, <code>internal</code>, <code>invalid_query</code>, <code>not_found</code>, <code>method_not_allowed</code>.
+<li>Error codes: <code>cross_origin</code>, <code>invalid_json</code>, <code>invalid_bounds</code>, <code>zoom_out_of_range</code>, <code>invalid_concurrency</code>, <code>unknown_source</code>, <code>job_running</code>, <code>job_not_found</code>, <code>invalid_if_exists</code>, <code>body_too_large</code>, <code>internal</code>, <code>invalid_query</code>, <code>not_found</code>, <code>method_not_allowed</code>. Later epics add <code>terms_not_accepted</code> and <code>invalid_rate_limit</code> (feature 06), and <code>output_exists</code> and <code>too_many_tiles</code> (feature 07).
 </li>
 <li><code>invalid_query</code> is for an empty <code>/api/geocode</code> query, <code>not_found</code> is for a route that does not exist, and <code>method_not_allowed</code> comes with status 405. The PM accepted these three codes at the #74 gate.
 </li>
@@ -336,7 +336,7 @@ body.rv-open .layout { padding-right:21rem; }
 <h3 id="security-hardening-interfaces">Interfaces</h3>
 <div class="table-wrap"><table>
 <tr><th>Method</th><th>Path</th><th>Request</th><th>Success</th><th>Errors</th></tr>
-<tr><td>POST</td><td><code>/api/jobs</code></td><td><code>{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?}</code></td><td>202 job record</td><td>400, 403, 404 <code>unknown_source</code>, 409, 413</td></tr>
+<tr><td>POST</td><td><code>/api/jobs</code></td><td><code>{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?, if_exists?}</code></td><td>202 job record</td><td>400, 403, 404 <code>unknown_source</code>, 409 <code>job_running</code> or <code>output_exists</code>, 413</td></tr>
 <tr><td>GET</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>200 job record</td><td>404 <code>job_not_found</code></td></tr>
 <tr><td>GET</td><td><code>/api/jobs/{id}/events</code></td><td>—</td><td>200 <code>text/event-stream</code></td><td>404</td></tr>
 <tr><td>DELETE</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>202 job record</td><td>403, 404</td></tr>

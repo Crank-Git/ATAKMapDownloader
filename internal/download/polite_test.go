@@ -74,9 +74,9 @@ func TestEngineLimitsTheRequestRateOfAHost(t *testing.T) {
 			cfg.RateLimit = tt.rateLimit
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			ok, err := politeEngine(cfg, tt.policyRPS).DownloadTiles(t.Context(), source, boundsOf(t, wideArea), []int{wideArea.Zoom}, output, nil)
-			if !ok || err != nil {
-				t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+			res, err := politeEngine(cfg, tt.policyRPS).DownloadTiles(t.Context(), source, boundsOf(t, wideArea), []int{wideArea.Zoom}, output, nil)
+			if !res.OK || err != nil {
+				t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 			}
 			log := srv.Log()
 			if len(log) != wideArea.TileCount() {
@@ -95,9 +95,9 @@ func TestEngineWaitsForRetryAfterBeforeTheNextRequest(t *testing.T) {
 	source := loadFixture(t, "xyz.xml", srv)
 	output := filepath.Join(t.TempDir(), "out.sqlite")
 
-	ok, err := politeEngine(testConfig(), 1000).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
-	if !ok || err != nil {
-		t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+	res, err := politeEngine(testConfig(), 1000).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
+	if !res.OK || err != nil {
+		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
 	log := srv.Log()
 	if len(log) != 2 {
@@ -110,18 +110,28 @@ func TestEngineWaitsForRetryAfterBeforeTheNextRequest(t *testing.T) {
 
 func TestEngineStopsTheJobWithServerRefused(t *testing.T) {
 	tests := []struct {
-		name         string
-		table        testtiles.Table
+		name  string
+		table testtiles.Table
+		// slots is the concurrency of the job. Zero keeps the default.
+		slots        int
 		wantRequests int
+		// wantFailed counts the tiles that end with no attempt left. The stop ends the other tiles uncounted.
+		wantFailed int64
 	}{
 		{
-			name:         "stops after 20 consecutive 503 responses",
-			table:        tableOf(area, testtiles.Response{Kind: testtiles.Unavailable}),
+			name:  "stops after 20 consecutive 503 responses",
+			table: tableOf(area, testtiles.Response{Kind: testtiles.Unavailable}),
+			// With 5 slots, a request can leave after the 20th refusal and before the stop, so the case uses 1 slot.
+			slots:        1,
 			wantRequests: 20,
+			// At 1 slot, 6 tiles use 3 attempts each, and the stop ends the 7th tile at its 2nd attempt.
+			wantFailed: 6,
 		},
 		{
-			name:         "stops at once when Retry-After is above 300 seconds",
-			table:        tableOf(area, testtiles.Response{Kind: testtiles.TooManyRequests, RetryAfter: "301"}),
+			name:  "stops at once when Retry-After is above 300 seconds",
+			table: tableOf(area, testtiles.Response{Kind: testtiles.TooManyRequests, RetryAfter: "301"}),
+			// With 5 slots, a second request can leave before the first 429 stops the job, so the case uses 1 slot.
+			slots:        1,
 			wantRequests: 1,
 		},
 	}
@@ -130,16 +140,23 @@ func TestEngineStopsTheJobWithServerRefused(t *testing.T) {
 			srv := testtiles.New(t, tt.table)
 			source := loadFixture(t, "xyz.xml", srv)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
-			e := politeEngine(testConfig(), 1000)
+			cfg := testConfig()
+			if tt.slots > 0 {
+				cfg.MaxConcurrent = tt.slots
+			}
+			e := politeEngine(cfg, 1000)
 			// A short base keeps 20 backoff waits inside the test time.
 			e.backoffBase = time.Millisecond
 
-			ok, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
-			if ok || !errors.Is(err, ErrServerRefused) || !strings.HasPrefix(errorText(err), "server_refused") {
-				t.Errorf("DownloadTiles = %v, %v; want false and an error that starts with server_refused", ok, err)
+			res, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+			if res.OK || !errors.Is(err, ErrServerRefused) || !strings.HasPrefix(errorText(err), "server_refused") {
+				t.Errorf("DownloadTiles = %v, %v; want false and an error that starts with server_refused", res.OK, err)
 			}
 			if n := srv.TotalRequests(); n != tt.wantRequests {
 				t.Errorf("server got %d requests, want %d", n, tt.wantRequests)
+			}
+			if res.Downloaded != 0 || res.Failed != tt.wantFailed {
+				t.Errorf("DownloadTiles counts %d downloaded and %d failed, want 0 and %d", res.Downloaded, res.Failed, tt.wantFailed)
 			}
 		})
 	}
@@ -153,8 +170,10 @@ func TestEngineStopsWithin500msWhenTheJobIsCancelledDuringABackoffWait(t *testin
 	defer cancel()
 
 	done := make(chan error, 1)
+	var res Result
 	go func() {
-		_, err := politeEngine(testConfig(), 1000).DownloadTiles(ctx, source, areaBounds(t), []int{area.Zoom}, output, nil)
+		var err error
+		res, err = politeEngine(testConfig(), 1000).DownloadTiles(ctx, source, areaBounds(t), []int{area.Zoom}, output, nil)
 		done <- err
 	}()
 	// The first 503 starts a backoff wait of at least 800 ms.
@@ -173,6 +192,10 @@ func TestEngineStopsWithin500msWhenTheJobIsCancelledDuringABackoffWait(t *testin
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("DownloadTiles error = %v, want context.Canceled", err)
 		}
+		// No tile uses its 3 attempts before the cancel, so the cancel ends every tile uncounted.
+		if res.Downloaded != 0 || res.Failed != 0 {
+			t.Errorf("DownloadTiles counts %d downloaded and %d failed, want 0 and 0", res.Downloaded, res.Failed)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("DownloadTiles did not return within 5 s of the cancel")
 	}
@@ -186,8 +209,8 @@ func TestEngineSendsTheUserAgentOnEveryRequest(t *testing.T) {
 	e := politeEngine(testConfig(), 1000)
 	e.backoffBase = time.Millisecond
 
-	if ok, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil); !ok || err != nil {
-		t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+	if res, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil); !res.OK || err != nil {
+		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
 	log := srv.Log()
 	// The 9 tiles and the retry of the refused tile give 10 requests.
@@ -296,8 +319,8 @@ func TestTwoSourcesOfOnePolicyEntryShareOneRate(t *testing.T) {
 		source := loadFixture(t, "xyz.xml", srv)
 		output := filepath.Join(t.TempDir(), "out.sqlite")
 		go func() {
-			ok, err := e.DownloadTiles(t.Context(), source, boundsOf(t, twoTiles), []int{twoTiles.Zoom}, output, nil)
-			if err == nil && !ok {
+			res, err := e.DownloadTiles(t.Context(), source, boundsOf(t, twoTiles), []int{twoTiles.Zoom}, output, nil)
+			if err == nil && !res.OK {
 				err = errors.New("the job failed")
 			}
 			errs <- err

@@ -122,15 +122,48 @@ Then open http://localhost:5000 in your browser.
 | `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, `serve` prints a warning, because the server has no authentication. |
 | `serve` | `--geocoder-url` | `https://nominatim.openstreetmap.org` | Base URL of the Nominatim geocoder for place search. The server sends at most 1 geocode request per second, waits at most 5 s for a slot, and caches each result for 24 hours. A URL that is not an absolute `http` or `https` URL fails. |
 | `serve` | `--no-geocode` | `false` | Turn off place search. `POST /api/geocode` returns 404 `not_found`, `GET /api/config` returns `{"geocode": false}`, and the web UI hides the search box. |
+| `serve` | `--max-tiles` | `500000` | Tile cap of a job. `POST /api/jobs` for a job above the cap returns 400 `too_many_tiles`, and the job sends no request. |
 | `download` | `--source` | - | Map source name (required) |
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon (required) |
 | `download` | `--min-zoom` | 1 | Minimum zoom level. It must not be below the map source's minimum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--max-zoom` | 15 | Maximum zoom level. It must not be above the map source's maximum zoom level, or the command fails with `zoom_out_of_range`. |
-| `download` | `--output` | `downloads/<name>.sqlite` | Output file path |
+| `download` | `--output` | `downloads/<name>.sqlite` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
+| `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, the command exits with code 3. |
+| `download` | `--overwrite` | `false` | Delete the existing output file before the job starts. You cannot use it together with `--resume`. |
+| `download` | `--force` | `false` | With `--resume`, accept an output file that names no map source, for example a file from v0.1. |
 | `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
 | `download` | `--insecure` | `false` | Do not verify the TLS certificates of the tile server. The command prints a warning to stderr when this flag is set. |
 | `download` | `--rate-limit` | `0` | Requests per second to the tile server. A value only lowers the policy rate of the map source, and `0` keeps it. A value above the policy rate gives the policy rate, with a note on stderr. A negative value fails with `invalid_rate_limit`. |
 | `download` | `--accept-terms` | `false` | Accept the terms of use of a `restricted` map source. Without this flag, the command prints the reason and the reference URL for a restricted map source, and it exits with code 2. With this flag, it prints a warning to stderr and starts the job. |
+| `download` | `--max-tiles` | `500000` | Tile cap of the job. If the job has more tiles, the command prints `too_many_tiles` and exits with code 4 before it sends a request. |
+
+### Progress and exit codes
+
+While a job runs, `download` prints a progress line. The percentage counts downloaded, skipped and failed tiles:
+
+```
+37.4% (44,880/120,000) - 12.1 tiles/s - 1,200 skipped - 14 failed - ETA 1h43m
+```
+
+When the job ends, it prints one summary line:
+
+```
+Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -> downloads/OpenTopoMap_Mt_Hood_z8-15.sqlite
+```
+
+If you press Ctrl-C, the engine stops its requests within 500 ms and commits the stored tiles. The command prints the stored count and the hint `Run again with --resume.`
+
+`download` exits with one of these codes:
+
+| Code | Meaning |
+|------|---------|
+| 0 | The job succeeded. |
+| 1 | An error that has no other code. |
+| 2 | The map source is restricted, and the command has no `--accept-terms`. |
+| 3 | The output file exists, it belongs to another map source, or it is not an output file. With `--resume` and no `--force`, a file with no map source name also exits with 3. |
+| 4 | The job has more tiles than `--max-tiles`. |
+| 5 | The failure rate of the job is above the failure tolerance. |
+| 130 | Ctrl-C or SIGTERM cancelled the job. |
 
 ## Map Sources
 

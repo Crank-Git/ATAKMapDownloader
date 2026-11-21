@@ -3,15 +3,27 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
+)
+
+// The exit codes of feature 07 that the download command sets. Codes 2 and 3 are in terms.go and output.go.
+const (
+	// exitTooManyTiles is the exit code for a job above --max-tiles (FR-robust-downloads-26).
+	exitTooManyTiles = 4
+	// exitJobFailed is the exit code for a job that fails above its failure tolerance.
+	exitJobFailed = 5
+	// exitCancelled is the exit code for a cancelled job. It is 128 plus the number of SIGINT, as shells report it.
+	exitCancelled = 130
 )
 
 // NewDownloadCmd returns the download command, which writes the tiles of an area to an MBTiles file.
@@ -35,6 +47,11 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().Bool("insecure", false, "Do not verify the TLS certificates of the tile server")
 	cmd.Flags().Float64("rate-limit", 0, "Requests per second, below the policy rate of the source (default: the policy rate)")
 	cmd.Flags().Bool("accept-terms", false, "Accept the terms of use of a restricted map source and start the job")
+	cmd.Flags().Bool("resume", false, "Continue the job into the existing output file and skip the tiles it holds")
+	cmd.Flags().Bool("overwrite", false, "Delete the existing output file before the job starts")
+	cmd.Flags().Bool("force", false, "With --resume, accept an output file that names no map source (a v0.1 file)")
+	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job above this tile count")
+	cmd.MarkFlagsMutuallyExclusive("resume", "overwrite")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
@@ -57,10 +74,18 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	if err != nil {
 		return fmt.Errorf("read --concurrent: %w", err)
 	}
-	if code, message := checkJobLimits(source, minZoom, maxZoom, concurrent); code != "" {
+	maxTiles, err := cmd.Flags().GetInt("max-tiles")
+	if err != nil {
+		return fmt.Errorf("read --max-tiles: %w", err)
+	}
+	if code, message := checkJobLimits(source, bounds, minZoom, maxZoom, concurrent, maxTiles); code != "" {
 		// The flags are valid in form, so the usage text does not help the user.
 		cmd.SilenceUsage = true
-		return fmt.Errorf("%s: %s", code, message)
+		err := fmt.Errorf("%s: %s", code, message)
+		if code == "too_many_tiles" {
+			return &ExitError{Code: exitTooManyTiles, Err: err}
+		}
+		return err
 	}
 	if err := checkTerms(cmd, source); err != nil {
 		return err
@@ -75,42 +100,102 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		fname := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
 		output = filepath.Join(dlDir, fname)
 	}
-
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {
 		return err
 	}
+	// --overwrite deletes the file, so the check runs after every flag is valid.
+	if err := checkOutput(cmd, output, source.Name); err != nil {
+		return err
+	}
 
 	engine := download.NewEngine(cfg)
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	out := cmd.OutOrStdout()
+	// The engine calls the callback from every tile goroutine, so the mutex guards lastPercent.
+	var mu sync.Mutex
 	var lastPercent float64
-	success, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, output, func(p *download.Progress) bool {
+	res, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, output, func(p download.Progress) bool {
+		mu.Lock()
+		defer mu.Unlock()
 		percent := p.ProgressPercent()
 		if percent-lastPercent >= 1 || percent >= 100 {
-			fmt.Printf("\r%.1f%% (%d/%d) - %.1f tiles/s - ETA: %.0fs   ",
-				percent, p.Downloaded, p.TotalTiles, p.TilesPerSecond(), p.ETASeconds())
+			// The progress line is only for the user, so a failed write does not stop the job.
+			_, _ = fmt.Fprintf(out, "\r%s   ", progressLine(p))
 			lastPercent = percent
 		}
 		return true
 	})
+	return finishDownload(ctx, cmd, res, err, output)
+}
 
-	fmt.Println()
-	if err != nil {
-		if ctx.Err() != nil {
-			fmt.Println("Download cancelled.")
-		} else {
-			exitErr("Download failed: " + err.Error())
-		}
+// finishDownload prints the final line of a job and returns the error that sets the exit code of atak-dl.
+// It returns an ExitError with exitCancelled for a cancelled job, and with exitJobFailed above the failure tolerance.
+// It returns other job errors with exit code 1.
+// A write failure outranks a cancel, because the output file lost tiles that the cancel line counts as stored.
+func finishDownload(ctx context.Context, cmd *cobra.Command, res download.Result, err error, output string) error {
+	out := cmd.OutOrStdout()
+	// The final line replaces the progress line, so it starts on a new line.
+	if _, perr := fmt.Fprintln(out); perr != nil {
+		return fmt.Errorf("print the final line: %w", perr)
+	}
+	// The job error is not a flag error, so the usage text does not help the user.
+	cmd.SilenceUsage = true
+	if errors.Is(err, download.ErrWriteFailed) {
 		return err
 	}
-	if !success {
-		exitErr("Download failed - too many errors")
-		return nil
+	if ctx.Err() != nil {
+		// The cancel line tells the user the result, so the error text adds nothing.
+		cmd.SilenceErrors = true
+		if _, perr := fmt.Fprintf(out, "Cancelled. %s of %s tiles stored. Run again with --resume.\n",
+			formatCount(res.Downloaded+res.Skipped), formatCount(int64(res.TotalTiles))); perr != nil {
+			return fmt.Errorf("print the cancel line: %w", perr)
+		}
+		return &ExitError{Code: exitCancelled, Err: ctx.Err()}
 	}
-	fmt.Printf("Download complete. Saved to %s\n", output)
+	var rateErr *download.FailureRateError
+	if err != nil && !errors.As(err, &rateErr) {
+		return err
+	}
+	if _, perr := fmt.Fprintln(out, summaryLine(res.Progress, res.Elapsed(), output)); perr != nil {
+		return fmt.Errorf("print the summary line: %w", perr)
+	}
+	if rateErr != nil {
+		return &ExitError{Code: exitJobFailed, Err: err}
+	}
 	return nil
+}
+
+// checkOutput applies the --resume, --overwrite and --force flags of cmd to the output file at output.
+// It returns an ExitError with exitOutputConflict when the flags do not accept the existing file.
+func checkOutput(cmd *cobra.Command, output, sourceName string) error {
+	rule := ifExistsFail
+	for _, flag := range []struct {
+		name string
+		rule ifExists
+	}{{"resume", ifExistsResume}, {"overwrite", ifExistsOverwrite}} {
+		set, err := cmd.Flags().GetBool(flag.name)
+		if err != nil {
+			return fmt.Errorf("read --%s: %w", flag.name, err)
+		}
+		if set {
+			rule = flag.rule
+		}
+	}
+	force, err := cmd.Flags().GetBool("force")
+	if err != nil {
+		return fmt.Errorf("read --force: %w", err)
+	}
+	err = prepareOutput(output, rule, sourceName, force)
+	var conflict *outputConflict
+	if errors.As(err, &conflict) {
+		// The refusal protects the file and is not a flag error, so the usage text does not help the user.
+		cmd.SilenceUsage = true
+		return &ExitError{Code: exitOutputConflict, Err: err}
+	}
+	return err
 }
 
 // downloadConfig returns the engine configuration of the download command for source.

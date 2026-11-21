@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
@@ -104,6 +106,23 @@ func TestExitCode(t *testing.T) {
 				t.Errorf("ExitCode(%v) = %d, want %d", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFinishDownloadReturnsWriteFailedForACancelledJobWhoseWriteFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	jobErr := fmt.Errorf("%w: disk full", download.ErrWriteFailed)
+
+	err := finishDownload(ctx, cmd, download.Result{}, jobErr, "out.sqlite")
+	if got := ExitCode(err); got != 1 || !errors.Is(err, download.ErrWriteFailed) {
+		t.Errorf("finishDownload = %v with exit code %d, want write_failed with exit code 1", err, got)
+	}
+	if strings.Contains(out.String(), "Cancelled") {
+		t.Errorf("stdout = %q, want no cancel line, because the job lost tiles", out.String())
 	}
 }
 

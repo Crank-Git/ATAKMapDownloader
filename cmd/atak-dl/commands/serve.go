@@ -27,6 +27,7 @@ func NewServeCmd(userAgent string) *cobra.Command {
 	cmd.Flags().String("mapsources-dir", "mapsources", "Directory containing XML map source files")
 	cmd.Flags().String("geocoder-url", defaultGeocoderURL, "Base URL of the Nominatim geocoder for place search")
 	cmd.Flags().Bool("no-geocode", false, "Turn off place search and hide the search box in the web UI")
+	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job API job above this tile count")
 	return cmd
 }
 
@@ -48,13 +49,16 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 		fmt.Fprintf(os.Stderr, "Warning: No map sources found in %s\n", dir)
 	}
 
-	// mbtiles.Create makes the directory again and reports that error.
+	// mbtiles.Open makes the directory again and reports that error.
 	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
 
 	calc := tilecalc.NewTileCalculator()
 	wh := NewWebHandler(parser, calc, dir, userAgent)
 	if err := applyGeocodeFlags(cmd, wh); err != nil {
 		return err
+	}
+	if wh.maxTiles, err = cmd.Flags().GetInt("max-tiles"); err != nil {
+		return fmt.Errorf("read --max-tiles: %w", err)
 	}
 	handler := newServerHandler(wh)
 

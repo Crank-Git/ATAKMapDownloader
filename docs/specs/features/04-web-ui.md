@@ -154,7 +154,7 @@ sequenceDiagram
 3. The web UI sends `DELETE /api/jobs/{id}` (`app.js:578`).
 4. The server cancels the context of the job. It returns 202 with the job record, which
    still shows `running` (#76).
-5. When the engine returns, the engine deletes the output file.
+5. The engine commits the stored tiles and keeps the output file (#26).
 6. The server sends `state` with `cancelled` and ends the stream.
 7. The web UI closes the stream, logs `Download cancelled` and resets the job controls
    (#78).
@@ -382,7 +382,8 @@ The job record (`jobs.go:62-78`):
 
 - `id` is 12 lowercase hex characters from `crypto/rand`.
 - `state` is `running`, `complete`, `failed` or `cancelled`.
-- `skipped` is always 0, because only resume skips a tile.
+- `skipped` counts the tiles that the output file already holds. Only `"if_exists": "resume"`
+  makes it above 0 (#26).
 
 SSE events on `GET /api/jobs/{id}/events`:
 
