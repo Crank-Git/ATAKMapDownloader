@@ -40,6 +40,8 @@ type WebHandler struct {
 	// geocodeWait is the longest wait for the limiter. A test makes it short.
 	geocodeWait  time.Duration
 	geocodeCache *geocodeCache
+	// auth is the token check of FR-team-server-17. It is nil on loopback.
+	auth *tokenAuth
 	// dlState is the job lock. createJob takes it, so two jobs never run at once.
 	dlState struct {
 		sync.Mutex
@@ -75,13 +77,14 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 // It rejects a cross-origin POST or DELETE with status 403 and the error code cross_origin
 // (FR-security-hardening-2, FR-security-hardening-3).
 // It passes a request with no Sec-Fetch-Site header and no Origin header, because curl and other clients send neither.
+// Every request without the token of h.auth gets the response of tokenAuth.handler.
 // Every request body goes through limitBody.
-func newServerHandler(h http.Handler) http.Handler {
+func newServerHandler(h *WebHandler) http.Handler {
 	cop := http.NewCrossOriginProtection()
 	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusForbidden, "cross_origin", "Cross-origin request rejected")
 	}))
-	return cop.Handler(limitBody(h))
+	return cop.Handler(h.auth.handler(limitBody(h)))
 }
 
 // maxBodyBytes is the largest request body that the server reads (FR-security-hardening-17).
@@ -121,6 +124,8 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveIndex(w, r)
 	case r.URL.Path == "/api/jobs" || strings.HasPrefix(r.URL.Path, "/api/jobs/"):
 		h.jobRoutes.ServeHTTP(w, r)
+	case r.URL.Path == "/api/session":
+		h.apiSession(w, r)
 	case r.URL.Path == "/api/files" || strings.HasPrefix(r.URL.Path, "/api/files/"):
 		h.serveFiles(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):

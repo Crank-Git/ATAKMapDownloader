@@ -48,7 +48,7 @@ docker run -p 5000:5000 ghcr.io/crank-git/atak-map-downloader:<tag>
 docker run ghcr.io/crank-git/atak-map-downloader:<tag> --version
 ```
 
-The image runs `atak-dl serve --addr 0.0.0.0:5000` by default. Arguments after the image name replace `serve --addr 0.0.0.0:5000`. The address `0.0.0.0` is not loopback, so the server prints a warning that it has no authentication.
+The image runs `atak-dl serve --addr 0.0.0.0:5000` by default. Arguments after the image name replace `serve --addr 0.0.0.0:5000`. The address `0.0.0.0` is not loopback, so the server requires a token. With no `--token` and no `ATAKDL_TOKEN`, the server generates a token and prints it once to stderr.
 
 ## Build
 
@@ -127,10 +127,11 @@ Then open http://localhost:5000 in your browser.
 | (global) | `--mapsources-dir` | `<user config dir>/atak-dl/mapsources` | User source directory. The project loads it after the snapshot, and it reads its subdirectories too. A missing directory is not an error. |
 | (global) | `--no-snapshot` | `false` | Load only the user source directory, without the embedded snapshot. |
 | `sources sync` | `--tag` | latest release | ATAK-Maps release tag to download, for example `v2.3.1`. |
-| `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, `serve` prints a warning, because the server has no authentication. |
+| `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, every route needs the token, apart from `GET /healthz` and the sign-in page. |
 | `serve` | `--geocoder-url` | `https://nominatim.openstreetmap.org` | Base URL of the Nominatim geocoder for place search. The server sends at most 1 geocode request per second, waits at most 5 s for a slot, and caches each result for 24 hours. A URL that is not an absolute `http` or `https` URL fails. |
 | `serve` | `--no-geocode` | `false` | Turn off place search. `POST /api/geocode` returns 404 `not_found`, `GET /api/config` returns `{"geocode": false}`, and the web UI hides the search box. |
 | `serve` | `--max-tiles` | `500000` | Tile cap of a job. `POST /api/jobs` for a job above the cap returns 400 `too_many_tiles`, and the job sends no request. |
+| `serve` | `--token` | `ATAKDL_TOKEN`, else generated | Token of a server that is not on loopback. A client sends it as `Authorization: Bearer <token>`, or signs in at `/signin` to get the `atakdl_token` cookie. With no token set, `serve` generates a 32-character token and prints it once to stderr. A server on loopback needs no token. 10 failed token attempts in one minute from one IP address give 429 `too_many_attempts`. |
 | `download` | `--source` | - | Map source name (required) |
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon. It is required, except with `--area` or `--resume --output <file>`. |
 | `download` | `--area` | - | GeoJSON (`.geojson`, `.json`), KML (`.kml`) or KMZ (`.kmz`) file of the areas, at most 5 MiB. A polygon becomes a `polygon` area, and a line becomes a `route_buffer` area. The GeoJSON Feature properties `min_zoom`, `max_zoom`, `buffer_m` and `name` set the values of that area. A KML Placemark `name` becomes the area name. The command ignores Point features and prints a warning with their count. You cannot use it together with `--bbox`, or the command exits with code 1. |

@@ -1,7 +1,7 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, and checks twelve responses and the bind warning.
+# smoke.sh builds atak-dl, starts serve on a free port, and checks twelve responses and the token of a server that is not on loopback.
 # It also checks the terms exit code, the output file exit code, the tile cap, --no-geocode, the sources sync command and the area file parser.
-# FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25,
+# FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9 and -17, FR-team-server-17, -19 and -20,
 # FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27, FR-source-sync-10, -11, -16 and -29,
 # and FR-area-selection-16 and -18 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
@@ -135,21 +135,37 @@ if len(areas) != 1 or areas[0].get("kind") != "route_buffer" or len(body.get("wa
 print("smoke: POST /api/areas/parse returned one route_buffer area and one warning")
 '
 
-# A server on an address that is not loopback prints the warning of FR-security-hardening-25.
+# A server on an address that is not loopback generates a token and prints it once (FR-team-server-17, -19 and -20).
 stderr_file=$(mktemp)
-./atak-dl serve --addr "0.0.0.0:0" >/dev/null 2>"$stderr_file" &
+open_port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("0.0.0.0", 0)); print(s.getsockname()[1]); s.close()')
+./atak-dl serve --addr "0.0.0.0:$open_port" >/dev/null 2>"$stderr_file" &
 open_pid=$!
 trap 'kill "$pid" "$open_pid" 2>/dev/null || true; rm -f "$stderr_file"; rm -rf "$smoke_home"' EXIT INT TERM
 attempt=0
-until grep -q "warning: the server has no authentication" "$stderr_file"; do
+until grep -q "^token: " "$stderr_file" && [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$open_port/api/sources" || true)" != "000" ]; do
 	attempt=$((attempt + 1))
 	if [ "$attempt" -ge 50 ]; then
-		echo "smoke: serve --addr 0.0.0.0:0 did not print the no-authentication warning within 10 s" >&2
+		echo "smoke: serve --addr 0.0.0.0:$open_port did not print a token and answer within 10 s" >&2
 		exit 1
 	fi
 	sleep 0.2
 done
-echo "smoke: serve --addr 0.0.0.0:0 printed the no-authentication warning"
+token=$(sed -n 's/^token: \([0-9a-f]\{32\}\) .*/\1/p' "$stderr_file")
+if [ -z "$token" ]; then
+	echo "smoke: serve --addr 0.0.0.0:$open_port printed no 32-character token" >&2
+	exit 1
+fi
+status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$open_port/api/sources")
+if [ "$status" != "401" ]; then
+	echo "smoke: GET /api/sources with no token returned $status, want 401" >&2
+	exit 1
+fi
+status=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:$open_port/api/sources")
+if [ "$status" != "200" ]; then
+	echo "smoke: GET /api/sources with the bearer token returned $status, want 200" >&2
+	exit 1
+fi
+echo "smoke: serve --addr 0.0.0.0 printed a token, and GET /api/sources returned 401 without it and 200 with it"
 
 # A restricted map source without --accept-terms exits with code 2 (FR-polite-downloading-18).
 # The output directory is a regular file, so a build without the check fails before it sends a request to Google.
