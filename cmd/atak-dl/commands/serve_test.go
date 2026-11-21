@@ -81,10 +81,11 @@ func TestServePrintsTheNoAuthenticationWarningForANonLoopbackAddress(t *testing.
 			// serve makes the downloads directory in the working directory.
 			t.Chdir(t.TempDir())
 			root := &cobra.Command{Use: "atak-dl"}
+			root.PersistentFlags().String("mapsources-dir", "", "")
 			root.AddCommand(NewServeCmd(testUserAgent))
 			var stderr bytes.Buffer
 			root.SetErr(&stderr)
-			root.SetArgs([]string{"serve", "--addr", tt.addr, "--mapsources-dir", t.TempDir()})
+			root.SetArgs([]string{"--mapsources-dir", t.TempDir(), "serve", "--addr", tt.addr})
 
 			// A cancelled context makes serve stop at once, after it prints the warning.
 			ctx, cancel := context.WithCancel(context.Background())

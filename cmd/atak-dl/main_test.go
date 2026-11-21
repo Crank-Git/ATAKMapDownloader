@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -29,9 +30,9 @@ func TestDownloadOfAGoogleSourceWithoutAcceptTermsExitsWithCode2(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.CommandContext(t.Context(), os.Args[0], //nolint:gosec // os.Args[0] is this test binary, and the arguments are constants.
-		"--mapsources-dir", "../../mapsources",
+		"--mapsources-dir", t.TempDir(),
 		"download",
-		"--source", "Google - Satellite Only",
+		"--source", "Google Satellite",
 		"--bbox", "40.7,-74.1,40.8,-74.0",
 		"--min-zoom", "10", "--max-zoom", "10",
 		"--output", filepath.Join(blocker, "out.sqlite"),
@@ -96,5 +97,71 @@ func TestUserAgentNamesTheVersionAndTheProjectURL(t *testing.T) {
 	want := "atak-map-downloader/0.2.0 (+https://github.com/Crank-Git/ATAKMapDownloader)"
 	if got := userAgent("0.2.0"); got != want {
 		t.Errorf("userAgent(%q) = %q, want %q", "0.2.0", got, want)
+	}
+}
+
+// setCleanMachine gives the test a new home directory and working directory, so no user source directory and no mapsources/ folder exist.
+func setCleanMachine(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("AppData", filepath.Join(home, "AppData"))
+	t.Chdir(t.TempDir())
+}
+
+func TestMapsourcesDirDefaultsToTheUserConfigDirectory(t *testing.T) {
+	setCleanMachine(t)
+	config, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(config, "atak-dl", "mapsources")
+	got := newRootCmd("dev", "none", "unknown").PersistentFlags().Lookup("mapsources-dir").DefValue
+	if got != want {
+		t.Errorf("--mapsources-dir default = %q, want %q", got, want)
+	}
+}
+
+func TestListSourcesOnACleanMachineListsTheSnapshotSources(t *testing.T) {
+	setCleanMachine(t)
+	root := newRootCmd("dev", "none", "unknown")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"list-sources"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() returned %v", err)
+	}
+	for _, want := range []string{
+		"  Google Satellite (jpg) - Zoom 0-20 - None - restricted - tile - snapshot\n",
+		"  USGS Topo (jpg) - Zoom 0-16 - None - open - tile - snapshot\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("list-sources printed %q, want it to hold %q", out.String(), want)
+		}
+	}
+}
+
+func TestServeLoadsTheSourceFilesOfTheGlobalMapsourcesDir(t *testing.T) {
+	setCleanMachine(t)
+	dir := t.TempDir()
+	xml := `<customMapSource><name>Serve Test</name><url>https://example.com/{$z}/{$x}/{$y}.png</url></customMapSource>`
+	if err := os.WriteFile(filepath.Join(dir, "serve.xml"), []byte(xml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := newRootCmd("dev", "none", "unknown")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"--mapsources-dir", dir, "--no-snapshot", "serve", "--addr", "127.0.0.1:0"})
+
+	// A cancelled context makes serve stop at once, after it loads the source catalog.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("Execute() returned %v", err)
+	}
+	want := "Mapsources: " + dir + " (1 sources)\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("serve printed %q, want it to hold %q", out.String(), want)
 	}
 }

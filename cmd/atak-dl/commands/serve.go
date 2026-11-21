@@ -9,7 +9,6 @@ import (
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
-	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +23,6 @@ func NewServeCmd(userAgent string) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("addr", "localhost:5000", "Address to listen on")
-	cmd.Flags().String("mapsources-dir", "mapsources", "Directory containing XML map source files")
 	cmd.Flags().String("geocoder-url", defaultGeocoderURL, "Base URL of the Nominatim geocoder for place search")
 	cmd.Flags().Bool("no-geocode", false, "Turn off place search and hide the search box in the web UI")
 	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job API job above this tile count")
@@ -32,7 +30,6 @@ func NewServeCmd(userAgent string) *cobra.Command {
 }
 
 func runServe(cmd *cobra.Command, userAgent string) error {
-	dir, _ := cmd.Flags().GetString("mapsources-dir")
 	addr, _ := cmd.Flags().GetString("addr")
 
 	host, _, err := net.SplitHostPort(addr)
@@ -43,7 +40,8 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 	ip := net.ParseIP(host)
 	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
 
-	parser := xmlparser.New(dir)
+	parser := getParser(cmd)
+	dir := parser.MapsourcesDir
 	sources := parser.DiscoverSources(false)
 	if len(sources) == 0 {
 		fmt.Fprintf(os.Stderr, "Warning: No map sources found in %s\n", dir)
@@ -68,9 +66,10 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 			return fmt.Errorf("print the authentication warning: %w", err)
 		}
 	}
-	fmt.Printf("ATAK Map Downloader - Web Interface\n")
-	fmt.Printf("Open http://%s in your browser\n", addr)
-	fmt.Printf("Mapsources: %s (%d sources)\n", dir, len(sources))
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "ATAK Map Downloader - Web Interface\nOpen http://%s in your browser\nMapsources: %s (%d sources)\n",
+		addr, dir, len(sources)); err != nil {
+		return fmt.Errorf("print the start message: %w", err)
+	}
 
 	srv := newServer(addr, handler)
 	served := make(chan error, 1)

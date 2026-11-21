@@ -24,7 +24,20 @@ type MapSource struct {
 	BackgroundColor string
 	IgnoreErrors    bool
 	ServerParts     []string
+	// Kind is KindTile. Issue #41 adds the WMS kind.
+	Kind string
+	// Origin is OriginSnapshot or OriginUser.
+	Origin string
 }
+
+// KindTile marks a map source with a tile URL template.
+const KindTile = "tile"
+
+// The origins of a map source (FR-source-sync-4).
+const (
+	OriginSnapshot = "snapshot"
+	OriginUser     = "user"
+)
 
 // FileExtension returns the file extension for this tile type.
 func (m *MapSource) FileExtension() string {
@@ -117,11 +130,14 @@ type customMapSourceXML struct {
 // XMLParser parses map source XML configuration files.
 type XMLParser struct {
 	MapsourcesDir string
+	snapshot      fs.FS
 	sourcesCache  map[string]*MapSource
+	scanned       bool
 	lastScanTime  time.Time
 }
 
-// New creates a new XMLParser.
+// New returns a parser for the user source directory mapsourcesDir alone.
+// An empty mapsourcesDir gives a parser with no source directory.
 func New(mapsourcesDir string) *XMLParser {
 	return &XMLParser{
 		MapsourcesDir: mapsourcesDir,
@@ -129,55 +145,102 @@ func New(mapsourcesDir string) *XMLParser {
 	}
 }
 
-// DiscoverSources discovers and parses all XML source files.
+// NewWithSnapshot returns a parser that loads the source files of snapshot first, then the user source directory mapsourcesDir.
+// A map source from mapsourcesDir replaces a snapshot map source with the same name (FR-source-sync-5).
+func NewWithSnapshot(snapshot fs.FS, mapsourcesDir string) *XMLParser {
+	p := New(mapsourcesDir)
+	p.snapshot = snapshot
+	return p
+}
+
+// DiscoverSources returns the map sources of the snapshot and of the user source directory, by name.
+// It reads the files again when forceRescan is true or when the modification time of the user source directory changes.
+// A missing user source directory adds no map source and is not an error.
 func (p *XMLParser) DiscoverSources(forceRescan bool) map[string]*MapSource {
-	info, err := os.Stat(p.MapsourcesDir)
-	if err != nil {
-		slog.Debug("mapsources dir not found", "path", p.MapsourcesDir)
-		return p.sourcesCache
-	}
-
-	currentTime := info.ModTime()
-	if !forceRescan && len(p.sourcesCache) > 0 && !currentTime.After(p.lastScanTime) {
-		return p.sourcesCache
-	}
-
-	slog.Info("scanning for XML sources", "dir", p.MapsourcesDir)
-	sources := make(map[string]*MapSource)
-
-	// The callback returns nil for every entry, so WalkDir returns nil.
-	_ = filepath.WalkDir(p.MapsourcesDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".xml") {
-			return nil
+	var currentTime time.Time
+	userDir := false
+	if p.MapsourcesDir != "" {
+		if info, err := os.Stat(p.MapsourcesDir); err == nil {
+			currentTime = info.ModTime()
+			userDir = true
+		} else {
+			slog.Debug("mapsources dir not found", "path", p.MapsourcesDir)
 		}
-		source, err := p.ParseFile(path)
+	}
+
+	if !forceRescan && p.scanned && !currentTime.After(p.lastScanTime) {
+		return p.sourcesCache
+	}
+
+	sources := make(map[string]*MapSource)
+	add := func(path string, source *MapSource, err error) {
 		if err != nil {
 			// Skip unsupported formats (e.g. customWmsMapSource) silently
 			if !strings.Contains(err.Error(), "customMapSource") {
 				slog.Debug("skipped XML", "file", path, "reason", err.Error())
 			}
-			return nil
+			return
 		}
 		if source != nil {
 			sources[source.Name] = source
-			slog.Debug("loaded source", "name", source.Name)
+			slog.Debug("loaded source", "name", source.Name, "origin", source.Origin)
 		}
-		return nil
-	})
+	}
+
+	if p.snapshot != nil {
+		walkXML(p.snapshot, func(path string) {
+			source, err := p.ParseFS(p.snapshot, path)
+			add(path, source, err)
+		})
+	}
+	if userDir {
+		slog.Info("scanning for XML sources", "dir", p.MapsourcesDir)
+		walkXML(os.DirFS(p.MapsourcesDir), func(path string) {
+			full := filepath.Join(p.MapsourcesDir, filepath.FromSlash(path))
+			source, err := p.ParseFile(full)
+			add(full, source, err)
+		})
+	}
 
 	p.sourcesCache = sources
+	p.scanned = true
 	p.lastScanTime = currentTime
 	slog.Info("loaded map sources", "count", len(sources))
 	return sources
 }
 
-// ParseFile parses a single XML configuration file.
+// walkXML calls load for each .xml file in fsys, at any depth.
+func walkXML(fsys fs.FS, load func(path string)) {
+	// The callback returns nil for every entry, so WalkDir returns nil.
+	_ = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(path), ".xml") {
+			load(path)
+		}
+		return nil
+	})
+}
+
+// ParseFile returns the map source of the source file at xmlPath, with origin user.
+// It returns nil and no error for a file with no name or no URL.
 func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
 	data, err := os.ReadFile(xmlPath) //nolint:gosec // The operator chooses the map sources directory.
 	if err != nil {
 		return nil, err
 	}
+	return parse(data, xmlPath, OriginUser)
+}
 
+// ParseFS returns the map source of the snapshot source file name in fsys, with origin snapshot.
+// It returns nil and no error for a file with no name or no URL.
+func (p *XMLParser) ParseFS(fsys fs.FS, name string) (*MapSource, error) {
+	data, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return nil, err
+	}
+	return parse(data, name, OriginSnapshot)
+}
+
+func parse(data []byte, xmlPath, origin string) (*MapSource, error) {
 	var raw customMapSourceXML
 	if err := xml.Unmarshal(data, &raw); err != nil {
 		return nil, err
@@ -222,6 +285,8 @@ func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
 		BackgroundColor: raw.BackgroundColor,
 		IgnoreErrors:    raw.IgnoreErrors,
 		ServerParts:     serverParts,
+		Kind:            KindTile,
+		Origin:          origin,
 	}, nil
 }
 

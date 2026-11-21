@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/crank-git/atak-map-downloader/cmd/atak-dl/commands"
 	"github.com/spf13/cobra"
@@ -38,7 +39,8 @@ func newRootCmd(version, commit, date string) *cobra.Command {
 		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 	}
 
-	root.PersistentFlags().String("mapsources-dir", "mapsources", "Directory containing XML map source files")
+	root.PersistentFlags().String("mapsources-dir", defaultSourcesDir(), "User source directory, loaded after the embedded snapshot")
+	root.PersistentFlags().Bool("no-snapshot", false, "Load only the user source directory, without the embedded snapshot")
 
 	root.AddCommand(commands.NewListSourcesCmd())
 	root.AddCommand(commands.NewEstimateCmd())
@@ -48,4 +50,14 @@ func newRootCmd(version, commit, date string) *cobra.Command {
 	root.AddCommand(commands.NewServeCmd(userAgent(version)))
 
 	return root
+}
+
+// defaultSourcesDir returns <user config dir>/atak-dl/mapsources (FR-source-sync-6).
+// When the OS names no user config directory, it returns "", so the catalog holds only the snapshot.
+func defaultSourcesDir() string {
+	config, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(config, "atak-dl", "mapsources")
 }
