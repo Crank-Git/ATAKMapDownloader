@@ -154,10 +154,10 @@ func (h *WebHandler) listFiles(w http.ResponseWriter) {
 		return
 	}
 
-	running := h.runningOutputFile()
+	running := h.runningOutputFiles()
 	items := []outputFileItem{}
 	for _, e := range entries {
-		item, ok := h.outputFile(root, e.Name(), e.Name() == running)
+		item, ok := h.outputFile(root, e.Name(), running[e.Name()])
 		if ok {
 			items = append(items, item)
 		}
@@ -171,14 +171,17 @@ func (h *WebHandler) listFiles(w http.ResponseWriter) {
 	writeJSON(w, items)
 }
 
-// runningOutputFile returns the output file name of the running job, or "" when no job runs.
-func (h *WebHandler) runningOutputFile() string {
-	h.dlState.Lock()
-	defer h.dlState.Unlock()
-	if !h.dlState.downloading {
-		return ""
+// runningOutputFiles returns the set of the output file names of the running jobs.
+func (h *WebHandler) runningOutputFiles() map[string]bool {
+	h.jobMu.Lock()
+	defer h.jobMu.Unlock()
+	files := map[string]bool{}
+	for _, j := range h.jobs {
+		if rec := j.snapshot(); rec.State == jobRunning {
+			files[rec.OutputFile] = true
+		}
 	}
-	return h.dlState.job.snapshot().OutputFile
+	return files
 }
 
 // outputFile returns the list item of the entry name in root, and false when the entry is not an output file.

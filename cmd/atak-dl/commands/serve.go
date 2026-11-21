@@ -26,9 +26,13 @@ func NewServeCmd(userAgent string) *cobra.Command {
 	cmd.Flags().String("geocoder-url", defaultGeocoderURL, "Base URL of the Nominatim geocoder for place search")
 	cmd.Flags().Bool("no-geocode", false, "Turn off place search and hide the search box in the web UI")
 	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job API job above this tile count")
+	cmd.Flags().Int("workers", 1, fmt.Sprintf("Number of jobs that run at the same time, 1 to %d", maxWorkers))
 	cmd.Flags().String("token", "", "Token of a server that is not on loopback. The default is ATAKDL_TOKEN, else a generated token")
 	return cmd
 }
+
+// maxWorkers is the highest value of serve --workers (feature 12, interfaces).
+const maxWorkers = 8
 
 func runServe(cmd *cobra.Command, userAgent string) error {
 	addr, _ := cmd.Flags().GetString("addr")
@@ -59,12 +63,17 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 	if wh.maxTiles, err = cmd.Flags().GetInt("max-tiles"); err != nil {
 		return fmt.Errorf("read --max-tiles: %w", err)
 	}
+	workers, err := serveWorkers(cmd)
+	if err != nil {
+		return err
+	}
 	if !loopback {
 		if wh.auth, err = serverAuth(cmd); err != nil {
 			return err
 		}
 	}
 	handler := newServerHandler(wh)
+	wh.queue.Start(cmd.Context(), workers)
 
 	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "ATAK Map Downloader - Web Interface\nOpen http://%s in your browser\nMapsources: %s (%d sources)\n",
 		addr, dir, len(sources)); err != nil {
@@ -84,6 +93,19 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 		}
 		return nil
 	}
+}
+
+// serveWorkers returns the value of --workers (FR-team-server-2).
+// It returns an error when the value is outside the range 1 to maxWorkers.
+func serveWorkers(cmd *cobra.Command) (int, error) {
+	workers, err := cmd.Flags().GetInt("workers")
+	if err != nil {
+		return 0, fmt.Errorf("read --workers: %w", err)
+	}
+	if workers < 1 || workers > maxWorkers {
+		return 0, fmt.Errorf("--workers %d is outside the range 1-%d", workers, maxWorkers)
+	}
+	return workers, nil
 }
 
 // serverAuth returns the token auth of a server that is not on loopback (FR-team-server-18, FR-team-server-19).

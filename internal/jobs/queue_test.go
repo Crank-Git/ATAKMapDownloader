@@ -29,7 +29,7 @@ func newBlockingRun() *blockingRun {
 	return &blockingRun{started: make(chan string, MaxQueued), release: make(chan struct{})}
 }
 
-func (b *blockingRun) run(ctx context.Context, id string) {
+func (b *blockingRun) run(id string) {
 	n := b.active.Add(1)
 	for {
 		p := b.peak.Load()
@@ -38,10 +38,7 @@ func (b *blockingRun) run(ctx context.Context, id string) {
 		}
 	}
 	b.started <- id
-	select {
-	case <-b.release:
-	case <-ctx.Done():
-	}
+	<-b.release
 	b.active.Add(-1)
 }
 
@@ -67,6 +64,16 @@ func (b *blockingRun) none(t *testing.T) {
 	}
 }
 
+// addAll adds each id to q, and fails the test when an Add returns an error.
+func addAll(t *testing.T, q *Queue, ids []string) {
+	t.Helper()
+	for _, id := range ids {
+		if _, err := q.Add(id); err != nil {
+			t.Fatalf("Add(%s) returned %v", id, err)
+		}
+	}
+}
+
 func TestQueueRunsAtMostWorkersJobsInAddOrder(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -80,11 +87,7 @@ func TestQueueRunsAtMostWorkersJobsInAddOrder(t *testing.T) {
 			b := newBlockingRun()
 			q := NewQueue(b.run)
 			ids := []string{"a", "b", "c", "d", "e"}
-			for _, id := range ids {
-				if _, err := q.Add(id); err != nil {
-					t.Fatalf("Add(%s) returned %v", id, err)
-				}
-			}
+			addAll(t, q, ids)
 			q.Start(t.Context(), tt.workers)
 
 			var got []string
@@ -108,7 +111,7 @@ func TestQueueRunsAtMostWorkersJobsInAddOrder(t *testing.T) {
 }
 
 func TestQueueAddAboveMaxQueuedReturnsErrQueueFull(t *testing.T) {
-	q := NewQueue(func(context.Context, string) {})
+	q := NewQueue(func(string) {})
 	for i := 1; i <= MaxQueued; i++ {
 		pos, err := q.Add(fmt.Sprint(i))
 		if err != nil || pos != i {
@@ -126,11 +129,7 @@ func TestQueueAddAboveMaxQueuedReturnsErrQueueFull(t *testing.T) {
 func TestQueueRemoveAndPosition(t *testing.T) {
 	b := newBlockingRun()
 	q := NewQueue(b.run)
-	for _, id := range []string{"a", "b", "c"} {
-		if _, err := q.Add(id); err != nil {
-			t.Fatal(err)
-		}
-	}
+	addAll(t, q, []string{"a", "b", "c"})
 	q.Start(t.Context(), 1)
 	if id := b.next(t); id != "a" {
 		t.Fatalf("first start = %s, want a", id)
@@ -170,7 +169,7 @@ func TestQueueRemoveAndPosition(t *testing.T) {
 func TestQueueWorkersStopWhenTheContextEnds(t *testing.T) {
 	var mu sync.Mutex
 	var ran []string
-	q := NewQueue(func(_ context.Context, id string) {
+	q := NewQueue(func(id string) {
 		mu.Lock()
 		defer mu.Unlock()
 		ran = append(ran, id)

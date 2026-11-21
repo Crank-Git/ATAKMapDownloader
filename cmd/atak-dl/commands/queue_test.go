@@ -130,11 +130,11 @@ func TestDeleteCancelsAQueuedJobWithNoTileRequest(t *testing.T) {
 
 func TestResumeRequestsOnlyTheMissingTiles(t *testing.T) {
 	area := tilecalc.TileBounds{MinX: 310, MaxX: 311, MinY: 400, MaxY: 401, Zoom: 10}
-	// The main pass and the retry pass each get a 404 for these tiles, so the first run fails with half of the tiles.
+	// The retry pass skips a 404 tile, so one 404 for each of these tiles fails the first run with half of the tiles.
 	missing := []testtiles.Tile{{Z: 10, X: 310, Y: 400}, {Z: 10, X: 311, Y: 401}}
 	table := testtiles.Table{}
 	for _, tile := range missing {
-		table[tile] = testtiles.Response{Kind: testtiles.NotFound, Times: 2}
+		table[tile] = testtiles.Response{Kind: testtiles.NotFound, Times: 1}
 	}
 	s := newJobServer(t, table)
 	rec := s.startJob(t, jobBody(area))
@@ -210,7 +210,7 @@ func TestResumeRejectsAJobThatIsNotFailedOrCancelled(t *testing.T) {
 }
 
 func TestQueueFullReturns429(t *testing.T) {
-	s := newJobServer(t, slowTable(slowArea, 200*time.Millisecond))
+	s := newJobServer(t, slowTable(slowArea, 500*time.Millisecond))
 	running := s.startJob(t, jobBody(slowArea))
 	s.waitState(t, running.ID, jobRunning)
 
