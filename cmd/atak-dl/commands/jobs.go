@@ -278,7 +278,6 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	j := h.newJob(req, bounds, cancel)
 	h.dlState.downloading = true
-	h.dlState.cancel = cancel
 	h.dlState.job = j
 	h.dlState.Unlock()
 
@@ -393,7 +392,6 @@ func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source 
 	// The lock frees first, so a client that reads the final state can start the next job at once.
 	h.dlState.Lock()
 	h.dlState.downloading = false
-	h.dlState.cancel = nil
 	h.dlState.Unlock()
 	j.result <- res
 }

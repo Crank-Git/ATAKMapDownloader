@@ -1,11 +1,13 @@
-// ATAK Tile Downloader Web Application (WebSocket version)
+// ATAK Tile Downloader web application. It runs jobs through the job API and follows them over SSE.
 class ATAKDownloader {
     constructor() {
         this.map = null;
         this.drawControl = null;
         this.selectedArea = null;
         this.mapSources = [];
-        this.ws = null;
+        this.jobId = null;
+        this.jobEvents = null;
+        this.lastJobLog = null;
         this.isDarkMode = false;
         this.loadingModal = null;
         this.isDownloading = false;
@@ -18,7 +20,6 @@ class ATAKDownloader {
     init() {
         this.initTheme();
         this.initMap();
-        this.initWebSocket();
         this.loadMapSources();
         this.bindEvents();
         this.initModal();
@@ -108,78 +109,63 @@ class ATAKDownloader {
         });
     }
     
-    initWebSocket() {
-        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = proto + '//' + window.location.host + '/ws';
-        
-        const connect = () => {
-            this.ws = new WebSocket(wsUrl);
-            
-            this.ws.onopen = () => {
-                this.logStatus('Connected to server', 'success');
-                if (this.isDownloading) {
-                    this.sendWS({ type: 'get_download_status' });
-                }
-            };
-            
-            this.ws.onclose = () => {
-                this.logStatus('Disconnected - reconnecting...', 'warning');
-                setTimeout(connect, 2000);
-            };
-            
-            this.ws.onmessage = (event) => {
-                try {
-                    const msg = JSON.parse(event.data);
-                    this.handleWSMessage(msg);
-                } catch (e) {
-                    console.error('WS parse error', e);
-                }
-            };
-            
-            this.ws.onerror = () => {};
+    // followJob opens the SSE stream of the job and updates the UI from its events.
+    followJob(id) {
+        this.jobEvents = new EventSource('/api/jobs/' + encodeURIComponent(id) + '/events');
+        this.jobEvents.addEventListener('state', (e) => this.onJobState(JSON.parse(e.data)));
+        this.jobEvents.addEventListener('progress', (e) => this.updateDownloadProgress(JSON.parse(e.data)));
+        this.jobEvents.addEventListener('log', (e) => {
+            const entry = JSON.parse(e.data);
+            this.lastJobLog = entry.message;
+            this.logStatus(entry.message, entry.level);
+        });
+        this.jobEvents.onerror = () => {
+            // EventSource reconnects by itself. CLOSED means that the server refused the stream, for example after a restart lost the job.
+            if (this.jobEvents && this.jobEvents.readyState === EventSource.CLOSED) {
+                this.logStatus('Lost the job event stream', 'error');
+                this.closeJobEvents();
+                this.resetDownloadUI();
+            }
         };
-        
-        connect();
     }
-    
-    sendWS(obj) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(obj));
+
+    // closeJobEvents closes the SSE stream, because EventSource otherwise reconnects to an ended job forever.
+    closeJobEvents() {
+        if (this.jobEvents) {
+            this.jobEvents.close();
+            this.jobEvents = null;
         }
     }
-    
-    handleWSMessage(msg) {
-        switch (msg.type) {
-            case 'status':
-                this.logStatus(msg.message);
-                break;
-            case 'download_started':
-                this.logStatus('Download started: ' + msg.message, 'info');
-                this.logStatus('Output file: ' + msg.output_file, 'info');
+
+    onJobState(record) {
+        switch (record.state) {
+            case 'running':
                 this.isDownloading = true;
                 this.showCancelButton(true);
                 break;
-            case 'download_progress':
-                this.updateDownloadProgress(msg);
-                break;
-            case 'download_complete':
-                this.logStatus(msg.message, 'success');
-                this.logStatus('File saved: ' + msg.filename, 'success');
-                this.showDownloadComplete(msg);
+            case 'complete':
+                this.closeJobEvents();
+                this.logStatus('Download complete. Saved to ' + record.output_file, 'success');
+                this.showDownloadComplete(record);
                 this.resetDownloadUI();
                 break;
-            case 'download_error':
-                this.logStatus('Download error: ' + msg.message, 'error');
+            case 'failed':
+                this.closeJobEvents();
+                // A failed job sends its error as a log event first, and a client that connects late gets only this state.
+                if (record.error !== this.lastJobLog) {
+                    this.logStatus('Download failed: ' + record.error, 'error');
+                }
                 this.hideDownloadResults();
                 this.resetDownloadUI();
                 break;
-            case 'download_cancelled':
-                this.logStatus(msg.message, 'warning');
+            case 'cancelled':
+                this.closeJobEvents();
+                this.logStatus('Download cancelled', 'warning');
                 this.resetDownloadUI();
                 break;
         }
     }
-    
+
     async loadMapSources() {
         try {
             const response = await fetch('/api/sources');
@@ -454,59 +440,59 @@ class ATAKDownloader {
         return Math.round(seconds/86400) + 'd';
     }
     
-    startDownload() {
+    async startDownload() {
         if (!this.selectedArea || !document.getElementById('mapSourceSelect').value) {
             this.logStatus('Select area and map source first', 'error');
             return;
         }
         const bounds = this.selectedArea;
-        const customName = document.getElementById('customName').value.trim();
-        const maxConcurrent = parseInt(document.getElementById('maxConcurrent').value) || 5;
-        const delayBetweenBatches = parseFloat(document.getElementById('delayBetweenBatches').value) || 0.2;
-        const failureTolerance = parseFloat(document.getElementById('failureTolerance').value) || 0.3;
-        const ignoreErrors = document.getElementById('ignoreErrors').checked;
-        const verifySSL = document.getElementById('verifySSL').checked;
-        
+        const concurrency = parseInt(document.getElementById('maxConcurrent').value) || 5;
+
         this.hideDownloadResults();
-        this.sendWS({
-            type: 'start_download',
-            data: {
-                source: document.getElementById('mapSourceSelect').value,
-                bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-                min_zoom: parseInt(document.getElementById('minZoom').value),
-                max_zoom: parseInt(document.getElementById('maxZoom').value),
-                custom_name: customName || null,
-                advanced_settings: {
-                    max_concurrent: maxConcurrent,
-                    delay_between_batches: delayBetweenBatches,
-                    failure_tolerance: failureTolerance,
-                    ignore_errors: ignoreErrors,
-                    verify_ssl: verifySSL
-                }
-            }
-        });
-        
         document.getElementById('downloadBtn').disabled = true;
         document.getElementById('downloadBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
-        this.logStatus('Download started with ' + maxConcurrent + ' concurrent connections...', 'info');
+        try {
+            const response = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source: document.getElementById('mapSourceSelect').value,
+                    bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+                    min_zoom: parseInt(document.getElementById('minZoom').value),
+                    max_zoom: parseInt(document.getElementById('maxZoom').value),
+                    name: document.getElementById('customName').value.trim(),
+                    concurrency: concurrency,
+                    failure_tolerance: parseFloat(document.getElementById('failureTolerance').value) || 0.3,
+                    ignore_errors: document.getElementById('ignoreErrors').checked,
+                    verify_tls: document.getElementById('verifyTLS').checked
+                })
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error((result.error && result.error.message) || 'The server did not start the job');
+            }
+            this.jobId = result.id;
+            this.lastJobLog = null;
+            this.logStatus('Download started with ' + concurrency + ' concurrent connections', 'info');
+            this.logStatus('Output file: ' + result.output_file, 'info');
+            this.followJob(result.id);
+        } catch (error) {
+            this.logStatus('Download error: ' + error.message, 'error');
+            this.resetDownloadUI();
+        }
     }
-    
+
     updateDownloadProgress(data) {
         const progressDiv = document.getElementById('downloadProgress');
-        const progress = Math.min(100, Math.max(0, data.progress || 0));
-        let etaText = data.eta && data.eta > 0 ? ' - ETA: ' + this.formatTime(data.eta) : '';
+        const progress = data.total > 0 ? Math.min(100, data.downloaded / data.total * 100) : 0;
+        let etaText = data.eta_seconds > 0 ? ' - ETA: ' + this.formatTime(data.eta_seconds) : '';
         let rateText = data.rate && data.rate > 0 ? ' (' + data.rate.toFixed(1) + ' tiles/s)' : '';
         let failedText = '';
         if (data.failed > 0) {
-            const totalProcessed = (typeof data.downloaded === 'number' ? data.downloaded : 0) + data.failed;
-            if (totalProcessed > 0) {
-                const failureRate = ((data.failed / totalProcessed) * 100).toFixed(1);
-                failedText = '<br><small class="text-warning">⚠️ Failed tiles: ' + data.failed + ' (' + failureRate + '% failure rate)</small>';
-            }
+            const failureRate = ((data.failed / (data.downloaded + data.failed)) * 100).toFixed(1);
+            failedText = '<br><small class="text-warning">⚠️ Failed tiles: ' + data.failed + ' (' + failureRate + '% failure rate)</small>';
         }
-        let statusText = progress >= 100 || data.downloaded === 'Final' ?
-            '<small>Download completed successfully!</small>' :
-            '<small>Downloaded ' + data.downloaded + '/' + data.total + ' tiles (' + progress.toFixed(1) + '%)' + rateText + etaText + '</small>';
+        let statusText = '<small>Downloaded ' + data.downloaded + '/' + data.total + ' tiles (' + progress.toFixed(1) + '%)' + rateText + etaText + '</small>';
         
         progressDiv.innerHTML = `
             <div class="progress mb-2">
@@ -556,15 +542,15 @@ class ATAKDownloader {
         const className = type === 'error' ? 'text-danger' : type === 'success' ? 'text-success' : type === 'warning' ? 'text-warning' : '';
         const logEntry = document.createElement('div');
         logEntry.className = className;
-        logEntry.innerHTML = '[' + timestamp + '] ' + message;
+        logEntry.textContent = '[' + timestamp + '] ' + message;
         statusLog.appendChild(logEntry);
         statusLog.scrollTop = statusLog.scrollHeight;
         while (statusLog.children.length > 50) statusLog.removeChild(statusLog.firstChild);
     }
     
-    showDownloadComplete(data) {
-        document.getElementById('downloadResultMessage').textContent = data.message;
-        document.getElementById('downloadResultFile').textContent = data.filename;
+    showDownloadComplete(record) {
+        document.getElementById('downloadResultMessage').textContent = 'Downloaded ' + record.downloaded + ' of ' + record.total + ' tiles.';
+        document.getElementById('downloadResultFile').textContent = record.output_file;
         document.getElementById('downloadResults').style.display = 'block';
         document.getElementById('downloadResults').scrollIntoView({ behavior: 'smooth' });
     }
@@ -580,12 +566,23 @@ class ATAKDownloader {
         }
     }
     
-    cancelDownload() {
-        if (this.isDownloading) {
-            this.logStatus('Cancelling download...', 'warning');
-            this.sendWS({ type: 'cancel_download' });
-            document.getElementById('cancelBtn').disabled = true;
-            document.getElementById('cancelBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
+    // cancelDownload asks the server to cancel the job. The final state event resets the UI.
+    async cancelDownload() {
+        if (!this.isDownloading || !this.jobId) {
+            return;
+        }
+        this.logStatus('Cancelling download...', 'warning');
+        document.getElementById('cancelBtn').disabled = true;
+        document.getElementById('cancelBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
+        try {
+            const response = await fetch('/api/jobs/' + encodeURIComponent(this.jobId), { method: 'DELETE' });
+            if (!response.ok) {
+                const result = await response.json();
+                throw new Error((result.error && result.error.message) || 'The server did not cancel the job');
+            }
+        } catch (error) {
+            this.logStatus('Cancel error: ' + error.message, 'error');
+            this.showCancelButton(true);
         }
     }
     

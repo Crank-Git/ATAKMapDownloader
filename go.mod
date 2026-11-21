@@ -5,7 +5,6 @@ go 1.26.0
 toolchain go1.27.4
 
 require (
-	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.2
 	modernc.org/sqlite v1.62.0
 )

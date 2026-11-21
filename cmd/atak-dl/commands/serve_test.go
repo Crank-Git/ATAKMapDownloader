@@ -41,7 +41,7 @@ type unsizedReader struct{ r io.Reader }
 func (u unsizedReader) Read(p []byte) (int, error) { return u.r.Read(p) }
 
 func TestServerRejectsARequestBodyLargerThan1MiB(t *testing.T) {
-	h := newServer("localhost:0", newTestHandler(t, map[string]string{"test.xml": testSourceXML})).Handler
+	h := newServerHandler(newTestHandler(t, map[string]string{"test.xml": testSourceXML}))
 	const twoMiB = 2 << 20
 	tests := []struct {
 		name   string

@@ -13,9 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// maxBodyBytes is the largest request body that the server reads (FR-security-hardening-17).
-const maxBodyBytes = 1 << 20
-
 // NewServeCmd returns the serve command, which starts the web interface.
 func NewServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -47,7 +44,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
 
 	calc := tilecalc.NewTileCalculator()
-	handler := NewWebHandler(parser, calc, dir)
+	handler := newServerHandler(NewWebHandler(parser, calc, dir))
 
 	if !loopback {
 		// TODO(#58): Replace this warning with the token.
@@ -91,32 +88,12 @@ func isLoopbackAddr(addr string) (bool, error) {
 
 // newServer returns the HTTP server for handler on addr, with the timeouts of FR-security-hardening-18.
 // It has no WriteTimeout, because an SSE stream stays open for the full job.
-// Every request body goes through limitBody.
 func newServer(addr string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              addr,
-		Handler:           limitBody(handler),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-}
-
-// limitBody returns a handler that rejects a request body larger than maxBodyBytes (FR-security-hardening-17).
-// A body with a larger Content-Length gets 413 body_too_large at once.
-// A body with no Content-Length gets the limit on read, and decodeJSON writes the 413.
-func limitBody(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ContentLength > maxBodyBytes {
-			writeBodyTooLarge(w)
-			return
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-		next.ServeHTTP(w, r)
-	})
-}
-
-// writeBodyTooLarge writes the 413 body_too_large error response.
-func writeBodyTooLarge(w http.ResponseWriter) {
-	writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("Request body is larger than %d bytes", maxBodyBytes))
 }

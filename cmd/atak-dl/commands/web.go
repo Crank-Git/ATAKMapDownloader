@@ -1,15 +1,12 @@
 package commands
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,7 +16,6 @@ import (
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/crank-git/atak-map-downloader/web"
-	"github.com/gorilla/websocket"
 )
 
 // WebHandler serves the web interface and API.
@@ -29,13 +25,11 @@ type WebHandler struct {
 	mapsDir string
 	// outputDir is the directory of the output files of job API jobs.
 	outputDir string
-	upgrader  websocket.Upgrader
 	jobRoutes *http.ServeMux
-	// dlState is the one job lock. The websocket and the job API both take it, so two jobs never run at once.
+	// dlState is the job lock. createJob takes it, so two jobs never run at once.
 	dlState struct {
 		sync.Mutex
 		downloading bool
-		cancel      context.CancelFunc
 		// job is the last job that the job API started. It stays after the job ends, so GET can read its result.
 		job *job
 	}
@@ -48,34 +42,52 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 		calc:      calc,
 		mapsDir:   mapsDir,
 		outputDir: download.DownloadsDir(),
-		upgrader: websocket.Upgrader{
-			CheckOrigin:     func(_ *http.Request) bool { return true },
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-		},
 		jobRoutes: http.NewServeMux(),
 	}
 	h.routeJobs(h.jobRoutes)
 	return h
 }
 
+// newServerHandler returns the handler that serve gives to the HTTP server.
+// It rejects a cross-origin POST or DELETE with status 403 and the error code cross_origin
+// (FR-security-hardening-2, FR-security-hardening-3).
+// It passes a request with no Sec-Fetch-Site header and no Origin header, because curl and other clients send neither.
+// Every request body goes through limitBody.
+func newServerHandler(h http.Handler) http.Handler {
+	cop := http.NewCrossOriginProtection()
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeError(w, http.StatusForbidden, "cross_origin", "Cross-origin request rejected")
+	}))
+	return cop.Handler(limitBody(h))
+}
+
+// maxBodyBytes is the largest request body that the server reads (FR-security-hardening-17).
+const maxBodyBytes = 1 << 20
+
+// limitBody returns a handler that rejects a request body larger than maxBodyBytes (FR-security-hardening-17).
+// A body with a larger Content-Length gets 413 body_too_large at once.
+// A body with no Content-Length gets the limit on read, and decodeJSON writes the 413.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > maxBodyBytes {
+			writeBodyTooLarge(w)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeBodyTooLarge writes the 413 body_too_large error response.
+func writeBodyTooLarge(w http.ResponseWriter) {
+	writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("Request body is larger than %d bytes", maxBodyBytes))
+}
+
 // ServeHTTP implements http.Handler.
 func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Add CORS headers for all responses (avoids 403 on cross-origin requests)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
 	switch {
 	case r.URL.Path == "/":
 		h.serveIndex(w, r)
-	case r.URL.Path == "/ws":
-		h.serveWebSocket(w, r)
 	case r.URL.Path == "/api/jobs" || strings.HasPrefix(r.URL.Path, "/api/jobs/"):
 		h.jobRoutes.ServeHTTP(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
@@ -406,195 +418,6 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *WebHandler) serveWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := h.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	defer func() { _ = conn.Close() }() // The connection ends here, so a close error changes nothing.
-
-	sendJSON(conn, map[string]interface{}{"type": "status", "message": "Connected to ATAK Downloader"})
-
-	for {
-		var msg struct {
-			Type string                 `json:"type"`
-			Data map[string]interface{} `json:"data"`
-		}
-		if err := conn.ReadJSON(&msg); err != nil {
-			break
-		}
-		switch msg.Type {
-		case "start_download":
-			go h.handleStartDownload(conn, msg.Data)
-		case "cancel_download":
-			h.handleCancelDownload(conn)
-		case "get_download_status":
-			h.handleGetStatus(conn)
-		}
-	}
-}
-
-func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]interface{}) {
-	sourceName, _ := data["source"].(string)
-	boundsRaw, _ := data["bounds"].([]interface{})
-	if sourceName == "" || len(boundsRaw) != 4 {
-		sendJSON(conn, map[string]interface{}{"type": "download_error", "message": "Missing required parameters"})
-		return
-	}
-	source := h.parser.GetSource(sourceName)
-	if source == nil {
-		sendJSON(conn, map[string]interface{}{"type": "download_error", "message": "Source not found"})
-		return
-	}
-	west := toFloat(boundsRaw[0])
-	south := toFloat(boundsRaw[1])
-	east := toFloat(boundsRaw[2])
-	north := toFloat(boundsRaw[3])
-	minZoom := int(toFloat(data["min_zoom"]))
-	maxZoom := int(toFloat(data["max_zoom"]))
-	if minZoom == 0 {
-		minZoom = 1
-	}
-	if maxZoom == 0 {
-		maxZoom = 15
-	}
-	bounds, err := tilecalc.NewGeographicBounds(south, north, west, east)
-	if err != nil {
-		sendJSON(conn, map[string]interface{}{"type": "download_error", "message": err.Error()})
-		return
-	}
-	adv, _ := data["advanced_settings"].(map[string]interface{})
-	cfg := downloadConfig(adv)
-
-	customName, _ := data["custom_name"].(string)
-	outputFilename := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
-	outputPath := filepath.Join(download.DownloadsDir(), outputFilename)
-	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
-
-	h.dlState.Lock()
-	if h.dlState.downloading {
-		h.dlState.Unlock()
-		sendJSON(conn, map[string]interface{}{"type": "download_error", "message": "Download already in progress"})
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	h.dlState.cancel = cancel
-	h.dlState.downloading = true
-	h.dlState.Unlock()
-
-	sendJSON(conn, map[string]interface{}{
-		"type":        "download_started",
-		"message":     fmt.Sprintf("Starting download of %s", sourceName),
-		"output_file": outputFilename,
-	})
-
-	engine := download.NewEngine(cfg)
-	success, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
-		sendJSON(conn, map[string]interface{}{
-			"type":       "download_progress",
-			"progress":   p.ProgressPercent(),
-			"downloaded": p.Downloaded,
-			"total":      p.TotalTiles,
-			"failed":     p.Failed,
-			"rate":       p.TilesPerSecond(),
-			"eta":        p.ETASeconds(),
-			"message":    fmt.Sprintf("Downloaded %d/%d tiles (%.1f%%)", p.Downloaded, p.TotalTiles, p.ProgressPercent()),
-		})
-		return ctx.Err() == nil
-	})
-
-	h.dlState.Lock()
-	h.dlState.downloading = false
-	h.dlState.cancel = nil
-	h.dlState.Unlock()
-
-	reportResult(ctx, conn, success, err, outputFilename, outputPath)
-}
-
-// reportResult sends the last websocket message of a job.
-// err is the engine error, and the message of a failed job carries it.
-func reportResult(ctx context.Context, conn *websocket.Conn, success bool, err error, outputFilename, outputPath string) {
-	if ctx.Err() != nil {
-		// The engine removes the file on cancel, so this removal usually finds no file.
-		_ = os.Remove(outputPath)
-		sendJSON(conn, map[string]interface{}{"type": "download_cancelled", "message": "Download cancelled by user."})
-		return
-	}
-	if success {
-		sendJSON(conn, map[string]interface{}{
-			"type":     "download_progress",
-			"progress": 100, "message": "Download completed successfully!",
-		})
-		sendJSON(conn, map[string]interface{}{
-			"type":     "download_complete",
-			"message":  "Download complete! Saved to " + outputFilename,
-			"filename": outputFilename,
-			"path":     outputPath,
-		})
-	} else {
-		sendJSON(conn, map[string]interface{}{
-			"type":    "download_error",
-			"message": fmt.Sprintf("Download failed - %v. Try reducing concurrent downloads or enabling Ignore Errors.", err),
-		})
-	}
-}
-
-func (h *WebHandler) handleCancelDownload(conn *websocket.Conn) {
-	h.dlState.Lock()
-	if h.dlState.downloading && h.dlState.cancel != nil {
-		h.dlState.cancel()
-		h.dlState.Unlock()
-		sendJSON(conn, map[string]interface{}{"type": "download_cancelled", "message": "Cancellation requested."})
-	} else {
-		h.dlState.Unlock()
-		sendJSON(conn, map[string]interface{}{"type": "download_cancelled", "message": "No active download."})
-	}
-}
-
-func (h *WebHandler) handleGetStatus(conn *websocket.Conn) {
-	h.dlState.Lock()
-	downloading := h.dlState.downloading
-	h.dlState.Unlock()
-	if downloading {
-		sendJSON(conn, map[string]interface{}{"type": "status", "message": "Download in progress"})
-	} else {
-		sendJSON(conn, map[string]interface{}{"type": "status", "message": "No active download"})
-	}
-}
-
-// downloadConfig returns the engine config for the advanced_settings of a start_download message.
-// A setting that is missing or 0 gets the web UI default.
-func downloadConfig(adv map[string]interface{}) download.Config {
-	maxConcurrent := int(toFloat(adv["max_concurrent"]))
-	if maxConcurrent == 0 {
-		maxConcurrent = 5
-	}
-	delay := toFloat(adv["delay_between_batches"])
-	if delay == 0 {
-		delay = 0.2
-	}
-	failureTol := toFloat(adv["failure_tolerance"])
-	if failureTol == 0 {
-		failureTol = 0.3
-	}
-	ignoreErrors, _ := adv["ignore_errors"].(bool)
-	verifyTLS := true
-	if v, ok := adv["verify_tls"].(bool); ok {
-		verifyTLS = v
-	} else if v, ok := adv["verify_ssl"].(bool); ok {
-		// TODO(#16): Remove verify_ssl when the web UI sends verify_tls.
-		verifyTLS = v
-	}
-
-	cfg := download.DefaultConfig()
-	cfg.MaxConcurrent = maxConcurrent
-	cfg.DelayBetweenBatches = time.Duration(delay * float64(time.Second))
-	cfg.MaxFailureRate = failureTol
-	cfg.IgnoreErrors = ignoreErrors
-	cfg.VerifyTLS = verifyTLS
-	return cfg
-}
-
 // writeJSON encodes v as a JSON response body with status 200.
 // A failed write means that the client closed the connection, so the error is not used.
 func writeJSON(w http.ResponseWriter, v interface{}) {
@@ -639,21 +462,4 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
 	}
 	return false
-}
-
-// sendJSON sends v as one websocket message.
-// A failed write means that the client left, so the error is not used. #16 removes the websocket.
-func sendJSON(conn *websocket.Conn, v interface{}) {
-	_ = conn.WriteJSON(v)
-}
-
-func toFloat(v interface{}) float64 {
-	switch x := v.(type) {
-	case float64:
-		return x
-	case int:
-		return float64(x)
-	}
-	// The web UI sends JSON numbers, so a value of another type is a client error. #16 removes this websocket path.
-	return 0
 }
