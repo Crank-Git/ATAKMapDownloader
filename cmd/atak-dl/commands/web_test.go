@@ -69,6 +69,8 @@ func TestErrorResponsesUseTheErrorShape(t *testing.T) {
 		{"geocode rejects a body that is not JSON", http.MethodPost, "/api/geocode", "{", http.StatusBadRequest, "invalid_json"},
 		{"geocode rejects an empty query", http.MethodPost, "/api/geocode", `{"query":"  "}`, http.StatusBadRequest, "invalid_query"},
 		{"api rejects an unknown route", http.MethodGet, "/api/nope", "", http.StatusNotFound, "not_found"},
+		{"static rejects a missing file", http.MethodGet, "/static/missing.js", "", http.StatusNotFound, "not_found"},
+		{"server rejects an unknown path", http.MethodGet, "/nope", "", http.StatusNotFound, "not_found"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

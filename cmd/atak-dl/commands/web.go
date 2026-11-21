@@ -69,7 +69,7 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/static/"):
 		h.serveStatic(w, r)
 	default:
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "Route not found")
 	}
 }
 
@@ -81,27 +81,27 @@ func (h *WebHandler) serveIndex(w http.ResponseWriter, _ *http.Request) {
 func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	fs, err := web.StaticFS()
 	if err != nil {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	localPath := strings.TrimPrefix(r.URL.Path, "/static/")
 	if localPath == "" {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	f, err := fs.Open(localPath)
 	if err != nil {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	defer func() { _ = f.Close() }() // The file is read-only, so a close error loses nothing.
 	stat, err := f.Stat()
 	if err != nil {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	if stat.IsDir() {
-		http.NotFound(w, r)
+		writeError(w, http.StatusNotFound, "not_found", "File not found")
 		return
 	}
 	// Set content type for common files
