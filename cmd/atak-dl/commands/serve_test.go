@@ -125,17 +125,13 @@ func TestServePrintsAGeneratedTokenForANonLoopbackAddress(t *testing.T) {
 			if strings.Contains(stderr, "no authentication") {
 				t.Errorf("stderr = %q, want no authentication warning", stderr)
 			}
-			secrets := []string{"flagtoken", "envtoken"}
-			if tt.print {
-				secrets = append(secrets, matches[0][1])
+			// A token from the flag or the environment is never printed, and a generated token goes to stderr only.
+			everything := stdout + stderr + logs.String()
+			if strings.Contains(everything, "flagtoken") || strings.Contains(everything, "envtoken") {
+				t.Errorf("the output holds the token of the flag or the environment: %q", everything)
 			}
-			for _, secret := range secrets {
-				if strings.Contains(stdout, secret) || strings.Contains(logs.String(), secret) {
-					t.Errorf("stdout %q or the log %q holds the token %q", stdout, logs.String(), secret)
-				}
-				if secret != "" && !tt.print && strings.Contains(stderr, secret) {
-					t.Errorf("stderr = %q, want no token %q from the flag or the environment", stderr, secret)
-				}
+			if tt.print && strings.Contains(stdout+logs.String(), matches[0][1]) {
+				t.Errorf("stdout %q or the log %q holds the generated token", stdout, logs.String())
 			}
 		})
 	}

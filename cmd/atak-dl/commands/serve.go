@@ -26,6 +26,7 @@ func NewServeCmd(userAgent string) *cobra.Command {
 	cmd.Flags().String("geocoder-url", defaultGeocoderURL, "Base URL of the Nominatim geocoder for place search")
 	cmd.Flags().Bool("no-geocode", false, "Turn off place search and hide the search box in the web UI")
 	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job API job above this tile count")
+	cmd.Flags().String("token", "", "Token of a server that is not on loopback. The default is ATAKDL_TOKEN, else a generated token")
 	return cmd
 }
 
@@ -58,14 +59,13 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 	if wh.maxTiles, err = cmd.Flags().GetInt("max-tiles"); err != nil {
 		return fmt.Errorf("read --max-tiles: %w", err)
 	}
-	handler := newServerHandler(wh)
-
 	if !loopback {
-		// TODO(#58): Replace this warning with the token.
-		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: the server has no authentication and is reachable from other machines on %s\n", addr); err != nil {
-			return fmt.Errorf("print the authentication warning: %w", err)
+		if wh.auth, err = serverAuth(cmd); err != nil {
+			return err
 		}
 	}
+	handler := newServerHandler(wh)
+
 	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "ATAK Map Downloader - Web Interface\nOpen http://%s in your browser\nMapsources: %s (%d sources)\n",
 		addr, dir, len(sources)); err != nil {
 		return fmt.Errorf("print the start message: %w", err)
@@ -84,6 +84,29 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 		}
 		return nil
 	}
+}
+
+// serverAuth returns the token auth of a server that is not on loopback (FR-team-server-18, FR-team-server-19).
+// The token comes from --token, else from ATAKDL_TOKEN.
+// With neither, serverAuth generates a token and prints it once to stderr.
+// It never prints a token from the flag or the environment, because the operator already has it.
+func serverAuth(cmd *cobra.Command) (*tokenAuth, error) {
+	token, err := cmd.Flags().GetString("token")
+	if err != nil {
+		return nil, fmt.Errorf("read --token: %w", err)
+	}
+	if token == "" {
+		token = os.Getenv("ATAKDL_TOKEN")
+	}
+	if token == "" {
+		if token, err = newToken(); err != nil {
+			return nil, fmt.Errorf("generate the token: %w", err)
+		}
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "token: %s (generated: set --token or ATAKDL_TOKEN to keep one token after a restart)\n", token); err != nil {
+			return nil, fmt.Errorf("print the token: %w", err)
+		}
+	}
+	return newTokenAuth(token), nil
 }
 
 // newServer returns the HTTP server for handler on addr, with the timeouts of FR-security-hardening-18.

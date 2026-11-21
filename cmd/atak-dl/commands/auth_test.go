@@ -33,7 +33,7 @@ func authRequest(method, path, body, ip, bearer, cookie string) *http.Request {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	if cookie != "" {
-		req.AddCookie(&http.Cookie{Name: "atakdl_token", Value: cookie})
+		req.Header.Set("Cookie", "atakdl_token="+cookie)
 	}
 	return req
 }
@@ -82,7 +82,7 @@ func TestAuthHandler(t *testing.T) {
 				req.Header.Set("Authorization", tt.header)
 			}
 			if tt.cookie != "" {
-				req.AddCookie(&http.Cookie{Name: "atakdl_token", Value: tt.cookie})
+				req.Header.Set("Cookie", "atakdl_token="+tt.cookie)
 			}
 			rec := httptest.NewRecorder()
 			newServerHandler(h).ServeHTTP(rec, req)
