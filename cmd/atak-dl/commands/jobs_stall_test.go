@@ -66,7 +66,7 @@ func TestAStreamWithACancelledRequestReturnsWhileTheEventGoroutineIsBusy(t *test
 	h := newTestHandler(t, nil)
 	// No event goroutine runs, so a subscribe send waits as it does for a busy event goroutine.
 	j := newBareJob("busy")
-	h.dlState.job = j
+	h.jobs[j.id] = j
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequestWithContext(ctx, "GET", "/api/jobs/busy/events", nil)

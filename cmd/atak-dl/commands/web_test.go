@@ -31,7 +31,10 @@ func newTestHandler(t *testing.T, sourceFiles map[string]string) *WebHandler {
 			t.Fatal(err)
 		}
 	}
-	return NewWebHandler(xmlparser.New(dir), tilecalc.NewTileCalculator(), dir, testUserAgent)
+	h := NewWebHandler(xmlparser.New(dir), tilecalc.NewTileCalculator(), dir, testUserAgent)
+	// One worker is the serve default (FR-team-server-2). The workers stop when the test ends.
+	h.queue.Start(t.Context(), 1)
+	return h
 }
 
 // testUserAgent has the form of FR-polite-downloading-14.

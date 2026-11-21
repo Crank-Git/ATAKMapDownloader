@@ -247,11 +247,7 @@ func TestFileListMarksTheOutputFileOfARunningJobInProgress(t *testing.T) {
 	stream, r := s.openEvents(t, rec.ID)
 	defer closeBody(stream)
 	// A progress event shows that the engine opened the output file.
-	for _, want := range []string{"state", "progress"} {
-		if e, _ := readEvent(t, r); e.name != want {
-			t.Fatalf("event = %q, want %s", e.name, want)
-		}
-	}
+	readToProgress(t, r)
 
 	inProgress := func() map[string]bool {
 		got := map[string]bool{}
