@@ -100,11 +100,14 @@ code {
 .layout {
     display: grid;
     grid-template-columns: var(--sidebar-width) 1fr;
+    /* A grid row grows to fit its content, so minmax(0, 1fr) makes the sidebar scroll instead of the page. */
+    grid-template-rows: minmax(0, 1fr);
     flex: 1;
     min-height: 0;
 }
 
 .sidebar {
+    min-height: 0;
     overflow-y: auto;
     padding: 14px;
     border-right: 1px solid var(--line);
@@ -129,12 +132,17 @@ code {
 }
 
 @media (max-width: 800px) {
+    body {
+        height: auto;
+    }
+
     .layout {
         grid-template-columns: 1fr;
         grid-template-rows: auto 60vh;
     }
 
     .sidebar {
+        overflow-y: visible;
         border-right: 0;
         border-bottom: 1px solid var(--line);
     }
