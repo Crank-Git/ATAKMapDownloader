@@ -27,7 +27,7 @@ func main() {
 // userAgent returns the User-Agent of every tile request, geocode request and GitHub request (FR-polite-downloading-14).
 // The project URL lets a server operator find the project.
 func userAgent(version string) string {
-	return "atak-map-downloader/" + version + " (+https://github.com/Crank-Git/ATAKMapDownloader)"
+	return "atak-map-downloader/" + version + " (+https://github.com/Crank-Git/ATAK-Map-Downloader)"
 }
 
 // newRootCmd returns the atak-dl root command with every subcommand.

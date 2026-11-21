@@ -16,7 +16,7 @@ import (
 )
 
 // testUserAgent has the form of FR-polite-downloading-14.
-const testUserAgent = "atak-map-downloader/test (+https://github.com/Crank-Git/ATAKMapDownloader)"
+const testUserAgent = "atak-map-downloader/test (+https://github.com/Crank-Git/ATAK-Map-Downloader)"
 
 // wideArea is a 4×3 tile area at zoom level 10. At 8 requests per second, a job takes about 1.4 s.
 var wideArea = tilecalc.TileBounds{MinX: 300, MaxX: 303, MinY: 400, MaxY: 402, Zoom: 10}

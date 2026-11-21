@@ -29,7 +29,7 @@ You can install the project in two ways: a release archive or the Docker image.
 
 ### Release archive
 
-1. Open the [GitHub Releases](https://github.com/Crank-Git/ATAKMapDownloader/releases) page.
+1. Open the [GitHub Releases](https://github.com/Crank-Git/ATAK-Map-Downloader/releases) page.
 2. Download the archive for your operating system and architecture. The Windows archive is a `.zip` file. The other archives are `.tar.gz` files.
 3. Extract the archive into a new directory. The archive contains the `atak-dl` binary, `README.md` and `LICENSE`.
 4. Run `./atak-dl` from that directory. The binary carries its map sources, so it needs no other file.

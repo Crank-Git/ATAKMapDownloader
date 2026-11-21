@@ -48,7 +48,7 @@ func newDataDirHandler(t *testing.T, sourceFiles map[string]string, dataDir stri
 }
 
 // testUserAgent has the form of FR-polite-downloading-14.
-const testUserAgent = "atak-map-downloader/test (+https://github.com/Crank-Git/ATAKMapDownloader)"
+const testUserAgent = "atak-map-downloader/test (+https://github.com/Crank-Git/ATAK-Map-Downloader)"
 
 func serve(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
