@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crank-git/atak-map-downloader/internal/datapackage"
 	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
 	"github.com/crank-git/atak-map-downloader/internal/output"
 )
@@ -31,6 +32,10 @@ type outputFileItem struct {
 	// InProgress is true while a job writes the file, so the web UI disables its Download button.
 	InProgress bool `json:"in_progress"`
 }
+
+// formatDataPackage is the format of a data package in the GET /api/files response.
+// The zip has no tile metadata of its own, so its item has no source, zoom range or bounds.
+const formatDataPackage = "data_package"
 
 // outputFileName matches the names that the file routes accept.
 // The pattern has no "/", so a name never holds a path.
@@ -187,6 +192,11 @@ func (h *WebHandler) outputFile(root *os.Root, name string, inProgress bool) (ou
 	}
 	defer func() { _ = f.Close() }() // The file is read-only here, so a close error loses nothing.
 	item := outputFileItem{Name: name, Size: info.Size(), Modified: info.ModTime(), InProgress: inProgress}
+	// A data package is a zip, so the SQLite detectors of output.ReadInfo cannot read it.
+	if datapackage.Detect(f, info.Size()) {
+		item.Format = formatDataPackage
+		return item, true
+	}
 
 	// SQLite opens a file by path, so ReadInfo gets the path of the file that openOutputFile checked.
 	meta, err := output.ReadInfo(filepath.Join(h.outputDir, name))

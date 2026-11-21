@@ -54,6 +54,9 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().Bool("overwrite", false, "Delete the existing output file before the job starts")
 	cmd.Flags().Bool("force", false, "With --resume, accept an output file that names no map source (a v0.1 file)")
 	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job above this tile count")
+	cmd.Flags().Bool("data-package", false, "Wrap the output file in an ATAK data package <package name>.zip and remove the unzipped file")
+	cmd.Flags().Bool("include-source", false, "With --data-package, add the source file of the map source to the data package")
+	cmd.Flags().String("package-name", "", "With --data-package, the package name: 1 to 64 characters of A-Z, a-z, 0-9, space, _ and -")
 	cmd.MarkFlagsMutuallyExclusive("resume", "overwrite")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
@@ -67,12 +70,9 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	bboxStr, _ := cmd.Flags().GetString("bbox")
 	bounds, _ := parseBBox(bboxStr)
 
-	format, err := cmd.Flags().GetString("format")
+	format, pkg, err := outputFlags(cmd)
 	if err != nil {
-		return fmt.Errorf("read --format: %w", err)
-	}
-	if code, message := checkFormat("--format", format); code != "" {
-		return fmt.Errorf("%s: %s", code, message)
+		return err
 	}
 
 	minZoom, _ := cmd.Flags().GetInt("min-zoom")
@@ -119,7 +119,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	}
 	cfg.Format = format
 	// --overwrite deletes the file, so the check runs after every flag is valid.
-	if err := checkOutput(cmd, output, source.Name, format); err != nil {
+	if err := checkOutput(cmd, output, source.Name, format, pkg); err != nil {
 		return err
 	}
 
@@ -142,7 +142,45 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		}
 		return true
 	})
-	return finishDownload(ctx, cmd, res, err, output)
+	finishCtx, output, perr := packageOutput(ctx, cmd, output, pkg, source, err)
+	if perr != nil {
+		return perr
+	}
+	return finishDownload(finishCtx, cmd, res, err, output)
+}
+
+// packageOutput writes the data package of pkg for the job of the output file at output.
+// It returns the context and the path for finishDownload. The path is the zip path, or output when pkg is nil or the job did not complete.
+// A cancelled or failed job has an incomplete output file, so it gets no data package.
+// After the zip step, the context ignores a cancel, because the job is complete and its output file is gone.
+// It returns the package_failed error of writeDataPackage.
+func packageOutput(ctx context.Context, cmd *cobra.Command, output string, pkg *packageOptions,
+	source *xmlparser.MapSource, jobErr error) (context.Context, string, error) {
+	if pkg == nil || jobErr != nil || ctx.Err() != nil {
+		return ctx, output, nil
+	}
+	zipPath, err := writeDataPackage(output, pkg, source)
+	if err != nil {
+		// The error starts on a new line, because the progress line has no line end.
+		_, _ = fmt.Fprintln(cmd.OutOrStdout()) // The line end is only for the user, so a failed write loses nothing.
+		cmd.SilenceUsage = true
+		return ctx, "", err
+	}
+	return context.WithoutCancel(ctx), zipPath, nil
+}
+
+// outputFlags returns the output format of the --format flag of cmd and the data package settings of packageFlags.
+// It returns the invalid_output_format or not_implemented error of checkFormat, and the error of packageFlags.
+func outputFlags(cmd *cobra.Command) (string, *packageOptions, error) {
+	format, err := cmd.Flags().GetString("format")
+	if err != nil {
+		return "", nil, fmt.Errorf("read --format: %w", err)
+	}
+	if code, message := checkFormat("--format", format); code != "" {
+		return "", nil, fmt.Errorf("%s: %s", code, message)
+	}
+	pkg, err := packageFlags(cmd)
+	return format, pkg, err
 }
 
 // finishDownload prints the final line of a job and returns the error that sets the exit code of atak-dl.
@@ -183,8 +221,9 @@ func finishDownload(ctx context.Context, cmd *cobra.Command, res download.Result
 }
 
 // checkOutput applies the --resume, --overwrite and --force flags of cmd to the output file at output of format.
-// It returns an ExitError with exitOutputConflict when the flags do not accept the existing file.
-func checkOutput(cmd *cobra.Command, output, sourceName, format string) error {
+// When pkg is not nil, it also applies the flags to the data package of pkg.
+// It returns an ExitError with exitOutputConflict when the flags do not accept an existing file.
+func checkOutput(cmd *cobra.Command, output, sourceName, format string, pkg *packageOptions) error {
 	rule := ifExistsFail
 	for _, flag := range []struct {
 		name string
@@ -202,7 +241,16 @@ func checkOutput(cmd *cobra.Command, output, sourceName, format string) error {
 	if err != nil {
 		return fmt.Errorf("read --force: %w", err)
 	}
-	err = prepareOutput(output, rule, sourceName, format, force)
+	if pkg != nil {
+		// The zip step removes the output file after the rename, so one path for both files loses the zip.
+		if filepath.Clean(pkg.zipPath(output)) == filepath.Clean(output) {
+			return fmt.Errorf("invalid_package_name: the data package %s is the --output path", output)
+		}
+		err = prepareDataPackage(pkg.zipPath(output), rule)
+	}
+	if err == nil {
+		err = prepareOutput(output, rule, sourceName, format, force)
+	}
 	var conflict *outputConflict
 	if errors.As(err, &conflict) {
 		// The refusal protects the file and is not a flag error, so the usage text does not help the user.

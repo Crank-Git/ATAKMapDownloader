@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/crank-git/atak-map-downloader/internal/datapackage"
 	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
@@ -38,6 +39,21 @@ type jobRequest struct {
 	IfExists ifExists `json:"if_exists"`
 	// OutputFormat is one of output.Formats. checkJobRequest sets an empty value to output.MBTiles (FR-output-formats-3).
 	OutputFormat string `json:"output_format"`
+	// DataPackage wraps the output file in the data package <package_name>.zip (FR-output-formats-19).
+	// Without it, the job ignores IncludeSource and PackageName.
+	DataPackage bool `json:"data_package"`
+	// IncludeSource adds the source file of the map source to the data package (FR-output-formats-23).
+	IncludeSource bool `json:"include_source"`
+	// PackageName is the package name. checkJobRequest accepts it only when datapackage.ValidName does.
+	PackageName string `json:"package_name"`
+}
+
+// packageOptions returns the data package settings of the request, or nil when the job writes no data package.
+func (req jobRequest) packageOptions() *packageOptions {
+	if !req.DataPackage {
+		return nil
+	}
+	return &packageOptions{name: req.PackageName, includeSource: req.IncludeSource}
 }
 
 // engineConfig returns the engine configuration for the request.
@@ -322,7 +338,13 @@ func (h *WebHandler) checkOutput(w http.ResponseWriter, req jobRequest, source *
 		rule = ifExistsFail
 	}
 	path := filepath.Join(h.outputDir, download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name, req.OutputFormat))
-	err := prepareOutput(path, rule, source.Name, req.OutputFormat, true)
+	var err error
+	if pkg := req.packageOptions(); pkg != nil {
+		err = prepareDataPackage(pkg.zipPath(path), rule)
+	}
+	if err == nil {
+		err = prepareOutput(path, rule, source.Name, req.OutputFormat, true)
+	}
 	var conflict *outputConflict
 	switch {
 	case errors.Is(err, errOutputExists):
@@ -383,7 +405,8 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 	return source, bounds, warning, true
 }
 
-// checkOutputOptions checks the output_format and if_exists fields of req, and it sets an empty output_format to output.MBTiles.
+// checkOutputOptions checks the output_format, if_exists and package_name fields of req.
+// It sets an empty output_format to output.MBTiles. It checks package_name only when data_package is true.
 // It writes the error response and returns false when a field is not valid.
 func checkOutputOptions(w http.ResponseWriter, req *jobRequest) bool {
 	if req.OutputFormat == "" {
@@ -391,6 +414,10 @@ func checkOutputOptions(w http.ResponseWriter, req *jobRequest) bool {
 	}
 	if code, message := checkFormat("output_format", req.OutputFormat); code != "" {
 		writeError(w, http.StatusBadRequest, code, message)
+		return false
+	}
+	if req.DataPackage && !datapackage.ValidName(req.PackageName) {
+		writeError(w, http.StatusBadRequest, "invalid_package_name", packageNameMessage("package_name", req.PackageName))
 		return false
 	}
 	switch req.IfExists {
@@ -498,6 +525,16 @@ func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source 
 		res.state = jobCancelled
 	case err != nil:
 		res = jobResult{state: jobFailed, err: err}
+	}
+	// A cancelled or failed job has an incomplete output file, so only a complete job gets a data package.
+	if pkg := req.packageOptions(); pkg != nil && res.state == jobComplete {
+		if zipPath, perr := writeDataPackage(outputPath, pkg, source); perr != nil {
+			res = jobResult{state: jobFailed, err: perr}
+		} else {
+			j.mu.Lock()
+			j.record.OutputFile = filepath.Base(zipPath)
+			j.mu.Unlock()
+		}
 	}
 
 	// The lock frees first, so a client that reads the final state can start the next job at once.
