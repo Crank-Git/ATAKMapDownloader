@@ -389,7 +389,7 @@ func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source 
 	engine := download.NewEngine(cfg)
 	outputPath := filepath.Join(h.outputDir, j.snapshot().OutputFile)
 	_, err := engine.DownloadTiles(ctx, source, bounds, zoomLevelsBetween(req.MinZoom, req.MaxZoom), outputPath,
-		func(p *download.Progress) bool {
+		func(p download.Progress) bool {
 			j.progress <- progressEvent{
 				Downloaded: p.Downloaded,
 				Failed:     p.Failed,

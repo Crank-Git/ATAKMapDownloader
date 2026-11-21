@@ -227,10 +227,10 @@ File name (`download.go:333-351`):
 - The project keeps only `A–Z`, `a–z`, `0–9`, space, `-` and `_`, then changes spaces to
   `_`.
 
-The engine writes one autocommit `INSERT OR REPLACE` per tile. It uses one `*sql.DB`
-for all goroutines. The driver opens the output file with `_busy_timeout=5000`, so an
-insert waits up to 5 seconds for a locked file (`mbtiles.go:26-28`, #63). The project
-sets no other PRAGMA.
+The tile goroutines send each tile to one writer goroutine per job (#25). The writer
+commits one transaction per 500 tiles, and one more when the job ends. It writes each
+tile with `INSERT OR REPLACE`. The driver opens the output file with `journal_mode=WAL`
+and `busy_timeout=5000`, so a write waits up to 5 seconds for a locked file.
 
 ### How ATAK reads the output file
 
@@ -273,18 +273,26 @@ Exit codes: 0 on success, 2 when a restricted map source has no `--accept-terms`
 - `DefaultConfig() Config`
 - `NewEngine(Config) *Engine`
 - `(*Engine).DownloadTiles(ctx, *MapSource, *GeographicBounds, zoomLevels []int,
-  outputPath string, cb ProgressCallback) (bool, error)`. The callback returns false to
-  cancel the job.
+  outputPath string, cb ProgressCallback) (Result, error)`. The callback gets a copy of
+  the progress counters, and it returns false to cancel the job. `Result.OK` is true when
+  the job ends within its failure tolerance.
 - `GenerateOutputFilename(source, bounds, minZoom, maxZoom, customName) string`
 - `DownloadsDir() string`, which returns `./downloads` relative to the working directory.
 
-`DownloadTiles` returns `(false, err)` for every failure. It never returns
-`(false, nil)`.
+`DownloadTiles` returns `Result.OK` false and an error for every failure. It never
+returns `Result.OK` false with a nil error. The error is `write_failed` when the writer
+fails, and the engine keeps the output file.
 
 `internal/mbtiles`:
 
-- `Create(path, metadata) (*sql.DB, error)`
-- `InsertTile(db, z, x, tmsY, data) error`
+- `Create(path, metadata) (*Writer, error)` deletes an existing file at `path`, then
+  calls `Open`.
+- `Open(path, metadata) (*Writer, error)` opens or creates the file, and it loads the
+  keys of the stored tiles.
+- `(*Writer).Has(z, x, y) bool` and `(*Writer).Put(z, x, y, data) error` take the XYZ
+  row. The writer stores the TMS row.
+- `(*Writer).Close() error` commits the last transaction and returns the first write
+  error.
 
 The driver is `modernc.org/sqlite` v1.62.0, a pure-Go driver, so the build needs no CGO
 (`mbtiles.go:11-12`, #63). See [ADR 0005](../../adr/0005-pure-go-sqlite.md).
@@ -295,7 +303,7 @@ What the code handles:
 
 - Rate-limit statuses (403, 429, 503) get two retries.
 - SIGINT and SIGTERM stop new tile requests and delete the partial output file.
-- A failed tile insert counts as a failed tile.
+- A failed tile write counts as a failed tile, and it stops the job with `write_failed`.
 - TLS verification is on by default. A tile that fails verification counts as failed
   (#75).
 - `--concurrent` outside 1–32 and a zoom range outside the map source's zoom range stop
@@ -311,12 +319,6 @@ What the code does not handle:
   error (`download.go:262-268`).
 - **Progress uses only the downloaded count.** With any failed tile, the percentage never
   reaches 100, and the ETA is too long.
-- **Data races.** Many goroutines write `progress.CurrentTile`, `progress.CurrentURL`,
-  `progress.Downloaded` and `progress.Failed` with no lock (`download.go:259-260`,
-  `:279-280`). The CLI callback updates `lastPercent` with no lock
-  (`commands/download.go:83-89`).
-- **The failure path calls the callback before it updates `progress.Failed`**
-  (`download.go:263-267`).
 - **The retry waits ignore cancel.** `time.Sleep` does not watch the context, and the
   request does not use `NewRequestWithContext`. A cancel can wait for running requests.
 - **Retries do not read `Retry-After` and have no jitter.**
