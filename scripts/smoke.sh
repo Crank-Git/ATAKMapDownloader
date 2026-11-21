@@ -1,6 +1,6 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port and checks two endpoints.
-# FR-foundation-13 and FR-foundation-14 define the checks.
+# smoke.sh builds atak-dl, starts serve on a free port and checks three endpoints.
+# FR-foundation-13, FR-foundation-14 and FR-security-hardening-9 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -38,6 +38,15 @@ body = json.load(sys.stdin)
 if not isinstance(body, list) or not body:
     sys.exit("smoke: GET /api/sources did not return a non-empty JSON array")
 print("smoke: GET /api/sources returned %d sources" % len(body))
+'
+
+# No job runs yet, so the job API returns the job_not_found error shape.
+curl -s "$base/api/jobs/000000000000" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("error", {}).get("code") != "job_not_found":
+    sys.exit("smoke: GET /api/jobs/{id} did not return job_not_found")
+print("smoke: GET /api/jobs/{id} returned job_not_found")
 '
 
 echo "smoke: pass"
