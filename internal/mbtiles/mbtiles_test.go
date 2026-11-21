@@ -3,11 +3,15 @@ package mbtiles
 import (
 	"bytes"
 	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/crank-git/atak-map-downloader/internal/output"
 )
 
 // The four MBTiles statements must not change with the driver (FR-foundation-4).
@@ -132,36 +136,81 @@ func TestOpenKeepsTheTilesOfAnExistingOutputFile(t *testing.T) {
 	}
 }
 
-func TestReadMetadata(t *testing.T) {
-	w, path := create(t, map[string]string{"atakdl_source": "OSM"})
+func TestReadInfoDetectsAnMBTilesFile(t *testing.T) {
+	w, path := create(t, map[string]string{
+		"atakdl_source": "OSM",
+		"format":        "png",
+		"minzoom":       "8",
+		"maxzoom":       "12",
+		"bounds":        "-122.0,45.0,-121.0,46.0",
+	})
 	closeWriter(t, w)
 
+	info, err := output.ReadInfo(path)
+	if err != nil {
+		t.Fatalf("ReadInfo error = %v", err)
+	}
+	want := output.Info{Format: output.MBTiles, TileFormat: "png", Source: "OSM", MinZoom: 8, MaxZoom: 12, Bounds: []float64{-122, 45, -121, 46}}
+	if fmt.Sprint(info) != fmt.Sprint(want) {
+		t.Errorf("ReadInfo = %+v, want %+v", info, want)
+	}
+}
+
+func TestReadInfoGivesZeroValuesForTheRowsThatAV01FileLacks(t *testing.T) {
+	w, path := create(t, map[string]string{"name": "v0.1", "bounds": "not numbers"})
+	closeWriter(t, w)
+
+	info, err := output.ReadInfo(path)
+	if err != nil {
+		t.Fatalf("ReadInfo error = %v", err)
+	}
+	if info.Format != output.MBTiles || info.Source != "" || info.MinZoom != 0 || info.Bounds != nil {
+		t.Errorf("ReadInfo = %+v, want format mbtiles and zero values", info)
+	}
+}
+
+func TestReadInfoRejectsAFileThatIsNotAnMBTilesFile(t *testing.T) {
 	tests := []struct {
-		name      string
-		key       string
-		wantValue string
-		wantOK    bool
+		name  string
+		write func(t *testing.T, path string)
 	}{
-		{"returns the value of a stored key", "atakdl_source", "OSM", true},
-		{"reports false for a key that the file does not hold", "format", "", false},
+		{"rejects a text file", func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte("not a database"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"rejects an SQLite file with the OSMDroid tiles table", func(t *testing.T, path string) {
+			if _, err := openFile(t, path).ExecContext(t.Context(), "CREATE TABLE tiles (key INTEGER PRIMARY KEY, provider TEXT, tile BLOB)"); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"rejects an SQLite file with no tiles table", func(t *testing.T, path string) {
+			if _, err := openFile(t, path).ExecContext(t.Context(), "CREATE TABLE notes (text TEXT)"); err != nil {
+				t.Fatal(err)
+			}
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			value, ok, err := ReadMetadata(path, tt.key)
-			if err != nil || value != tt.wantValue || ok != tt.wantOK {
-				t.Errorf("ReadMetadata(%q) = %q, %v, %v; want %q, %v, nil", tt.key, value, ok, err, tt.wantValue, tt.wantOK)
+			path := filepath.Join(t.TempDir(), "file")
+			tt.write(t, path)
+			if info, err := output.ReadInfo(path); !errors.Is(err, output.ErrUnknownFormat) {
+				t.Errorf("ReadInfo = %+v, %v; want ErrUnknownFormat", info, err)
 			}
 		})
 	}
 }
 
-func TestReadMetadataRejectsAFileThatIsNotAnOutputFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "notes.txt")
-	if err := os.WriteFile(path, []byte("not a database"), 0o600); err != nil {
-		t.Fatal(err)
+func TestOutputOpenReturnsAnMBTilesWriter(t *testing.T) {
+	w, err := output.Open(output.MBTiles, filepath.Join(t.TempDir(), "out.mbtiles"), map[string]string{"name": "test"})
+	if err != nil {
+		t.Fatalf("output.Open error = %v", err)
 	}
-	if _, _, err := ReadMetadata(path, "atakdl_source"); err == nil {
-		t.Error("ReadMetadata on a text file returned no error")
+	if _, ok := w.(*Writer); !ok {
+		t.Errorf("output.Open = %T, want *Writer", w)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 }
 

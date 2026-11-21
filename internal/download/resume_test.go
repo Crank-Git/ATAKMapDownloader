@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 )
@@ -89,14 +90,14 @@ func checkRequestsOfMissingTiles(t *testing.T, srv *testtiles.Server, all, store
 func TestEngineWritesTheMapSourceNameToTheMetadata(t *testing.T) {
 	srv := testtiles.New(t, nil)
 	source := loadFixture(t, "xyz.xml", srv)
-	output := filepath.Join(t.TempDir(), "out.sqlite")
+	path := filepath.Join(t.TempDir(), "out.mbtiles")
 
-	if _, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil); err != nil {
+	if _, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, path, nil); err != nil {
 		t.Fatalf("DownloadTiles: %v", err)
 	}
-	got, ok, err := mbtiles.ReadMetadata(output, "atakdl_source")
-	if err != nil || !ok || got != "Test XYZ" {
-		t.Errorf("atakdl_source = %q, %v, %v; want %q, true, nil", got, ok, err, "Test XYZ")
+	info, err := output.ReadInfo(path)
+	if err != nil || info.Source != "Test XYZ" {
+		t.Errorf("ReadInfo = %+v, %v; want source %q", info, err, "Test XYZ")
 	}
 }
 
