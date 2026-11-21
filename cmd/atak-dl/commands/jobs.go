@@ -715,8 +715,12 @@ var afterCancelLookup = func() {}
 // The record can still show the queued or the running state, because the job stops after the response.
 // Its final state event shows the cancelled state. A job that ended keeps its final state.
 func (h *WebHandler) cancelJob(w http.ResponseWriter, r *http.Request) {
-	j := h.findJob(w, r.PathValue("id"))
+	// A resume replaces the job in the job map, so the lock keeps j and the queue entry of j together.
+	h.jobMu.Lock()
+	j := h.jobs[r.PathValue("id")]
 	if j == nil {
+		h.jobMu.Unlock()
+		writeError(w, http.StatusNotFound, "job_not_found", "Job not found")
 		return
 	}
 	afterCancelLookup()
@@ -724,6 +728,7 @@ func (h *WebHandler) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if h.queue.Remove(j.id) {
 		j.result <- jobResult{state: jobCancelled}
 	}
+	h.jobMu.Unlock()
 	j.cancel()
 	writeAccepted(w, j.snapshot())
 }
