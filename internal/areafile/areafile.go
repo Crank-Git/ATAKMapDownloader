@@ -5,6 +5,7 @@
 package areafile
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -54,14 +55,14 @@ func FormatOf(name string) (Format, error) {
 // A zip archive is KMZ, a JSON object is GeoJSON, and XML is KML.
 // It returns an error when the bytes start none of these.
 func Sniff(data []byte) (Format, error) {
-	if strings.HasPrefix(string(data), "PK\x03\x04") {
+	if bytes.HasPrefix(data, []byte("PK\x03\x04")) {
 		return KMZ, nil
 	}
-	text := strings.TrimLeft(strings.TrimPrefix(string(data), "\xef\xbb\xbf"), " \t\r\n")
+	text := bytes.TrimLeft(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), " \t\r\n")
 	switch {
-	case strings.HasPrefix(text, "{"):
+	case bytes.HasPrefix(text, []byte("{")):
 		return GeoJSON, nil
-	case strings.HasPrefix(text, "<"):
+	case bytes.HasPrefix(text, []byte("<")):
 		return KML, nil
 	default:
 		return 0, errors.New("the file is not GeoJSON, KML or KMZ")

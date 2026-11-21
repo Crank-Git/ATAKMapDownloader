@@ -13,7 +13,7 @@ import (
 	"github.com/paulmach/orb"
 )
 
-// kmlGeometry holds the geometry elements of a Placemark or a MultiGeometry (OGC KML 2.2, sections 10.2 to 10.8).
+// kmlGeometry holds the geometry elements of a Placemark or a MultiGeometry (OGC KML 2.2).
 // A MultiGeometry can hold another MultiGeometry, so the type holds itself.
 type kmlGeometry struct {
 	Polygons []kmlPolygon  `xml:"Polygon"`
