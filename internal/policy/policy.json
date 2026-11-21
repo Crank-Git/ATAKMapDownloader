@@ -158,5 +158,21 @@
     "reason": "The license of this service is not verified.",
     "reference_url": "",
     "retrieved": "2026-11-21"
+  },
+  {
+    "host_pattern": "tiles.kartat.kapsi.fi",
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "License not verified.",
+    "reference_url": "",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_pattern": "maps.geogratis.gc.ca",
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "License not verified.",
+    "reference_url": "",
+    "retrieved": "2026-11-21"
   }
 ]
