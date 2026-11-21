@@ -407,11 +407,11 @@ func newBufferCover(lines []orb.LineString, bufferM float64, n int) cover {
 	return c
 }
 
-// splitSegment cuts segment ab into pieces of at most 1° of latitude.
-// The Web Mercator scale changes with latitude, so a short piece keeps the buffer within the 5% of feature 11.
+// splitSegment cuts segment ab into pieces of at most 0.25° of latitude.
+// The Web Mercator scale changes with latitude. A piece of 0.25° keeps the buffer within the 5% of feature 11 up to 85°.
 // Each piece takes the scale of its end nearer a pole, so the buffer is never smaller than bufferM.
 func splitSegment(a, b orb.Point, bufferM float64, n int) []piece {
-	k := max(1, int(math.Ceil(math.Abs(b[1]-a[1]))))
+	k := max(1, int(math.Ceil(4*math.Abs(b[1]-a[1]))))
 	metersPerUnit := 2 * math.Pi * EarthRadius / float64(n)
 	pieces := make([]piece, 0, k)
 	for i := range k {
