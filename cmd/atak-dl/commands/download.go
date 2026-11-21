@@ -97,6 +97,12 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	if err := checkTerms(cmd, source); err != nil {
 		return err
 	}
+	// Nobody has tested WebP tiles in ATAK, so the user gets the warning before the job starts.
+	if strings.EqualFold(source.TileType, "webp") {
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: ATAK support for WebP tiles is unverified"); err != nil {
+			return fmt.Errorf("print the WebP warning: %w", err)
+		}
+	}
 
 	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
 
