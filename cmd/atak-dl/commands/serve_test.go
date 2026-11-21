@@ -101,7 +101,7 @@ func executeRoot(t *testing.T, args ...string) (string, string, error) {
 	root := &cobra.Command{Use: "atak-dl"}
 	root.PersistentFlags().String("mapsources-dir", "", "")
 	root.PersistentFlags().String("data-dir", "", "")
-	root.AddCommand(NewServeCmd(testUserAgent))
+	root.AddCommand(NewServeCmd(testUserAgent, "dev"))
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)

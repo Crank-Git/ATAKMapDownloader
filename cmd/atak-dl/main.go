@@ -48,7 +48,7 @@ func newRootCmd(version, commit, date string) *cobra.Command {
 	root.AddCommand(commands.NewTileInfoCmd())
 	root.AddCommand(commands.NewValidateSourceCmd())
 	root.AddCommand(commands.NewDownloadCmd(userAgent(version)))
-	root.AddCommand(commands.NewServeCmd(userAgent(version)))
+	root.AddCommand(commands.NewServeCmd(userAgent(version), version))
 	root.AddCommand(commands.NewSourcesCmd(userAgent(version)))
 
 	return root

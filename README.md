@@ -48,7 +48,9 @@ docker run -p 5000:5000 ghcr.io/crank-git/atak-map-downloader:<tag>
 docker run ghcr.io/crank-git/atak-map-downloader:<tag> --version
 ```
 
-The image runs `atak-dl serve --addr 0.0.0.0:5000` by default. Arguments after the image name replace `serve --addr 0.0.0.0:5000`. The address `0.0.0.0` is not loopback, so the server requires a token. With no `--token` and no `ATAKDL_TOKEN`, the server generates a token and prints it once to stderr.
+The image runs `atak-dl serve --addr 0.0.0.0:5000 --data-dir /data` by default, with `/data` as a volume. Arguments after the image name replace `serve --addr 0.0.0.0:5000 --data-dir /data`. The address `0.0.0.0` is not loopback, so the server requires a token. With no `--token` and no `ATAKDL_TOKEN`, the server generates a token and prints it once to stderr.
+
+To run a team server with a token and a data volume, see [docs/server.md](docs/server.md).
 
 ## Build
 
@@ -133,6 +135,7 @@ Then open http://localhost:5000 in your browser.
 | `serve` | `--no-geocode` | `false` | Turn off place search. `POST /api/geocode` returns 404 `not_found`, `GET /api/config` returns `{"geocode": false}`, and the web UI hides the search box. |
 | `serve` | `--max-tiles` | `500000` | Tile cap of a job. `POST /api/jobs` for a job above the cap returns 400 `too_many_tiles`, and the job sends no request. |
 | `serve` | (job store) | - | The server appends each state of each job to `<data dir>/jobs.jsonl`, with the job request and with no token. At start, a `running` job becomes `failed` with `reason` `server_restarted`, and a `queued` job runs. The server skips a corrupt line and logs its line number. `GET /api/jobs?page=N` returns `{"jobs": [...], "page": N, "pages": P}`, newest first, 50 per page, and 400 `invalid_query` for a page that is not a whole number of 1 or more. `POST /api/jobs` accepts `label`, 1 to 80 characters, and returns 400 `invalid_label` for another length. If a queued or running job writes the same output file name or data package name, the new job gets the suffix `-2`, `-3` and so on. The suffix shortens a long package name, so the name stays inside 64 characters. `POST /api/jobs/{id}/resume` returns 409 `output_in_use` when a queued or running job writes the output file of the job. |
+| `serve` | (health route) | - | `GET /healthz` returns 200 with `{"status":"ok","version":"<version>"}`. It needs no token, so a monitor can read it. Another method returns 405 `method_not_allowed`. |
 | `serve` | `--token` | `ATAKDL_TOKEN`, else generated | Token of a server that is not on loopback. A client sends it as `Authorization: Bearer <token>`, or signs in at `/signin` to get the `atakdl_token` cookie. With no token set, `serve` generates a 32-character token and prints it once to stderr. A server on loopback needs no token. 10 failed token attempts in one minute from one IP address give 429 `too_many_attempts`. |
 | `download` | `--source` | - | Map source name (required) |
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon. It is required, except with `--area` or `--resume --output <file>`. |

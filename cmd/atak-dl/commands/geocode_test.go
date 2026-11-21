@@ -237,7 +237,7 @@ func TestGeocodeSendsTheUserAgentWithEveryNominatimRequest(t *testing.T) {
 // serveFlags returns a test handler with the geocode flags of serve applied from args.
 func serveFlags(t *testing.T, args ...string) (*WebHandler, error) {
 	t.Helper()
-	cmd := NewServeCmd(testUserAgent)
+	cmd := NewServeCmd(testUserAgent, "dev")
 	if err := cmd.ParseFlags(args); err != nil {
 		t.Fatal(err)
 	}

@@ -30,6 +30,8 @@ type WebHandler struct {
 	jobRoutes *http.ServeMux
 	// userAgent is the User-Agent of every tile request and every geocode request (FR-polite-downloading-14).
 	userAgent string
+	// version is the version of the binary that GET /healthz reports (FR-team-server-29).
+	version string
 	// geocodeURL is the Nominatim search endpoint. A test points it at a fake Nominatim.
 	geocodeURL string
 	// geocodeOff removes the /api/geocode route (FR-polite-downloading-26).
@@ -129,6 +131,8 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/":
 		h.serveIndex(w, r)
+	case r.URL.Path == "/healthz":
+		h.serveHealth(w, r)
 	case r.URL.Path == "/jobs":
 		servePage(w, web.JobsHTML())
 	case r.URL.Path == "/signin":
