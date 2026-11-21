@@ -111,7 +111,7 @@ Then open http://localhost:5000 in your browser.
 ./atak-dl validate-source --source="Google - Satellite Only"
 
 # Download tiles
-./atak-dl download --source="Google - Satellite Only" --bbox=40.7,-74.1,40.8,-74.0 --min-zoom=10 --max-zoom=12
+./atak-dl download --source="Google - Satellite Only" --bbox=40.7,-74.1,40.8,-74.0 --min-zoom=10 --max-zoom=12 --accept-terms
 ```
 
 ### Options
@@ -127,6 +127,7 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--output` | `downloads/<name>.sqlite` | Output file path |
 | `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
 | `download` | `--insecure` | `false` | Do not verify the TLS certificates of the tile server. The command prints a warning to stderr when this flag is set. |
+| `download` | `--accept-terms` | `false` | Accept the terms of use of a `restricted` map source. Without this flag, the command prints the reason and the reference URL for a restricted map source, and it exits with code 2. With this flag, it prints a warning to stderr and starts the job. |
 
 ## Map Sources
 

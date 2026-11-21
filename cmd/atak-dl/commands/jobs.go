@@ -29,6 +29,7 @@ type jobRequest struct {
 	FailureTolerance *float64  `json:"failure_tolerance"`
 	IgnoreErrors     *bool     `json:"ignore_errors"`
 	VerifyTLS        *bool     `json:"verify_tls"`
+	AcceptTerms      *bool     `json:"accept_terms"`
 }
 
 // engineConfig returns the engine configuration for the request.
@@ -309,6 +310,11 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xm
 	}
 	if code, message := checkJobLimits(source, req.MinZoom, req.MaxZoom, req.engineConfig().MaxConcurrent); code != "" {
 		writeError(w, http.StatusBadRequest, code, message)
+		return nil, nil, false
+	}
+	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
+		writeError(w, http.StatusForbidden, "terms_not_accepted", fmt.Sprintf(
+			"%s (%s); send \"accept_terms\": true to accept the terms", entry.Reason, entry.ReferenceURL))
 		return nil, nil, false
 	}
 	return source, bounds, true

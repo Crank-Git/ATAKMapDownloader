@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +30,7 @@ func NewDownloadCmd() *cobra.Command {
 	cmd.Flags().Int("concurrent", 5, "Concurrent downloads")
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
 	cmd.Flags().Bool("insecure", false, "Do not verify the TLS certificates of the tile server")
+	cmd.Flags().Bool("accept-terms", false, "Accept the terms of use of a restricted map source and start the job")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
@@ -55,6 +57,9 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 		// The flags are valid in form, so the usage text does not help the user.
 		cmd.SilenceUsage = true
 		return fmt.Errorf("%s: %s", code, message)
+	}
+	if err := checkTerms(cmd, source); err != nil {
+		return err
 	}
 
 	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
@@ -111,5 +116,29 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 	fmt.Printf("Download complete. Saved to %s\n", output)
+	return nil
+}
+
+// checkTerms returns an ExitError with exitTermsNotAccepted when source is restricted and cmd has no --accept-terms.
+// When source is restricted and cmd has --accept-terms, it prints the terms warning to stderr (FR-polite-downloading-17, -18).
+func checkTerms(cmd *cobra.Command, source *xmlparser.MapSource) error {
+	acceptTerms, err := cmd.Flags().GetBool("accept-terms")
+	if err != nil {
+		return fmt.Errorf("read --accept-terms: %w", err)
+	}
+	entry, restricted := restrictedEntry(source)
+	if !restricted {
+		return nil
+	}
+	if !acceptTerms {
+		// The refusal is a policy decision and not a flag error, so the usage text does not help the user.
+		cmd.SilenceUsage = true
+		return &ExitError{Code: exitTermsNotAccepted, Err: fmt.Errorf(
+			"terms_not_accepted: %s (%s); add --accept-terms to accept the terms", entry.Reason, entry.ReferenceURL)}
+	}
+	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s terms restrict bulk download: %s (%s)\n",
+		entry.HostPattern, entry.Reason, entry.ReferenceURL); err != nil {
+		return fmt.Errorf("print the terms warning: %w", err)
+	}
 	return nil
 }

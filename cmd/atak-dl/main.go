@@ -19,7 +19,7 @@ var (
 
 func main() {
 	if err := newRootCmd(version, commit, date).Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(commands.ExitCode(err))
 	}
 }
 
