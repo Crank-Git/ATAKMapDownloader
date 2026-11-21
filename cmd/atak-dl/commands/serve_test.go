@@ -40,9 +40,11 @@ type unsizedReader struct{ r io.Reader }
 
 func (u unsizedReader) Read(p []byte) (int, error) { return u.r.Read(p) }
 
-func TestServerRejectsARequestBodyLargerThan1MiB(t *testing.T) {
+// TestServerLimitsTheRequestBody checks the two body limits of FR-security-hardening-17.
+// A body of 2 MiB passes the limit of an area route, and the decoder then rejects the open JSON with invalid_json.
+func TestServerLimitsTheRequestBody(t *testing.T) {
 	h := newServerHandler(newTestHandler(t, map[string]string{"test.xml": testSourceXML}))
-	const twoMiB = 2 << 20
+	const twoMiB, sixMiB = 2 << 20, 6 << 20
 	tests := []struct {
 		name   string
 		path   string
@@ -50,9 +52,15 @@ func TestServerRejectsARequestBodyLargerThan1MiB(t *testing.T) {
 		status int
 		code   string
 	}{
-		{"rejects a 2 MiB job body with a Content-Length", "/api/jobs", strings.NewReader(largeJSONBody(twoMiB)), http.StatusRequestEntityTooLarge, "body_too_large"},
-		{"rejects a 2 MiB job body without a Content-Length", "/api/jobs", unsizedReader{strings.NewReader(largeJSONBody(twoMiB))}, http.StatusRequestEntityTooLarge, "body_too_large"},
-		{"rejects a 2 MiB estimate body without a Content-Length", "/api/estimate", unsizedReader{strings.NewReader(largeJSONBody(twoMiB))}, http.StatusRequestEntityTooLarge, "body_too_large"},
+		{"reads a 2 MiB job body with a Content-Length", "/api/jobs", strings.NewReader(largeJSONBody(twoMiB)), http.StatusBadRequest, "invalid_json"},
+		{"reads a 2 MiB estimate body without a Content-Length", "/api/estimate", unsizedReader{strings.NewReader(largeJSONBody(twoMiB))}, http.StatusBadRequest, "invalid_json"},
+		{"reads a 2 MiB area tiles body", "/api/areas/tiles", strings.NewReader(largeJSONBody(twoMiB)), http.StatusBadRequest, "invalid_json"},
+		{"rejects a 6 MiB job body with a Content-Length", "/api/jobs", strings.NewReader(largeJSONBody(sixMiB)), http.StatusRequestEntityTooLarge, "body_too_large"},
+		{"rejects a 6 MiB job body without a Content-Length", "/api/jobs", unsizedReader{strings.NewReader(largeJSONBody(sixMiB))}, http.StatusRequestEntityTooLarge, "body_too_large"},
+		{"rejects a 6 MiB estimate body without a Content-Length", "/api/estimate", unsizedReader{strings.NewReader(largeJSONBody(sixMiB))}, http.StatusRequestEntityTooLarge, "body_too_large"},
+		{"rejects a 6 MiB area tiles body", "/api/areas/tiles", strings.NewReader(largeJSONBody(sixMiB)), http.StatusRequestEntityTooLarge, "body_too_large"},
+		{"rejects a 2 MiB preview body, because a route with no areas keeps 1 MiB", "/api/preview", strings.NewReader(largeJSONBody(twoMiB)), http.StatusRequestEntityTooLarge, "body_too_large"},
+		{"rejects a 2 MiB tile info body without a Content-Length", "/api/tile-info", unsizedReader{strings.NewReader(largeJSONBody(twoMiB))}, http.StatusRequestEntityTooLarge, "body_too_large"},
 		{"reads a body below 1 MiB", "/api/jobs", strings.NewReader(largeJSONBody(1000)), http.StatusBadRequest, "invalid_json"},
 	}
 	for _, tt := range tests {

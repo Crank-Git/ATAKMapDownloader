@@ -1,9 +1,10 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, and checks eleven responses and the bind warning.
-# It also checks the terms exit code, the output file exit code, the tile cap, the output format, the package name, --no-geocode and the sources sync command.
+# smoke.sh builds atak-dl, starts serve on a free port, and checks twelve responses and the bind warning.
+# It also checks the terms exit code, the output file exit code, the tile cap, the output format, the package name,
+# --no-geocode, the sources sync command and the area file parser.
 # FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25,
 # FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27, FR-output-formats-1, -3 and -19,
-# and FR-source-sync-10, -11, -16 and -29 define the checks.
+# FR-source-sync-10, -11, -16 and -29, and FR-area-selection-16 and -18 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -117,13 +118,23 @@ if json.load(sys.stdin).get("geocode") is not True:
 print("smoke: GET /api/config returned geocode true")
 '
 
-# A body larger than 1 MiB returns 413 (FR-security-hardening-17).
-status=$(head -c 2097152 /dev/zero | curl -s -o /dev/null -w '%{http_code}' --data-binary @- "$base/api/jobs")
+# A route that carries areas reads 5 MiB, so a 6 MiB job body returns 413 (FR-security-hardening-17).
+status=$(head -c 6291456 /dev/zero | curl -s -o /dev/null -w '%{http_code}' --data-binary @- "$base/api/jobs")
 if [ "$status" != "413" ]; then
-	echo "smoke: POST /api/jobs with a 2 MiB body returned $status, want 413" >&2
+	echo "smoke: POST /api/jobs with a 6 MiB body returned $status, want 413" >&2
 	exit 1
 fi
-echo "smoke: POST /api/jobs with a 2 MiB body returned 413"
+echo "smoke: POST /api/jobs with a 6 MiB body returned 413"
+
+# The parse route reads a KML file into areas, and it warns about the Point (FR-area-selection-18).
+curl -sf --data-binary @testdata/areas/trail.kml "$base/api/areas/parse?min_zoom=12&max_zoom=17&buffer_m=300" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+areas = body.get("areas") or []
+if len(areas) != 1 or areas[0].get("kind") != "route_buffer" or len(body.get("warnings") or []) != 1:
+    sys.exit("smoke: POST /api/areas/parse did not return one route_buffer area and one warning")
+print("smoke: POST /api/areas/parse returned one route_buffer area and one warning")
+'
 
 # A server on an address that is not loopback prints the warning of FR-security-hardening-25.
 stderr_file=$(mktemp)
@@ -158,6 +169,15 @@ if ! grep -qF 'The new name is "Google Satellite".' "$stderr_file"; then
 	exit 1
 fi
 echo "smoke: download of a Google map source by its old name warned and exited 2"
+
+# --area together with --bbox exits with code 1 (FR-area-selection-16).
+status=0
+./atak-dl estimate --source "Google Satellite" --area testdata/areas/trail.kml --bbox 40.7,-74.1,40.8,-74.0 >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q -- "--area and --bbox" "$stderr_file"; then
+	echo "smoke: estimate with --area and --bbox exited $status, want 1" >&2
+	exit 1
+fi
+echo "smoke: estimate with --area and --bbox exited 1"
 
 # An existing output file without --resume or --overwrite exits with code 3 and stays unchanged (FR-robust-downloads-6).
 # The file is not SQLite, so a build without the check fails when it opens the file, before a request.

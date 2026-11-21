@@ -13,7 +13,9 @@ import (
 
 // exportScenario is the input of testdata/export_panel.js.
 type exportScenario struct {
-	Area    []float64        `json:"area,omitempty"`
+	Area []float64 `json:"area,omitempty"`
+	// Zoom is the zoom range of the area. It is [1, 15] when it is empty.
+	Zoom    []int            `json:"zoom,omitempty"`
 	Sources []map[string]any `json:"sources,omitempty"`
 	Files   []map[string]any `json:"files,omitempty"`
 	// Set holds [id, value] pairs in the order that the user changes them. A bool value sets checked.
@@ -72,22 +74,23 @@ func TestExportPreviewFollowsTheOutputFormatAndThePackageName(t *testing.T) {
 	tests := []struct {
 		name string
 		set  [][]any
+		zoom []int
 		want string
 	}{
-		{"shows the MBTiles extension by default", [][]any{named}, "Camp_z1-15.mbtiles"},
-		{"shows the OSMDroid extension", [][]any{named, {"format-osmdroid", true}}, "Camp_z1-15.sqlite"},
-		{"shows the GeoPackage extension", [][]any{named, {"format-gpkg", true}}, "Camp_z1-15.gpkg"},
+		{"shows the MBTiles extension by default", [][]any{named}, nil, "Camp_z1-15.mbtiles"},
+		{"shows the OSMDroid extension", [][]any{named, {"format-osmdroid", true}}, nil, "Camp_z1-15.sqlite"},
+		{"shows the GeoPackage extension", [][]any{named, {"format-gpkg", true}}, nil, "Camp_z1-15.gpkg"},
 		{"names the map source and the area with no custom name", [][]any{{"mapSourceSelect", "Camp Source"}},
-			"Camp_Source_45.0000_-122.0000_to_45.5000_-121.5000_z1-15.mbtiles"},
-		{"follows a zoom level change", [][]any{named, {"maxZoom", "12"}}, "Camp_z1-12.mbtiles"},
-		{"shows the zip of the package name", [][]any{named, pkg, {"packageName", "Mt Hood SAR"}}, "Mt_Hood_SAR.zip"},
-		{"follows a package name change", [][]any{named, pkg, {"packageName", "Mt Hood SAR"}, {"packageName", "Base Camp"}}, "Base_Camp.zip"},
-		{"keeps the zip name for every output format", [][]any{named, pkg, {"packageName", "Mt Hood SAR"}, {"format-gpkg", true}}, "Mt_Hood_SAR.zip"},
-		{"goes back to the output file without the data package", [][]any{named, pkg, {"packageName", "Mt Hood SAR"}, {"dataPackage", false}}, "Camp_z1-15.mbtiles"},
+			nil, "Camp_Source_45.0000_-122.0000_to_45.5000_-121.5000_z1-15.mbtiles"},
+		{"follows the zoom range of the area", [][]any{named}, []int{1, 12}, "Camp_z1-12.mbtiles"},
+		{"shows the zip of the package name", [][]any{named, pkg, {"packageName", "Mt Hood SAR"}}, nil, "Mt_Hood_SAR.zip"},
+		{"follows a package name change", [][]any{named, pkg, {"packageName", "Mt Hood SAR"}, {"packageName", "Base Camp"}}, nil, "Base_Camp.zip"},
+		{"keeps the zip name for every output format", [][]any{named, pkg, {"packageName", "Mt Hood SAR"}, {"format-gpkg", true}}, nil, "Mt_Hood_SAR.zip"},
+		{"goes back to the output file without the data package", [][]any{named, pkg, {"packageName", "Mt Hood SAR"}, {"dataPackage", false}}, nil, "Camp_z1-15.mbtiles"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := runExportPanel(t, exportScenario{Area: campArea, Sources: campSources, Set: tt.set})
+			got := runExportPanel(t, exportScenario{Area: campArea, Zoom: tt.zoom, Sources: campSources, Set: tt.set})
 			if got.Preview != tt.want {
 				t.Errorf("preview = %q, want %q", got.Preview, tt.want)
 			}

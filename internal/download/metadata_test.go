@@ -8,14 +8,26 @@ import (
 
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
+	"github.com/paulmach/orb"
 )
 
-// metadataBounds are bounds with a center of -121.5, 45.25.
-var metadataBounds = tilecalc.GeographicBounds{MinLat: 45, MaxLat: 45.5, MinLon: -122, MaxLon: -121}
+// metadataBound is a bound with a center of -121.5, 45.25.
+var metadataBound = orb.Bound{Min: orb.Point{-122, 45}, Max: orb.Point{-121, 45.5}}
+
+// metadata returns the metadata rows of a job of one bounds area of metadataBound from minZoom to maxZoom.
+func metadata(t *testing.T, source *xmlparser.MapSource, minZoom, maxZoom int) map[string]string {
+	t.Helper()
+	areas := []tilecalc.JobArea{{Area: tilecalc.Area{Kind: tilecalc.AreaBounds, Geometry: metadataBound}, MinZoom: minZoom, MaxZoom: maxZoom}}
+	meta, err := outputMetadata(source, areas)
+	if err != nil {
+		t.Fatalf("outputMetadata: %v", err)
+	}
+	return meta
+}
 
 func TestOutputMetadataWritesEveryMBTilesKey(t *testing.T) {
 	source := &xmlparser.MapSource{Name: "Test XYZ", TileType: "png", Origin: xmlparser.OriginSnapshot}
-	meta := outputMetadata(source, &metadataBounds, []int{8, 9, 10})
+	meta := metadata(t, source, 8, 10)
 
 	want := map[string]string{
 		"name":          "Test XYZ - 45.0000,-122.0000 to 45.5000,-121.0000",
@@ -30,6 +42,11 @@ func TestOutputMetadataWritesEveryMBTilesKey(t *testing.T) {
 		"attribution":   "Test XYZ via ATAK-Maps",
 		"atakdl_source": "Test XYZ",
 	}
+	// atakdl_areas is the GeoJSON of the areas, and the area tests check its content.
+	if meta["atakdl_areas"] == "" {
+		t.Error("metadata atakdl_areas is missing")
+	}
+	delete(meta, "atakdl_areas")
 	if len(meta) != len(want) {
 		t.Errorf("outputMetadata has %d keys, want %d: %v", len(meta), len(want), meta)
 	}
@@ -55,7 +72,7 @@ func TestOutputMetadataFormatIsTheLowerCaseTileType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.tileType, func(t *testing.T) {
 			source := &xmlparser.MapSource{Name: "Test", TileType: tt.tileType, Origin: xmlparser.OriginUser}
-			if got := outputMetadata(source, &metadataBounds, []int{10})["format"]; got != tt.want {
+			if got := metadata(t, source, 10, 10)["format"]; got != tt.want {
 				t.Errorf("format = %q, want %q", got, tt.want)
 			}
 		})
@@ -98,7 +115,7 @@ func TestOutputMetadataTypeAndAttributionFollowTheMapSource(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.source.TileType = "png"
-			meta := outputMetadata(&tt.source, &metadataBounds, []int{10})
+			meta := metadata(t, &tt.source, 10, 10)
 			if meta["type"] != tt.wantType || meta["attribution"] != tt.wantAttribution {
 				t.Errorf("type, attribution = %q, %q; want %q, %q", meta["type"], meta["attribution"], tt.wantType, tt.wantAttribution)
 			}
@@ -114,7 +131,7 @@ func TestOutputMetadataKeepsTheUserSourceDirectoryOutOfTheAttribution(t *testing
 	file := filepath.Join(home, "atak", "mapsources", "atak-maps", "maps", "overlays", "roads.xml")
 	source := &xmlparser.MapSource{Name: "Roads", TileType: "png", Origin: xmlparser.OriginUser, File: file}
 
-	got := outputMetadata(source, &metadataBounds, []int{10})["attribution"]
+	got := metadata(t, source, 10, 10)["attribution"]
 	if got != "roads.xml" {
 		t.Errorf("attribution = %q, want the bare file name %q", got, "roads.xml")
 	}

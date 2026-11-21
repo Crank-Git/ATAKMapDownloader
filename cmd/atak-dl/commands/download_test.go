@@ -129,16 +129,22 @@ func TestFinishDownloadReturnsWriteFailedForACancelledJobWhoseWriteFails(t *test
 // writeSource writes a map source file named "Test TLS" for srv into a new directory, and returns the directory.
 func writeSource(t *testing.T, srv *testtiles.Server) string {
 	t.Helper()
+	return writeNamedSource(t, srv, "Test TLS")
+}
+
+// writeNamedSource returns a map source directory whose one source is named name and points at srv.
+func writeNamedSource(t *testing.T, srv *testtiles.Server, name string) string {
+	t.Helper()
 	dir := t.TempDir()
 	xml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <customMapSource>
-    <name>Test TLS</name>
+    <name>%s</name>
     <minZoom>0</minZoom>
     <maxZoom>18</maxZoom>
     <tileType>png</tileType>
     <url>%s</url>
 </customMapSource>
-`, srv.URLTemplate())
+`, name, srv.URLTemplate())
 	if err := os.WriteFile(filepath.Join(dir, "tls.xml"), []byte(xml), 0o600); err != nil {
 		t.Fatalf("write map source: %v", err)
 	}

@@ -74,7 +74,7 @@ func TestEngineLimitsTheRequestRateOfAHost(t *testing.T) {
 			cfg.RateLimit = tt.rateLimit
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			res, err := politeEngine(cfg, tt.policyRPS).DownloadTiles(t.Context(), source, boundsOf(t, wideArea), []int{wideArea.Zoom}, output, nil)
+			res, err := politeEngine(cfg, tt.policyRPS).DownloadTiles(t.Context(), source, areasOf(t, wideArea), output, nil)
 			if !res.OK || err != nil {
 				t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 			}
@@ -95,7 +95,7 @@ func TestEngineWaitsForRetryAfterBeforeTheNextRequest(t *testing.T) {
 	source := loadFixture(t, "xyz.xml", srv)
 	output := filepath.Join(t.TempDir(), "out.sqlite")
 
-	res, err := politeEngine(testConfig(), 1000).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
+	res, err := politeEngine(testConfig(), 1000).DownloadTiles(t.Context(), source, areasOf(t, oneTile), output, nil)
 	if !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
@@ -148,7 +148,7 @@ func TestEngineStopsTheJobWithServerRefused(t *testing.T) {
 			// A short base keeps 20 backoff waits inside the test time.
 			e.backoffBase = time.Millisecond
 
-			res, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+			res, err := e.DownloadTiles(t.Context(), source, areasOf(t, area), output, nil)
 			if res.OK || !errors.Is(err, ErrServerRefused) || !strings.HasPrefix(errorText(err), "server_refused") {
 				t.Errorf("DownloadTiles = %v, %v; want false and an error that starts with server_refused", res.OK, err)
 			}
@@ -173,7 +173,7 @@ func TestEngineStopsWithin500msWhenTheJobIsCancelledDuringABackoffWait(t *testin
 	var res Result
 	go func() {
 		var err error
-		res, err = politeEngine(testConfig(), 1000).DownloadTiles(ctx, source, areaBounds(t), []int{area.Zoom}, output, nil)
+		res, err = politeEngine(testConfig(), 1000).DownloadTiles(ctx, source, areasOf(t, area), output, nil)
 		done <- err
 	}()
 	// The first 503 starts a backoff wait of at least 800 ms.
@@ -209,7 +209,7 @@ func TestEngineSendsTheUserAgentOnEveryRequest(t *testing.T) {
 	e := politeEngine(testConfig(), 1000)
 	e.backoffBase = time.Millisecond
 
-	if res, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil); !res.OK || err != nil {
+	if res, err := e.DownloadTiles(t.Context(), source, areasOf(t, area), output, nil); !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
 	log := srv.Log()
@@ -319,7 +319,7 @@ func TestTwoSourcesOfOnePolicyEntryShareOneRate(t *testing.T) {
 		source := loadFixture(t, "xyz.xml", srv)
 		output := filepath.Join(t.TempDir(), "out.sqlite")
 		go func() {
-			res, err := e.DownloadTiles(t.Context(), source, boundsOf(t, twoTiles), []int{twoTiles.Zoom}, output, nil)
+			res, err := e.DownloadTiles(t.Context(), source, areasOf(t, twoTiles), output, nil)
 			if err == nil && !res.OK {
 				err = errors.New("the job failed")
 			}

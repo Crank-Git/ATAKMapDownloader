@@ -53,7 +53,7 @@ func TestEngineSkipsTilesThatTheOutputFileHolds(t *testing.T) {
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 			storeTiles(t, output, tt.stored)
 
-			res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+			res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areasOf(t, area), output, nil)
 			if !res.OK || err != nil {
 				t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 			}
@@ -92,7 +92,7 @@ func TestEngineWritesTheMapSourceNameToTheMetadata(t *testing.T) {
 	source := loadFixture(t, "xyz.xml", srv)
 	path := filepath.Join(t.TempDir(), "out.mbtiles")
 
-	if _, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, path, nil); err != nil {
+	if _, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areasOf(t, area), path, nil); err != nil {
 		t.Fatalf("DownloadTiles: %v", err)
 	}
 	info, err := output.ReadInfo(path)
@@ -116,7 +116,7 @@ func TestEngineKeepsTheTilesOfACancelledJobAndResumesIt(t *testing.T) {
 		}
 		return true
 	}
-	_, err := politeEngine(testConfig(), 1e6).DownloadTiles(ctx, source, boundsOf(t, tiles), []int{tiles.Zoom}, output, cb)
+	_, err := politeEngine(testConfig(), 1e6).DownloadTiles(ctx, source, areasOf(t, tiles), output, cb)
 	if err == nil {
 		t.Fatal("DownloadTiles after a cancel returned no error")
 	}
@@ -126,7 +126,7 @@ func TestEngineKeepsTheTilesOfACancelledJobAndResumesIt(t *testing.T) {
 	}
 
 	before := srv.TotalRequests()
-	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, boundsOf(t, tiles), []int{tiles.Zoom}, output, nil)
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areasOf(t, tiles), output, nil)
 	if !res.OK || err != nil {
 		t.Fatalf("resumed DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}

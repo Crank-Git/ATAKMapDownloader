@@ -69,6 +69,8 @@ type Info struct {
 	MinZoom, MaxZoom int
 	// Bounds holds west, south, east and north. It is nil when the file records no valid bounds.
 	Bounds []float64
+	// Areas is the atakdl_areas row of the file, the GeoJSON of the job areas. It is empty when the file has no such row.
+	Areas string
 }
 
 // Detector returns the Info of the file at path, and false when the file is not of its output format.

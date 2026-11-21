@@ -70,7 +70,7 @@ func TestEngineWritesEveryTileThroughTheWriterOfTheOutputFormat(t *testing.T) {
 	cfg := testConfig()
 	cfg.Format = memoryFormat
 
-	res, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, path, nil)
+	res, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, areasOf(t, area), path, nil)
 	if !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
@@ -99,7 +99,7 @@ func TestEngineRejectsAnOutputFormatThatIsNotRegistered(t *testing.T) {
 	cfg := testConfig()
 	cfg.Format = output.OSMDroid
 
-	_, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil)
+	_, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, areasOf(t, area), filepath.Join(t.TempDir(), "out.sqlite"), nil)
 	if !errors.Is(err, output.ErrNotRegistered) {
 		t.Errorf("DownloadTiles error = %v, want ErrNotRegistered", err)
 	}

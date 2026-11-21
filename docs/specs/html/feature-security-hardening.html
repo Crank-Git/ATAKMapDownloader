@@ -212,7 +212,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h4 id="security-hardening-limits-and-timeouts">Limits and timeouts</h4>
 <ul>
-<li>FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413.
+<li>FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413. A route that carries areas has a limit of 5 MiB plus 64 KiB, because its areas can come from a 5 MiB area file (feature 11). These routes are <code>POST /api/estimate</code>, <code>POST /api/jobs</code>, <code>POST /api/areas/parse</code> and <code>POST /api/areas/tiles</code>.
 </li>
 <li>FR-security-hardening-18 — The server sets <code>ReadHeaderTimeout</code> 10 s, <code>ReadTimeout</code> 30 s and <code>IdleTimeout</code> 120 s. The SSE route has no write timeout.
 </li>
@@ -321,7 +321,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The <code>delay_between_batches</code> setting is removed. The engine never read it (<code>internal/download/download.go:28</code>). Feature 06 replaces it with rate limits.
 </li>
-<li>Error codes: <code>cross_origin</code>, <code>invalid_json</code>, <code>invalid_bounds</code>, <code>zoom_out_of_range</code>, <code>invalid_concurrency</code>, <code>unknown_source</code>, <code>job_running</code>, <code>job_not_found</code>, <code>invalid_if_exists</code>, <code>body_too_large</code>, <code>internal</code>, <code>invalid_query</code>, <code>not_found</code>, <code>method_not_allowed</code>. Later epics add <code>terms_not_accepted</code> and <code>invalid_rate_limit</code> (feature 06), and <code>output_exists</code> and <code>too_many_tiles</code> (feature 07).
+<li>Error codes: <code>cross_origin</code>, <code>invalid_json</code>, <code>invalid_bounds</code>, <code>zoom_out_of_range</code>, <code>invalid_concurrency</code>, <code>unknown_source</code>, <code>job_running</code>, <code>job_not_found</code>, <code>invalid_if_exists</code>, <code>body_too_large</code>, <code>internal</code>, <code>invalid_query</code>, <code>not_found</code>, <code>method_not_allowed</code>. Later epics add <code>terms_not_accepted</code> and <code>invalid_rate_limit</code> (feature 06), <code>output_exists</code> and <code>too_many_tiles</code> (feature 07), and <code>invalid_area</code> and <code>invalid_area_file</code> (feature 11).
 </li>
 <li><code>invalid_query</code> is for an empty <code>/api/geocode</code> query, <code>not_found</code> is for a route that does not exist, and <code>method_not_allowed</code> comes with status 405. The PM accepted these three codes at the #74 gate.
 </li>

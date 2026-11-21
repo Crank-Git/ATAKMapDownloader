@@ -250,7 +250,7 @@ func readInfo(path string) (output.Info, bool, error) {
 	if err != nil {
 		return output.Info{}, false, err
 	}
-	info := output.Info{TileFormat: meta["format"], Source: meta["atakdl_source"]}
+	info := output.Info{TileFormat: meta["format"], Source: meta["atakdl_source"], Areas: meta["atakdl_areas"]}
 	if b, ok := parseBounds(meta["bounds"]); ok {
 		info.Bounds = b[:]
 	}

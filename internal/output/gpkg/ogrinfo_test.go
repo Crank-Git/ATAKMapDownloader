@@ -14,6 +14,7 @@ import (
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
+	"github.com/paulmach/orb"
 )
 
 // requireGDAL is the environment variable that turns a missing GDAL into a test failure. CI sets it to 1.
@@ -91,11 +92,9 @@ func writeJob(t *testing.T, path string) {
 	cfg.UserAgent = "atak-dl-test"
 	cfg.Format = output.GeoPackage
 	cfg.Policy = policy.Entry{HostPatterns: []string{"127.0.0.1"}, PolicyClass: policy.Open, RequestsPerSecond: 1e6}
-	bounds, err := tilecalc.NewGeographicBounds(45.5, 45.6, -122.7, -122.6)
-	if err != nil {
-		t.Fatalf("make bounds: %v", err)
-	}
-	res, err := download.NewEngine(cfg).DownloadTiles(t.Context(), source, bounds, []int{8, 9}, path, nil)
+	b := orb.Bound{Min: orb.Point{-122.7, 45.5}, Max: orb.Point{-122.6, 45.6}}
+	areas := []tilecalc.JobArea{{Area: tilecalc.Area{Kind: tilecalc.AreaBounds, Geometry: b}, MinZoom: 8, MaxZoom: 9}}
+	res, err := download.NewEngine(cfg).DownloadTiles(t.Context(), source, areas, path, nil)
 	if err != nil || !res.OK {
 		t.Fatalf("DownloadTiles = %+v, %v; want a job that succeeds", res, err)
 	}

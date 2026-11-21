@@ -14,7 +14,9 @@ import (
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/output"
+	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
+	"github.com/paulmach/orb"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +41,9 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("source", "", "Map source name (required)")
-	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required)")
+	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required, except with --area or --resume --output)")
+	cmd.Flags().String("area", "", "GeoJSON, KML or KMZ file of the areas, in place of --bbox")
+	cmd.Flags().Float64("buffer", 0, "Buffer in metres for each line of the --area file with no buffer_m property")
 	cmd.Flags().Int("min-zoom", 1, "Minimum zoom level")
 	cmd.Flags().Int("max-zoom", 15, "Maximum zoom level")
 	cmd.Flags().String("format", output.MBTiles, "Output format: "+strings.Join(output.Formats, ", "))
@@ -59,7 +63,6 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().String("package-name", "", "With --data-package, the package name: 1 to 64 characters of A-Z, a-z, 0-9, space, _ and -")
 	cmd.MarkFlagsMutuallyExclusive("resume", "overwrite")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
-	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
 }
 
@@ -67,51 +70,30 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	parser := getParser(cmd)
 	source := sourceFlag(cmd, parser)
 
-	bboxStr, _ := cmd.Flags().GetString("bbox")
-	bounds, _ := parseBBox(bboxStr)
-
 	format, pkg, err := outputFlags(cmd)
 	if err != nil {
 		return err
 	}
-
-	minZoom, _ := cmd.Flags().GetInt("min-zoom")
-	maxZoom, _ := cmd.Flags().GetInt("max-zoom")
-	concurrent, err := cmd.Flags().GetInt("concurrent")
+	output, err := cmd.Flags().GetString("output")
 	if err != nil {
-		return fmt.Errorf("read --concurrent: %w", err)
+		return fmt.Errorf("read --output: %w", err)
 	}
-	maxTiles, err := cmd.Flags().GetInt("max-tiles")
+	areas, err := downloadAreas(cmd, output)
 	if err != nil {
-		return fmt.Errorf("read --max-tiles: %w", err)
+		return err
 	}
-	if code, message := checkJobLimits(source, bounds, minZoom, maxZoom, concurrent, maxTiles); code != "" {
-		// The flags are valid in form, so the usage text does not help the user.
-		cmd.SilenceUsage = true
-		err := fmt.Errorf("%s: %s", code, message)
-		if code == "too_many_tiles" {
-			return &ExitError{Code: exitTooManyTiles, Err: err}
-		}
+	concurrent, err := jobLimits(cmd, source, areas)
+	if err != nil {
 		return err
 	}
 	if err := checkTerms(cmd, source); err != nil {
 		return err
 	}
-	// Nobody has tested WebP tiles in ATAK, so the user gets the warning before the job starts.
-	if strings.EqualFold(source.TileType, "webp") {
-		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: ATAK support for WebP tiles is unverified"); err != nil {
-			return fmt.Errorf("print the WebP warning: %w", err)
-		}
+	if err := warnWebP(cmd, source); err != nil {
+		return err
 	}
-
-	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
-
-	output, _ := cmd.Flags().GetString("output")
-	customName, _ := cmd.Flags().GetString("name")
-	if output == "" {
-		dlDir := download.DownloadsDir()
-		fname := download.GenerateOutputFilename(source.Name, bounds, minZoom, maxZoom, customName, format)
-		output = filepath.Join(dlDir, fname)
+	if output, err = defaultOutput(cmd, output, source, areas, format); err != nil {
+		return err
 	}
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {
@@ -131,7 +113,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	// The engine calls the callback from every tile goroutine, so the mutex guards lastPercent.
 	var mu sync.Mutex
 	var lastPercent float64
-	res, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, output, func(p download.Progress) bool {
+	res, err := engine.DownloadTiles(ctx, source, areas, output, func(p download.Progress) bool {
 		mu.Lock()
 		defer mu.Unlock()
 		percent := p.ProgressPercent()
@@ -181,6 +163,61 @@ func outputFlags(cmd *cobra.Command) (string, *packageOptions, error) {
 	}
 	pkg, err := packageFlags(cmd)
 	return format, pkg, err
+}
+
+// downloadAreas returns the areas of the download command. It reads them from one of these:
+//   - The --area file, with --min-zoom, --max-zoom and --buffer for the values that the file does not set (FR-area-selection-11).
+//   - One bounds area from --bbox, --min-zoom and --max-zoom.
+//   - With neither, the atakdl_areas row of the existing file at path, for a --resume (FR-area-selection-29).
+//
+// It returns an error when the command has both --area and --bbox (FR-area-selection-16),
+// when it has neither and no resume, or when the file has no atakdl_areas row.
+func downloadAreas(cmd *cobra.Command, path string) ([]tilecalc.JobArea, error) {
+	areaFile, bboxStr, err := areaOrBBox(cmd)
+	if err != nil {
+		return nil, err
+	}
+	resume, err := cmd.Flags().GetBool("resume")
+	if err != nil {
+		return nil, fmt.Errorf("read --resume: %w", err)
+	}
+	if areaFile != "" || bboxStr != "" {
+		minZoom, err := cmd.Flags().GetInt("min-zoom")
+		if err != nil {
+			return nil, fmt.Errorf("read --min-zoom: %w", err)
+		}
+		maxZoom, err := cmd.Flags().GetInt("max-zoom")
+		if err != nil {
+			return nil, fmt.Errorf("read --max-zoom: %w", err)
+		}
+		if areaFile != "" {
+			return readAreaFile(cmd, areaFile, minZoom, maxZoom)
+		}
+		bounds, _ := parseBBox(bboxStr)
+		b := orb.Bound{Min: orb.Point{bounds.MinLon, bounds.MinLat}, Max: orb.Point{bounds.MaxLon, bounds.MaxLat}}
+		return []tilecalc.JobArea{{Area: tilecalc.Area{Kind: tilecalc.AreaBounds, Geometry: b}, MinZoom: minZoom, MaxZoom: maxZoom}}, nil
+	}
+	if !resume || path == "" {
+		return nil, errors.New("--bbox or --area is required, except with --resume --output <file>")
+	}
+	// ReadInfo of a missing path can make an empty database, so the check for the file comes first.
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("read the areas of the output file: %w", err)
+	}
+	cmd.SilenceUsage = true
+	info, err := output.ReadInfo(path)
+	if err != nil {
+		return nil, fmt.Errorf("read the areas of the output file: %w", err)
+	}
+	stored := info.Areas
+	if stored == "" {
+		return nil, fmt.Errorf("the output file has no %s row, so it names no areas: use --bbox", areasKey)
+	}
+	areas, err := tilecalc.DecodeAreas([]byte(stored))
+	if err != nil {
+		return nil, fmt.Errorf("read the %s row of the output file: %w", areasKey, err)
+	}
+	return areas, nil
 }
 
 // finishDownload prints the final line of a job and returns the error that sets the exit code of atak-dl.
@@ -335,4 +372,52 @@ func checkTerms(cmd *cobra.Command, source *xmlparser.MapSource) error {
 		return fmt.Errorf("print the terms warning: %w", err)
 	}
 	return nil
+}
+
+// warnWebP prints the WebP warning when source has WebP tiles.
+// Nobody has tested WebP tiles in ATAK, so the user gets the warning before the job starts.
+func warnWebP(cmd *cobra.Command, source *xmlparser.MapSource) error {
+	if !strings.EqualFold(source.TileType, "webp") {
+		return nil
+	}
+	if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: ATAK support for WebP tiles is unverified"); err != nil {
+		return fmt.Errorf("print the WebP warning: %w", err)
+	}
+	return nil
+}
+
+// defaultOutput returns output when it is set.
+// With no output, it returns the path in the downloads directory with the name of jobOutputFile and the --name flag.
+func defaultOutput(cmd *cobra.Command, output string, source *xmlparser.MapSource, areas []tilecalc.JobArea, format string) (string, error) {
+	if output != "" {
+		return output, nil
+	}
+	customName, err := cmd.Flags().GetString("name")
+	if err != nil {
+		return "", fmt.Errorf("read --name: %w", err)
+	}
+	return filepath.Join(download.DownloadsDir(), jobOutputFile(source.Name, areas, customName, format)), nil
+}
+
+// jobLimits returns the --concurrent value after checkJobLimits accepts the job of the areas.
+// It returns an ExitError with exitTooManyTiles for a job above --max-tiles, and the other codes of checkJobLimits as plain errors.
+func jobLimits(cmd *cobra.Command, source *xmlparser.MapSource, areas []tilecalc.JobArea) (int, error) {
+	concurrent, err := cmd.Flags().GetInt("concurrent")
+	if err != nil {
+		return 0, fmt.Errorf("read --concurrent: %w", err)
+	}
+	maxTiles, err := cmd.Flags().GetInt("max-tiles")
+	if err != nil {
+		return 0, fmt.Errorf("read --max-tiles: %w", err)
+	}
+	if code, message := checkJobLimits(source, areas, concurrent, maxTiles); code != "" {
+		// The flags are valid in form, so the usage text does not help the user.
+		cmd.SilenceUsage = true
+		err := fmt.Errorf("%s: %s", code, message)
+		if code == "too_many_tiles" {
+			return 0, &ExitError{Code: exitTooManyTiles, Err: err}
+		}
+		return 0, err
+	}
+	return concurrent, nil
 }

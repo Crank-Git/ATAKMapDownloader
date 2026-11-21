@@ -72,7 +72,7 @@ func TestEngineSendsTheServerPartsOfACommaListToThreeHosts(t *testing.T) {
 	source := loadFixture(t, "serverparts.xml", srv)
 	e, log := serverPartsEngine(t, srv)
 
-	res, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil)
+	res, err := e.DownloadTiles(t.Context(), source, areasOf(t, area), filepath.Join(t.TempDir(), "out.sqlite"), nil)
 	if !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
@@ -96,7 +96,7 @@ func TestEngineSendsEachTileToTheServerPartOfItsTileKey(t *testing.T) {
 	for run := range 2 {
 		e, log := serverPartsEngine(t, srv)
 		e.cfg.MaxConcurrent = 1 + run*4
-		res, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil)
+		res, err := e.DownloadTiles(t.Context(), source, areasOf(t, area), filepath.Join(t.TempDir(), "out.sqlite"), nil)
 		if !res.OK || err != nil {
 			t.Fatalf("run %d: DownloadTiles = %v, %v; want true, nil", run, res.OK, err)
 		}
@@ -116,7 +116,7 @@ func TestEngineSendsTheTMSRowForAnInvertedMapSource(t *testing.T) {
 	srv := testtiles.New(t, nil)
 	source := loadFixture(t, "tms.xml", srv)
 
-	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil)
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areasOf(t, area), filepath.Join(t.TempDir(), "out.sqlite"), nil)
 	if !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
+	"github.com/paulmach/orb"
 
 	// The blank import registers the MBTiles writer that the job uses.
 	_ "github.com/crank-git/atak-map-downloader/internal/mbtiles"
@@ -88,11 +89,9 @@ func writeJob(t *testing.T, path, format string) *tilecalc.GeographicBounds {
 	edges := tilecalc.NewTileCalculator().TileBoundsToGeographic(&conformanceArea)
 	// The tile edges belong to the next tile, so the bounds move inside them.
 	const inset = 1e-6
-	bounds, err := tilecalc.NewGeographicBounds(edges.MinLat+inset, edges.MaxLat-inset, edges.MinLon+inset, edges.MaxLon-inset)
-	if err != nil {
-		t.Fatalf("make bounds: %v", err)
-	}
-	res, err := download.NewEngine(cfg).DownloadTiles(context.Background(), source, bounds, []int{conformanceArea.Zoom}, path, nil)
+	b := orb.Bound{Min: orb.Point{edges.MinLon + inset, edges.MinLat + inset}, Max: orb.Point{edges.MaxLon - inset, edges.MaxLat - inset}}
+	areas := []tilecalc.JobArea{{Area: tilecalc.Area{Kind: tilecalc.AreaBounds, Geometry: b}, MinZoom: conformanceArea.Zoom, MaxZoom: conformanceArea.Zoom}}
+	res, err := download.NewEngine(cfg).DownloadTiles(context.Background(), source, areas, path, nil)
 	if err != nil || !res.OK || res.Downloaded != int64(conformanceArea.TileCount()) {
 		t.Fatalf("DownloadTiles = %+v, %v; want %d downloaded tiles", res, err, conformanceArea.TileCount())
 	}

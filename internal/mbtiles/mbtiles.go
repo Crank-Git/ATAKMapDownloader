@@ -156,11 +156,11 @@ func readInfo(path string) (output.Info, bool, error) {
 			return output.Info{}, false, nil
 		}
 	}
-	meta, err := readMetadata(db, "format", "atakdl_source", "minzoom", "maxzoom", "bounds")
+	meta, err := readMetadata(db, "format", "atakdl_source", "minzoom", "maxzoom", "bounds", "atakdl_areas")
 	if err != nil {
 		return output.Info{}, false, err
 	}
-	info := output.Info{TileFormat: meta["format"], Source: meta["atakdl_source"], Bounds: parseBounds(meta["bounds"])}
+	info := output.Info{TileFormat: meta["format"], Source: meta["atakdl_source"], Bounds: parseBounds(meta["bounds"]), Areas: meta["atakdl_areas"]}
 	// A v0.1 output file can lack a zoom row, so a missing or bad row gives 0.
 	info.MinZoom, _ = strconv.Atoi(meta["minzoom"])
 	info.MaxZoom, _ = strconv.Atoi(meta["maxzoom"])

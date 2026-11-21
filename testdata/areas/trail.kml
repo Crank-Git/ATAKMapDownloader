@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Trail</name>
+    <Folder>
+      <Placemark>
+        <name>Summit trail</name>
+        <LineString>
+          <coordinates>
+            -121.70,46.80,1500
+            -121.70,46.82,1600
+          </coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>Trailhead</name>
+        <Point>
+          <coordinates>-121.70,46.80,1500</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>

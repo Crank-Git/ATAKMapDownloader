@@ -190,21 +190,21 @@ None on disk. The calculations are pure functions in `internal/tilecalc`.
 
 ### HTTP
 
-`POST /api/estimate` (`cmd/atak-dl/commands/web.go:177-224`).
+`POST /api/estimate` (`cmd/atak-dl/commands/web.go:266-328`).
 
-Request: `{"bounds": [west, south, east, north], "min_zoom": int, "max_zoom": int}`.
+Request: `{"bounds": [west, south, east, north], "min_zoom": int, "max_zoom": int}`, or `{"areas": [...]}` with the areas of feature 11 (FR-area-selection-25).
 
 | Status | Body |
 |---|---|
-| 200 | `{"total_tiles", "estimated_size_mb", "zoom_breakdown": {"<z>": count}, "bounds", "zoom_range": [min, max]}` |
-| 400 | `invalid_json`, or `invalid_bounds` with the bounds error as the message |
+| 200 | `{"total_tiles", "estimated_size_mb", "zoom_breakdown": {"<z>": count}, "bounds", "zoom_range": [min, max], "areas": [{"name", "tiles"}], "unique_tiles"}`. `total_tiles` is equal to `unique_tiles` (FR-area-selection-10). |
+| 400 | `invalid_json`, `invalid_bounds` with the bounds error as the message, `invalid_area`, or `zoom_out_of_range` |
 | 405 | `method_not_allowed` |
 | 413 | `body_too_large` (#81) |
 
 Every error body has the error shape `{"error": {"code": "<code>", "message": "<text>"}}`
 and `Content-Type: application/json` (#74).
 
-`POST /api/tile-info` (`web.go:226-252`). Request: `{"lat", "lon", "zoom"}`. A `zoom` of 0
+`POST /api/tile-info` (`web.go:348-374`). Request: `{"lat", "lon", "zoom"}`. A `zoom` of 0
 becomes 10. Response:
 `{"tile_x", "tile_y", "zoom", "bounds": [west, south, east, north], "coordinate": [lat, lon]}`.
 The web UI does not call this route.
@@ -236,7 +236,7 @@ What the code does not handle:
 - **Bounds that cross the antimeridian are rejected.** The minimum longitude must be less
   than the maximum.
 - **A bad `--zoom-range` becomes zoom level 0.** `strconv.Atoi` errors are ignored
-  (`estimate.go:55-56`), so `--zoom-range a-b` gives `0-0`.
+  (`estimate.go:67-68`), so `--zoom-range a-b` gives `0-0`.
 - **No upper limit on the tile count.** `/api/estimate` accepts any zoom range and any
   bounds.
 - **The time shown in the web UI assumes 10 tiles per second**

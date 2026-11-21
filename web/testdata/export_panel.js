@@ -29,6 +29,7 @@ class FakeElement {
         this.text = '';
         this.className = '';
         this.title = '';
+        this.classList = { add() {}, remove() {}, toggle() {}, contains: () => false };
     }
     get checked() { return this.checkedState; }
     // A checked radio clears the other radios of its group, the same as a browser does.
@@ -98,8 +99,14 @@ app.followJob = () => {};
 app.postJSON = (path, body) => { requests.push({ path, body }); return Promise.resolve({ id: 'job-1', output_file: 'out' }); };
 app.mapSources = scenario.sources || [];
 app.startReady = true;
+// bindEvents adds the drop listeners to the map container, and setJobLocked calls Geoman, but init makes no map here.
+app.map = { getContainer: () => new FakeElement('div'), pm: new Proxy({}, { get: () => () => false }) };
 const [west, south, east, north] = scenario.area || [];
-app.selectedArea = scenario.area ? { getWest: () => west, getSouth: () => south, getEast: () => east, getNorth: () => north } : null;
+const [minZoom, maxZoom] = scenario.zoom || [1, 15];
+app.areas = scenario.area ? [{
+    id: 1, kind: 'bounds', name: 'Area 1', minZoom, maxZoom, tiles: 4, layer: {},
+    geometry: { type: 'Polygon', coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] }
+}] : [];
 app.bindEvents();
 app.updateExportPanel();
 if (scenario.files) app.renderOutputFiles(scenario.files);
