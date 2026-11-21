@@ -228,6 +228,8 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>TMS</td><td>noun</td><td>Tile Map Service row order: row 0 is at the south edge.</td><td>—</td></tr>
 <tr><td>XYZ</td><td>noun</td><td>Slippy-map row order: row 0 is at the north edge.</td><td>—</td></tr>
 <tr><td>WMS</td><td>noun</td><td>OGC Web Map Service. A map source that the project requests with bounds instead of a tile column and row.</td><td>—</td></tr>
+<tr><td>CRS</td><td>noun</td><td>Coordinate reference system, for example <code>EPSG:3857</code>. A WMS request names one (feature 09).</td><td>projection, SRS (except as the WMS 1.1.1 parameter name)</td></tr>
+<tr><td>GetCapabilities</td><td>noun</td><td>The WMS request that returns the service metadata of a server, which lists the CRS of each layer (feature 09).</td><td>capabilities call</td></tr>
 <tr><td>SSE</td><td>noun</td><td>Server-Sent Events: a one-way HTTP event stream. The job API sends job events over it (#76).</td><td>—</td></tr>
 </table></div>
 <h2 id="goals">Goals</h2>

@@ -59,7 +59,7 @@ This feature embeds a pinned snapshot in the binary, adds a sync command, suppor
 
 - FR-source-sync-18 — The parser loads `<customWmsMapSource>` source files as map sources with `kind: wms`.
 - FR-source-sync-19 — For a WMS map source, the engine builds a GetMap request with the WMS version, layers, CRS, image format, 256×256 size and bounds of the tile.
-- FR-source-sync-20 — The engine supports WMS CRS `EPSG:3857`. A WMS source file with another CRS is skipped with reason `unsupported_crs`.
+- FR-source-sync-20 — The engine requests WMS tiles in CRS `EPSG:3857`. If the source file declares another CRS, the engine reads the server's GetCapabilities document one time for each map source and uses `EPSG:3857` when the server lists it for the layers. If the server does not list `EPSG:3857`, the job stops before the first tile request with error `unsupported_crs`.
 - FR-source-sync-21 — The parser reads `invertYCoordinate`. If it is true, the engine sends `(2^z - 1) - y` as `{$y}`.
 - FR-source-sync-22 — The parser splits `serverParts` on whitespace and on commas.
 - FR-source-sync-23 — The engine picks the server part from the tile key, `(x + y) mod len(serverParts)`, so that each tile always uses the same part.
@@ -73,7 +73,6 @@ This feature embeds a pinned snapshot in the binary, adds a sync command, suppor
   - `parse_error`
   - `missing_name`
   - `missing_url`
-  - `unsupported_crs`
   - `unknown_placeholder`
   - `duplicate_name`
 - FR-source-sync-28 — `atak-dl list-sources --skipped` prints every skipped source file with its reason.
@@ -141,7 +140,9 @@ sequenceDiagram
 ## Behaviour rules
 
 - WMS tile bounds come from `tilecalc` for the tile at zoom level z, column x and row y, in EPSG:3857 metres.
-- The WMS `BBOX` axis order for 1.3.0 with EPSG:3857 is `minx,miny,maxx,maxy`. Confirm this against the OGC WMS 1.3.0 standard before you build it.
+- The WMS `BBOX` axis order for 1.3.0 with EPSG:3857 is `minx,miny,maxx,maxy`. OGC WMS 1.3.0 § 6.7.4 orders `BBOX` by the axes of the CRS, and EPSG:3857 has easting first.
+- WMS 1.1.1 names the CRS parameter `SRS`. WMS 1.3.0 names it `CRS`.
+- The GetCapabilities request obeys the policy table like a tile request. The engine does not reproject.
 - `sources sync` honours the GitHub API rate limit and sends the project User-Agent from feature 06.
 - `sources sync` changes no file outside `<user source directory>/atak-maps/`. Its temporary directories in the user source directory start with `.atak-maps-`.
 - `sources sync` rejects an archive in these cases, and changes no file:
@@ -179,7 +180,7 @@ sequenceDiagram
 
 - `atak-dl list-sources` on a clean machine with no `mapsources/` folder lists the snapshot map sources.
 - `atak-dl list-sources --skipped` lists every snapshot source file that did not load, each with a reason. The loaded count plus the skipped count is 53.
-- The FEMA NFHL WMS source file loads, and one tile request to a fake WMS server has `SERVICE=WMS`, `REQUEST=GetMap`, `LAYERS`, `CRS=EPSG:3857` and a `BBOX` that matches the tile.
+- The FEMA NFHL WMS source file loads. When a fake WMS server lists `EPSG:3857` in GetCapabilities, one tile request has `SERVICE=WMS`, `REQUEST=GetMap`, `LAYERS`, `CRS=EPSG:3857` and a `BBOX` that matches the tile. When the fake server does not list `EPSG:3857`, the job stops with `unsupported_crs` and sends no GetMap request.
 - A fixture source file with `serverParts` `a,b,c` produces requests to three different hosts.
 - The same tile key always uses the same server part.
 - A fixture with `invertYCoordinate` true sends `{$y}` as the TMS row.

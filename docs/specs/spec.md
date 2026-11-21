@@ -100,6 +100,8 @@ The project exists because ATAK users often work with no network. Examples are s
 | TMS | noun | Tile Map Service row order: row 0 is at the south edge. | — |
 | XYZ | noun | Slippy-map row order: row 0 is at the north edge. | — |
 | WMS | noun | OGC Web Map Service. A map source that the project requests with bounds instead of a tile column and row. | — |
+| CRS | noun | Coordinate reference system, for example `EPSG:3857`. A WMS request names one (feature 09). | projection, SRS (except as the WMS 1.1.1 parameter name) |
+| GetCapabilities | noun | The WMS request that returns the service metadata of a server, which lists the CRS of each layer (feature 09). | capabilities call |
 | SSE | noun | Server-Sent Events: a one-way HTTP event stream. The job API sends job events over it (#76). | — |
 
 ## Goals
