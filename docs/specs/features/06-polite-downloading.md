@@ -42,7 +42,7 @@ Several bundled map sources come from providers whose terms prohibit bulk downlo
 
 ### User-Agent
 
-- FR-polite-downloading-14 — Every tile request and every geocode request sends the User-Agent `atak-map-downloader/<version> (+https://github.com/Crank-Git/ATAKMapDownloader)`.
+- FR-polite-downloading-14 — Every tile request and every geocode request sends the User-Agent `atak-map-downloader/<version> (+https://github.com/Crank-Git/ATAK-Map-Downloader)`.
 
 ### Restricted map sources
 

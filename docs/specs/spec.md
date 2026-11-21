@@ -1,7 +1,7 @@
 ---
 name: ATAK Map Downloader
 slug: atak-map-downloader
-repo: Crank-Git/ATAKMapDownloader
+repo: Crank-Git/ATAK-Map-Downloader
 status: approved
 spec_version: 2
 created: 2026-11-21
@@ -351,7 +351,7 @@ stateDiagram-v2
   - The tile count is at most `--max-tiles`, with a default of 500,000 (`too_many_tiles`, feature 07, #29).
 - **Logging.** `log/slog` with the text handler today. Planned: every job log line carries `job_id`, and every failed tile is logged at debug level with its URL and reason.
 - **Politeness.** Planned (feature 06):
-  - The User-Agent is `atak-map-downloader/<version> (+https://github.com/Crank-Git/ATAKMapDownloader)`.
+  - The User-Agent is `atak-map-downloader/<version> (+https://github.com/Crank-Git/ATAK-Map-Downloader)`.
   - Each host has a rate limit.
   - The project backs off on 429 and 503 and honours `Retry-After`.
   - Geocoding is limited to 1 request per second across the whole server, as the Nominatim policy requires (https://operations.osmfoundation.org/policies/nominatim/).
