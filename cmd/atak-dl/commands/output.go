@@ -23,6 +23,9 @@ const (
 // sourceKey is the metadata row that names the map source of an output file.
 const sourceKey = "atakdl_source"
 
+// areasKey is the metadata row that holds the areas of an output file as GeoJSON (FR-area-selection-29).
+const areasKey = "atakdl_areas"
+
 // outputConflict is an error for an output file that the rule of the job does not accept.
 // The CLI exits with exitOutputConflict for it, and the job API returns 409 output_exists.
 type outputConflict struct {

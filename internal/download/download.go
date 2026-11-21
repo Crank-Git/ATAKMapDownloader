@@ -171,31 +171,28 @@ func NewEngine(cfg Config) *Engine {
 	}
 }
 
-// DownloadTiles downloads the tiles of bounds at zoomLevels, and one writer goroutine writes them to outputPath.
+// DownloadTiles downloads the tiles of the areas, and one writer goroutine writes them to outputPath.
+// Each area has its own zoom range. A tile that more than one area selects is requested once (FR-area-selection-8).
 // It opens an existing output file and skips each tile that the file holds, so the caller decides whether a file may exist.
 // After the main pass, a retry pass requests each tile in the atakdl_failed_tiles table of the file once more.
+// The caller validates the areas, and areas holds at least one area.
 // The error is ErrServerRefused or ErrWriteFailed when either stops the job.
 // It is the context error when the job is cancelled. Every outcome keeps the output file.
 func (e *Engine) DownloadTiles(
 	ctx context.Context,
 	source *xmlparser.MapSource,
-	bounds *tilecalc.GeographicBounds,
-	zoomLevels []int,
+	areas []tilecalc.JobArea,
 	outputPath string,
 	cb ProgressCallback,
 ) (Result, error) {
-	var totalTiles int
-	var tileBoundsList []*tilecalc.TileBounds
+	totalTiles := tilecalc.CountJobTiles(areas).Unique
+	slog.Info("starting download", "tiles", totalTiles, "areas", len(areas))
 
-	for _, z := range zoomLevels {
-		tb := e.calc.CalculateTileBounds(bounds, z)
-		tileBoundsList = append(tileBoundsList, tb)
-		totalTiles += tb.TileCount()
+	metadata, err := outputMetadata(source, areas)
+	if err != nil {
+		return Result{}, err
 	}
-
-	slog.Info("starting download", "tiles", totalTiles, "zoom_levels", len(zoomLevels))
-
-	w, err := mbtiles.Open(outputPath, outputMetadata(source, bounds, zoomLevels))
+	w, err := mbtiles.Open(outputPath, metadata)
 	if err != nil {
 		return Result{}, err
 	}
@@ -208,35 +205,30 @@ func (e *Engine) DownloadTiles(
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
 	var wg sync.WaitGroup
 
-	for _, tb := range tileBoundsList {
-		// jobCtx ends when the job stops early, so the producer goroutine of IterTiles returns.
-		for pair := range tb.IterTiles(jobCtx) {
-			x, y := pair[0], pair[1]
-			z := tb.Zoom
-
-			select {
-			case <-jobCtx.Done():
-				// A refusal also ends jobCtx, but only a cancel of ctx is a cancelled job.
-				if ctx.Err() != nil {
-					c.cancelled.Store(true)
-				}
-				goto wait
-			default:
+	// jobCtx ends when the job stops early, so the producer goroutine of JobTiles returns.
+	for tile := range tilecalc.JobTiles(jobCtx, areas) {
+		select {
+		case <-jobCtx.Done():
+			// A refusal also ends jobCtx, but only a cancel of ctx is a cancelled job.
+			if ctx.Err() != nil {
+				c.cancelled.Store(true)
 			}
-
-			// A full semaphore waits for a free slot, and a cancel ends that wait at once (FR-robust-downloads-30).
-			select {
-			case sem <- struct{}{}:
-			case <-jobCtx.Done():
-				goto wait
-			}
-			wg.Add(1)
-			go func(x, y, z int) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				e.fetchTile(jobCtx, jg, w, source, cb, &c, x, y, z, false)
-			}(x, y, z)
+			goto wait
+		default:
 		}
+
+		// A full semaphore waits for a free slot, and a cancel ends that wait at once (FR-robust-downloads-30).
+		select {
+		case sem <- struct{}{}:
+		case <-jobCtx.Done():
+			goto wait
+		}
+		wg.Add(1)
+		go func(x, y, z int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			e.fetchTile(jobCtx, jg, w, source, cb, &c, x, y, z, false)
+		}(tile.X, tile.Y, tile.Z)
 	}
 
 wait:
@@ -282,20 +274,29 @@ func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr e
 	return e.outcome(c.downloaded.Load(), c.skipped.Load(), c.failed.Load())
 }
 
-// outputMetadata returns the MBTiles metadata rows for a job.
-func outputMetadata(source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds, zoomLevels []int) map[string]string {
+// outputMetadata returns the MBTiles metadata rows for a job of the areas.
+// bounds is the rectangle of all areas, and minzoom and maxzoom are the zoom range over all areas (FR-area-selection-27, -28).
+func outputMetadata(source *xmlparser.MapSource, areas []tilecalc.JobArea) (map[string]string, error) {
+	// The resume of a job reads this row to select the same tiles again (FR-area-selection-29).
+	encoded, err := tilecalc.EncodeAreas(areas)
+	if err != nil {
+		return nil, err
+	}
+	b := tilecalc.JobBound(areas)
+	minZoom, maxZoom := tilecalc.JobZoomRange(areas)
 	return map[string]string{
-		"name":        fmt.Sprintf("%s - %.4f,%.4f to %.4f,%.4f", source.Name, bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon),
+		"name":        fmt.Sprintf("%s - %.4f,%.4f to %.4f,%.4f", source.Name, b.Min[1], b.Min[0], b.Max[1], b.Max[0]),
 		"type":        "baselayer",
 		"version":     "1.0",
 		"description": "Downloaded from " + source.Name,
 		"format":      source.TileType,
-		"bounds":      fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", bounds.MinLon, bounds.MinLat, bounds.MaxLon, bounds.MaxLat),
-		"minzoom":     fmt.Sprintf("%d", zoomLevels[0]),
-		"maxzoom":     fmt.Sprintf("%d", zoomLevels[len(zoomLevels)-1]),
+		"bounds":      fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", b.Min[0], b.Min[1], b.Max[0], b.Max[1]),
+		"minzoom":     fmt.Sprintf("%d", minZoom),
+		"maxzoom":     fmt.Sprintf("%d", maxZoom),
 		// The resume check of the CLI reads this row (FR-robust-downloads-10).
 		"atakdl_source": source.Name,
-	}
+		"atakdl_areas":  string(encoded),
+	}, nil
 }
 
 // outcome returns the result of a job that was not cancelled.

@@ -15,6 +15,7 @@ import (
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
+	"github.com/paulmach/orb"
 )
 
 // fixtureHost is the URL prefix of every fixture source file in testdata/sources.
@@ -34,23 +35,18 @@ func loadFixture(t *testing.T, file string, srv *testtiles.Server) *xmlparser.Ma
 	return source
 }
 
-// areaBounds returns bounds that hold exactly the tiles of area.
-func areaBounds(t *testing.T) *tilecalc.GeographicBounds {
+// areasOf returns one bounds area that holds exactly the tiles of tb at its zoom level.
+func areasOf(t *testing.T, tb tilecalc.TileBounds) []tilecalc.JobArea {
 	t.Helper()
-	return boundsOf(t, area)
+	return []tilecalc.JobArea{{Area: tilecalc.Area{Kind: tilecalc.AreaBounds, Geometry: boundOf(tb).ToPolygon()}, MinZoom: tb.Zoom, MaxZoom: tb.Zoom}}
 }
 
-// boundsOf returns bounds that hold exactly the tiles of tb.
-func boundsOf(t *testing.T, tb tilecalc.TileBounds) *tilecalc.GeographicBounds {
-	t.Helper()
+// boundOf returns a bound that holds exactly the tiles of tb.
+func boundOf(tb tilecalc.TileBounds) orb.Bound {
 	edges := tilecalc.NewTileCalculator().TileBoundsToGeographic(&tb)
-	// The tile edges belong to the next tile, so the bounds move inside them.
+	// The tile edges belong to the next tile, so the bound moves inside them.
 	const inset = 1e-6
-	bounds, err := tilecalc.NewGeographicBounds(edges.MinLat+inset, edges.MaxLat-inset, edges.MinLon+inset, edges.MaxLon-inset)
-	if err != nil {
-		t.Fatalf("make bounds: %v", err)
-	}
-	return bounds
+	return orb.Bound{Min: orb.Point{edges.MinLon + inset, edges.MinLat + inset}, Max: orb.Point{edges.MaxLon - inset, edges.MaxLat - inset}}
 }
 
 // testConfig returns the default engine configuration with a short request timeout.
@@ -129,7 +125,7 @@ func TestEngineDownloadsA3x3TileArea(t *testing.T) {
 			source := loadFixture(t, tt.fixture, srv)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			res, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+			res, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, areasOf(t, area), output, nil)
 			if !res.OK || err != nil {
 				t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 			}
@@ -179,7 +175,7 @@ func TestEngineFailureTolerance(t *testing.T) {
 			source := loadFixture(t, "xyz.xml", srv)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			res, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+			res, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, areasOf(t, area), output, nil)
 			if res.OK != tt.wantOK {
 				t.Errorf("DownloadTiles ok = %v, want %v", res.OK, tt.wantOK)
 			}
@@ -210,7 +206,7 @@ func TestEngineRejectsASelfSignedCertificateByDefault(t *testing.T) {
 	// The retry pass repeats the handshake waits, so a short backoff keeps the test fast.
 	e.backoffBase = time.Millisecond
 
-	res, err := e.DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
+	res, err := e.DownloadTiles(t.Context(), source, areasOf(t, oneTile), output, nil)
 	if res.OK {
 		t.Errorf("DownloadTiles ok = true, want false")
 	}
@@ -233,7 +229,7 @@ func TestEngineAcceptsASelfSignedCertificateWhenInsecure(t *testing.T) {
 	cfg := testConfig()
 	cfg.VerifyTLS = false
 
-	res, err := NewEngine(cfg).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+	res, err := NewEngine(cfg).DownloadTiles(t.Context(), source, areasOf(t, area), output, nil)
 	if !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
@@ -257,7 +253,7 @@ func TestEngineDownloadsA10000TileJobWith16Slots(t *testing.T) {
 	cfg.MaxConcurrent = 16
 
 	var calls atomic.Int64
-	res, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, boundsOf(t, largeArea), []int{largeArea.Zoom}, output,
+	res, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, areasOf(t, largeArea), output,
 		func(Progress) bool {
 			calls.Add(1)
 			return true
@@ -306,7 +302,7 @@ func TestEngineStopsTheJobWhenTheWriterFails(t *testing.T) {
 		})
 		return true
 	}
-	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, boundsOf(t, tiles), []int{tiles.Zoom}, output, cb)
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areasOf(t, tiles), output, cb)
 	if res.OK || !errors.Is(err, ErrWriteFailed) || !strings.HasPrefix(errorText(err), "write_failed") {
 		t.Errorf("DownloadTiles = %v, %v; want false and an error that starts with write_failed", res.OK, err)
 	}
@@ -339,7 +335,7 @@ func TestEngineReturnsWriteFailedWhenTheLastCommitFailsAfterACancel(t *testing.T
 		})
 		return true
 	}
-	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(ctx, source, areaBounds(t), []int{area.Zoom}, output, cb)
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(ctx, source, areasOf(t, area), output, cb)
 	if res.OK || !errors.Is(err, ErrWriteFailed) {
 		t.Errorf("DownloadTiles = %v, %v; want false and write_failed, because a lost tile outranks the cancel", res.OK, err)
 	}

@@ -138,7 +138,7 @@ func TestEngineRejectsTilesThatAreNotValidImages(t *testing.T) {
 			e := NewEngine(testConfig())
 			e.onTileFailed = log.record
 
-			res, err := e.DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, output, nil)
+			res, err := e.DownloadTiles(t.Context(), source, areasOf(t, singleTile), output, nil)
 			if res.OK || err == nil {
 				t.Errorf("DownloadTiles = %v, %v; want false and an error", res.OK, err)
 			}
@@ -171,7 +171,7 @@ func TestEngineRejectsABlockedImage(t *testing.T) {
 	e.onTileFailed = log.record
 	e.blocked = map[[sha256.Size]byte]struct{}{sha256.Sum256(fetchBody(t, srv, tile)): {}}
 
-	res, _ := e.DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, output, nil) // The test checks the counts and the reason, not the job error.
+	res, _ := e.DownloadTiles(t.Context(), source, areasOf(t, singleTile), output, nil) // The test checks the counts and the reason, not the job error.
 	if res.Failed != 1 {
 		t.Errorf("DownloadTiles counts %d failed, want 1", res.Failed)
 	}
@@ -193,7 +193,7 @@ func TestEngineReportsTheReasonOfAnHTTPError(t *testing.T) {
 	e := NewEngine(testConfig())
 	e.onTileFailed = log.record
 
-	_, _ = e.DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil) // The test checks the reason, not the job error.
+	_, _ = e.DownloadTiles(t.Context(), source, areasOf(t, singleTile), filepath.Join(t.TempDir(), "out.sqlite"), nil) // The test checks the reason, not the job error.
 	// The retry pass skips a not_found tile, so the engine reports it once (FR-robust-downloads-25).
 	want := []tileFailure{{tile, ReasonNotFound}}
 	if got := log.failures(); fmt.Sprint(got) != fmt.Sprint(want) {
@@ -210,7 +210,7 @@ func TestEngineReportsTheReasonOfATLSFailure(t *testing.T) {
 	e.backoffBase = 0
 	e.onTileFailed = log.record
 
-	_, _ = e.DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil) // The test checks the reason, not the job error.
+	_, _ = e.DownloadTiles(t.Context(), source, areasOf(t, singleTile), filepath.Join(t.TempDir(), "out.sqlite"), nil) // The test checks the reason, not the job error.
 	// The main pass and the retry pass each report the tile.
 	want := []tileFailure{{tile, ReasonTLS}, {tile, ReasonTLS}}
 	if got := log.failures(); fmt.Sprint(got) != fmt.Sprint(want) {
@@ -302,7 +302,7 @@ func TestEngineWarnsWhenTheMapSourceReturnsOnePlaceholderImage(t *testing.T) {
 	cfg := testConfig()
 	cfg.MaxConcurrent = 8
 	// The default rate of a local host gives a job of 121 tiles about 30 s, so the test raises it.
-	res, err := politeEngine(cfg, 1000).DownloadTiles(t.Context(), source, boundsOf(t, tb), []int{tb.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil)
+	res, err := politeEngine(cfg, 1000).DownloadTiles(t.Context(), source, areasOf(t, tb), filepath.Join(t.TempDir(), "out.sqlite"), nil)
 	if !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}

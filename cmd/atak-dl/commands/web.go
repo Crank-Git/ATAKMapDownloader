@@ -226,6 +226,9 @@ type sourceItem struct {
 	PolicyHost         string  `json:"policy_host"`
 }
 
+// apiEstimate returns the tile count and the size of a job (feature 02).
+// The request holds an area list, or the legacy bounds and zoom range of one bounds area (FR-area-selection-25, -26).
+// The response counts each area and the unique tiles over all areas, and total_tiles is the unique count (FR-area-selection-9, -10).
 func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
@@ -233,16 +236,31 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		// Source is optional. With no source, the estimate uses the size per tile of an unknown tile type.
-		Source  string    `json:"source"`
-		Bounds  []float64 `json:"bounds"`
-		MinZoom int       `json:"min_zoom"`
-		MaxZoom int       `json:"max_zoom"`
+		Source  string        `json:"source"`
+		Areas   []areaRequest `json:"areas"`
+		Bounds  []float64     `json:"bounds"`
+		MinZoom int           `json:"min_zoom"`
+		MaxZoom int           `json:"max_zoom"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if len(req.Bounds) != 4 {
-		writeError(w, http.StatusBadRequest, "invalid_bounds", "Bounds must hold four numbers: west, south, east, north")
+	// The legacy request has zoom defaults and accepts an inverted zoom range, as feature 02 defines it.
+	if req.MinZoom == 0 {
+		req.MinZoom = 1
+	}
+	if req.MaxZoom == 0 {
+		req.MaxZoom = 18
+	}
+	if req.MinZoom > req.MaxZoom {
+		req.MinZoom, req.MaxZoom = req.MaxZoom, req.MinZoom
+	}
+	areas, code, message := requestAreas(req.Bounds, req.MinZoom, req.MaxZoom, req.Areas)
+	if code == "" {
+		code, message = checkAreas(areas)
+	}
+	if code != "" {
+		writeError(w, http.StatusBadRequest, code, message)
 		return
 	}
 	tileType := ""
@@ -254,45 +272,40 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		}
 		tileType = source.TileType
 	}
-	west, south, east, north := req.Bounds[0], req.Bounds[1], req.Bounds[2], req.Bounds[3]
-	if req.MinZoom == 0 {
-		req.MinZoom = 1
+	count := tilecalc.CountJobTiles(areas)
+	perArea := make([]areaEstimate, len(areas))
+	for i, a := range areas {
+		perArea[i] = areaEstimate{Name: a.Name, Tiles: count.Areas[i]}
 	}
-	if req.MaxZoom == 0 {
-		req.MaxZoom = 18
-	}
-	bounds, err := tilecalc.NewGeographicBounds(south, north, west, east)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_bounds", err.Error())
-		return
-	}
-	if req.MinZoom > req.MaxZoom {
-		req.MinZoom, req.MaxZoom = req.MaxZoom, req.MinZoom
-	}
-	var totalTiles int
-	zoomBreakdown := make(map[int]int)
-	for z := req.MinZoom; z <= req.MaxZoom; z++ {
-		tb := h.calc.CalculateTileBounds(bounds, z)
-		totalTiles += tb.TileCount()
-		zoomBreakdown[z] = tb.TileCount()
-	}
-	estMB := float64(totalTiles) * tilecalc.TileSizeKB(tileType) / 1024
+	b := tilecalc.JobBound(areas)
+	minZoom, maxZoom := tilecalc.JobZoomRange(areas)
 	writeJSON(w, estimateResult{
-		TotalTiles:      totalTiles,
-		EstimatedSizeMB: estMB,
-		ZoomBreakdown:   zoomBreakdown,
-		Bounds:          req.Bounds,
-		ZoomRange:       []int{req.MinZoom, req.MaxZoom},
+		TotalTiles:      count.Unique,
+		EstimatedSizeMB: float64(count.Unique) * tilecalc.TileSizeKB(tileType) / 1024,
+		ZoomBreakdown:   count.Zooms,
+		Bounds:          []float64{b.Min[0], b.Min[1], b.Max[0], b.Max[1]},
+		ZoomRange:       []int{minZoom, maxZoom},
+		Areas:           perArea,
+		UniqueTiles:     count.Unique,
 	})
 }
 
-// estimateResult is the POST /api/estimate response. ZoomBreakdown maps each zoom level to its tile count.
+// estimateResult is the POST /api/estimate response.
+// ZoomBreakdown maps each zoom level to its count of unique tiles. TotalTiles and UniqueTiles hold the same count.
 type estimateResult struct {
-	TotalTiles      int         `json:"total_tiles"`
-	EstimatedSizeMB float64     `json:"estimated_size_mb"`
-	ZoomBreakdown   map[int]int `json:"zoom_breakdown"`
-	Bounds          []float64   `json:"bounds"`
-	ZoomRange       []int       `json:"zoom_range"`
+	TotalTiles      int            `json:"total_tiles"`
+	EstimatedSizeMB float64        `json:"estimated_size_mb"`
+	ZoomBreakdown   map[int]int    `json:"zoom_breakdown"`
+	Bounds          []float64      `json:"bounds"`
+	ZoomRange       []int          `json:"zoom_range"`
+	Areas           []areaEstimate `json:"areas"`
+	UniqueTiles     int            `json:"unique_tiles"`
+}
+
+// areaEstimate is the tile count of one area alone in the POST /api/estimate response.
+type areaEstimate struct {
+	Name  string `json:"name"`
+	Tiles int    `json:"tiles"`
 }
 
 func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
