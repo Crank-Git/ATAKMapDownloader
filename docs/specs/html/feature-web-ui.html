@@ -316,12 +316,20 @@ body.rv-open .layout { padding-right:21rem; }
 <ol>
 <li>The solo operator selects <strong>Start Download</strong>.
 </li>
-<li>The web UI sends <code>POST /api/jobs</code> (<code>web/static/js/app.js:455</code>).
+<li>If a job runs, the web UI keeps Start disabled, so the solo operator cannot start a
 </li>
+</ol>
+<p>second job from the same page.</p>
+<ol>
+<li>The web UI makes Estimate, Start and the settings read-only, and sends <code>POST /api/jobs</code>
+</li>
+</ol>
+<p>(<code>web/static/js/app.js:883</code>).</p>
+<ol>
 <li>If the request is not valid, the server returns 400, 404 or 413 with the error shape.
 </li>
 </ol>
-<p>The web UI logs <code>Download error: &lt;message&gt;</code> and resets the job controls.</p>
+<p>The web UI logs <code>Download error: &lt;message&gt;</code> and resets the job controls. The reset applies only when the job panel shows no job.</p>
 <ol>
 <li>If a job already runs, the server returns 409 with <code>job_running</code>.
 </li>
@@ -330,7 +338,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ol>
 <p><code>Output file: &lt;name&gt;</code>.</p>
 <ol>
-<li>The web UI opens <code>GET /api/jobs/{id}/events</code> with <code>EventSource</code> (<code>app.js:114</code>). The
+<li>The web UI opens <code>GET /api/jobs/{id}/events</code> with <code>EventSource</code> (<code>app.js:347</code>). The
 </li>
 </ol>
 <p>first event is a <code>state</code> event.</p>
@@ -350,7 +358,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li>The server ends the stream after the final <code>state</code> event. The web UI closes its
 </li>
 </ol>
-<p><code>EventSource</code> (<code>app.js:132-138</code>), because <code>EventSource</code> reconnects to an ended stream (#78).</p>
+<p><code>EventSource</code> (<code>app.js:369-374</code>), because <code>EventSource</code> reconnects to an ended stream (#78).</p>
 <h4 id="web-ui-flow-2-the-solo-operator-cancels-a-job">Flow 2 — The solo operator cancels a job</h4>
 <div class="diagram"><pre class="mermaid">sequenceDiagram
     participant U as Solo operator
@@ -371,7 +379,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The web UI logs <code>Cancelling download...</code> and shows <code>Cancelling...</code> on the button.
 </li>
-<li>The web UI sends <code>DELETE /api/jobs/{id}</code> (<code>app.js:578</code>).
+<li>The web UI sends <code>DELETE /api/jobs/{id}</code> (<code>app.js:987</code>).
 </li>
 <li>The server cancels the context of the job. It returns 202 with the job record, which
 </li>
@@ -488,8 +496,8 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>Empty source catalog</td><td>The server returns <code>[]</code> (#74). The web UI logs <code>Loaded 0 map sources</code> and shows only the placeholder option</td></tr>
 <tr><td>No bounds</td><td><code>Click "Draw Rectangle" to select an area on the map</code>. Estimate and Preview disabled</td></tr>
 <tr><td>Estimate or preview error</td><td>A status log line with the <code>message</code> of the error shape (#74)</td></tr>
-<tr><td>Request in flight</td><td>Nothing. <code>#loadingModal</code> exists but no code shows it</td></tr>
-<tr><td>Job running</td><td>Spinner text <code>Downloading...</code>, progress bar, <strong>Cancel</strong> visible</td></tr>
+<tr><td>Request in flight</td><td>A spinner in the button of the request, and <code>Loading map sources</code> while the source list loads (FR-offline-web-ui-18)</td></tr>
+<tr><td>Job running</td><td>Spinner text <code>Downloading...</code>, progress bar, <strong>Cancel</strong> visible. Estimate, Start and the settings are read-only</td></tr>
 <tr><td>Job failed</td><td>A status log line with the engine error, and the controls reset (#78)</td></tr>
 <tr><td>Job cancelled</td><td>The status log line <code>Download cancelled</code>, and the controls reset (#78)</td></tr>
 <tr><td>Job complete</td><td><strong>Download Complete!</strong> panel with the tile counts and the file name</td></tr>
@@ -508,7 +516,7 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li><code>aria-expanded</code> and <code>aria-controls</code> on the <strong>Advanced Settings</strong> toggle.
 <ul>
-<li><code>role="status"</code> with visually hidden text on the modal spinner.
+<li><code>role="status"</code> on the connection indicator.
 </li>
 </ul>
 </li>
@@ -529,15 +537,15 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>Theme and layout:</p>
 <ul>
-<li>The theme toggle sets <code>data-bs-theme</code>. The web UI does not read
+<li>The theme toggle sets <code>data-theme</code>. The web UI follows <code>prefers-color-scheme</code> until
 </li>
 </ul>
-<p><code>prefers-color-scheme</code>.</p>
+<p>the solo operator selects a theme (FR-offline-web-ui-29).</p>
 <ul>
-<li>In dark mode, <code>style.css:107-113</code> puts a colour filter on <code>.leaflet-tile</code> and inverts
+<li>In dark mode, no CSS filter applies to the map tiles or the preview tiles, so the
 </li>
 </ul>
-<p>the map controls. The preview image overlays do not get the filter.</p>
+<p>tiles show the colours of the output file (FR-offline-web-ui-30).</p>
 <ul>
 <li>One breakpoint at 768 px stacks the sidebar and the map.
 </li>
@@ -551,6 +559,7 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>Font Awesome</td><td>6.4.0</td><td>cdnjs.cloudflare.com</td></tr>
 <tr><td>Base map tiles</td><td>—</td><td><code>{s}.tile.openstreetmap.org</code></td></tr>
 </table></div>
+<p>Feature 08 replaces these assets. Since #31, the binary embeds Leaflet and Leaflet-Geoman, and only the base map tiles come from another host.</p>
 <h3 id="web-ui-behaviour-rules">Behaviour rules</h3>
 <ul>
 <li>The server has no authentication.
@@ -742,7 +751,9 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The output file name keeps only safe characters, so <code>name</code> cannot leave <code>./downloads</code>.
 </li>
-<li>The status log writes text through <code>textContent</code> (<code>app.js:545</code>, #78).
+<li>The status log writes text through <code>textContent</code> (<code>app.js:960</code>, #78).
+</li>
+<li>The geocode popup writes <code>display_name</code> through <code>textContent</code> (<code>app.js:752</code>).
 </li>
 </ul>
 <p>What the code does not handle:</p>
@@ -775,15 +786,13 @@ body.rv-open .layout { padding-right:21rem; }
 <li><strong>Preview tiles can fail to show.</strong> The overlays set <code>crossOrigin: 'anonymous'</code>
 </li>
 </ul>
-<p>(<code>app.js:349</code>), so a tile server that sends no CORS header blocks the image.</p>
+<p>(<code>app.js:621</code>), so a tile server that sends no CORS header blocks the image.</p>
 <ul>
 <li><strong>The web UI needs the internet.</strong> Every library and the base map come from public
 </li>
 </ul>
 <p>hosts, so the page does not work on a disconnected machine.</p>
 <ul>
-<li><strong>The geocode popup writes <code>display_name</code> as HTML</strong> (<code>app.js:398</code>).
-</li>
 <li><strong>The geocode route breaks the Nominatim usage policy.</strong> It has no rate limit, no cache
 </li>
 </ul>
@@ -794,10 +803,9 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>identifying User-Agent and forbids offline bulk use (<a href="https://operations.osmfoundation.org/policies/tiles/">OSM tile usage policy</a>, retrieved 2026-11-21). The browser sends its own User-Agent.</p>
 <ul>
-<li><strong>Unused code:</strong> the <code>mapsDir</code> field (<code>web.go:25</code>) and the <code>loadingModal</code> object
+<li><strong>Unused code:</strong> the <code>mapsDir</code> field (<code>web.go:24</code>).
 </li>
 </ul>
-<p>(<code>app.js:562-567</code>).</p>
 <p>Known defects and the planned feature that repairs each:</p>
 <div class="table-wrap"><table>
 <tr><th>Defect</th><th>Repaired by</th></tr>

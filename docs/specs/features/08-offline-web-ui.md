@@ -162,13 +162,15 @@ Regions:
 | downloading | The job panel shows the progress bar and counts. Cancel is visible. The settings are read-only. |
 | complete | The job panel shows the summary. The new output file is highlighted in the list. |
 | error | The inline banner shows the message and Retry. |
-| offline | The indicator is offline and the base map falls back (Flow 1). Start is disabled. |
+| offline | The indicator is offline. Start is disabled. The base map does not change, because the local tiles come from the same server. |
 
 ## Behaviour rules
 
 - The web UI picks the size per tile from the map source's tile type: `jpg` 18 KB, `png` 25 KB, and any other type 20 KB. These values are assumptions. The CLI `estimate` uses the same table.
 - The output file list is sorted by modified time, newest first.
-- The vendored assets add at most 400 KB to the binary.
+- The base map falls back (Flow 1) when `navigator.onLine` is false or the first OpenStreetMap tile fails. The offline indicator does not change the base map, because it reports on the server that sends the local tiles.
+- While a job runs, Estimate, Start and the settings are read-only. A rejected start keeps the job panel and Cancel of the running job.
+- The vendored assets add at most 520 KB to the binary. The PM raised the budget from 400 KB at the #31 gate, because Leaflet and Geoman measure about 500 KB.
 - The connection indicator is "connected" while the event stream or the last request succeeded, "reconnecting" while `EventSource` reconnects, and "offline" after 3 failed attempts.
 
 ## Data touched
