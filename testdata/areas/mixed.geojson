@@ -1,0 +1,14 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {"type": "Feature", "properties": {"name": "County", "min_zoom": 8, "max_zoom": 12},
+     "geometry": {"type": "MultiPolygon", "coordinates": [[[[-121.0, 46.0], [-120.9, 46.0], [-120.9, 46.1], [-121.0, 46.0]]]]}},
+    {"type": "Feature", "properties": {"name": "Ridge", "buffer_m": 200},
+     "geometry": {"type": "LineString", "coordinates": [[-121.0, 46.2, 1200], [-120.9, 46.2, 1300]]}},
+    {"type": "Feature", "properties": null,
+     "geometry": {"type": "MultiLineString", "coordinates": [[[-121.0, 46.3], [-120.9, 46.3]]]}},
+    {"type": "Feature", "properties": {"name": "Camp"}, "geometry": {"type": "Point", "coordinates": [-121.0, 46.2]}},
+    {"type": "Feature", "properties": {}, "geometry": {"type": "MultiPoint", "coordinates": [[-121.0, 46.2], [-120.9, 46.2]]}},
+    {"type": "Feature", "properties": {"name": "Unlocated"}, "geometry": null}
+  ]
+}
