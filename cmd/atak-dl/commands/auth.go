@@ -23,12 +23,14 @@ const maxFailures = 10
 const failureWindow = time.Minute
 
 // publicPaths need no token, so that a client can reach the health route and the sign-in page.
-// The sign-in page loads the shared style sheet. Issue #59 adds the other files that the page loads.
+// The static paths are the files that signin.html loads.
 var publicPaths = map[string]bool{
 	"/healthz":              true,
 	"/signin":               true,
 	"/api/session":          true,
 	"/static/css/style.css": true,
+	"/static/js/theme.js":   true,
+	"/static/js/signin.js":  true,
 }
 
 // tokenAuth holds the token of a server that is not on loopback.

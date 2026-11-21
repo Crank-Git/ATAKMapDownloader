@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in - ATAK Tile Downloader</title>
+    <!-- Every file of this page is in publicPaths of auth.go, because the browser has no token yet. -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/theme.js"></script>
+</head>
+<body>
+    <main class="signin-page">
+        <form id="signinForm" class="signin-card" novalidate>
+            <h1>This server needs a token</h1>
+            <p class="hint">The server is not on loopback, so every request needs the token.</p>
+            <label for="token">Token</label>
+            <input id="token" name="token" type="password" autocomplete="current-password" required>
+            <p id="signinError" class="field-error" role="alert" hidden></p>
+            <button id="signinButton" class="btn btn-primary" type="submit">Sign in</button>
+            <p class="hint">Find the token in the server log or in <code>ATAKDL_TOKEN</code>.</p>
+        </form>
+    </main>
+    <script src="/static/js/signin.js"></script>
+</body>
+</html>
