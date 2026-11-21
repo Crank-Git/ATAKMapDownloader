@@ -560,7 +560,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>Epic 3: Robust downloads.</strong> Goal: no job loses a downloaded tile, and no output file holds a bad tile. Covers <a href="html/feature-robust-downloads.html">07-robust-downloads</a>. Depends on: Epic 2 (the host rate limiter that the engine waits on). Exit: resume, validation and tile-cap tests pass under <code>-race</code>.
 </li>
-<li><strong>Epic 4: Offline web UI.</strong> Goal: the web UI works air-gapped and returns output files to the browser. Covers <a href="html/feature-offline-web-ui.html">08-offline-web-ui</a>. Depends on: Epic 1. Exit: the page loads with the network off, and no request leaves for a CDN.
+<li><strong>Epic 4: Offline web UI.</strong> Goal: the web UI works air-gapped and returns output files to the browser. Covers <a href="html/feature-offline-web-ui.html">08-offline-web-ui</a>. Depends on: Epics 1 and 3 (the job panel shows <code>skipped</code> and sends <code>if_exists</code>). Exit: the page loads with the network off, and no request leaves for a CDN.
 </li>
 <li><strong>Epic 5: Source sync and WMS.</strong> Goal: the binary carries a current source catalog, and every source file in it loads or reports why not. Covers <a href="html/feature-source-sync.html">09-source-sync</a>. Depends on: Epic 2 (policy table keys). Exit: 53 snapshot source files load or are listed as skipped with a reason.
 </li>
@@ -580,7 +580,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <tr><td>v0.5.0: Current catalog</td><td>5, 6</td><td>The ATAK-Maps v2.3.1 snapshot with WMS support. Three output formats and data packages.</td></tr>
 <tr><td>v1.0.0: Teams</td><td>7, 8</td><td>Polygon and route areas. A token-protected team server with a queue.</td></tr>
 </table></div>
-<p>Epic 4 needs only Epic 1, so issue-flow may build it in parallel with Epics 2 and 3.</p>
+<p>After Epic 3, issue-flow may build Epics 4, 5 and 6 in parallel.</p>
 <h2 id="assumptions" class="callout-h">Assumptions</h2>
 <ol>
 <li>The default output format stays MBTiles, and the default extension changes from <code>.sqlite</code> to <code>.mbtiles</code> in Epic 6. ATAK detects the format by the schema, not by the extension (ATAK-CIV <code>TilesetInfo.java</code>), so the change is safe for import.
