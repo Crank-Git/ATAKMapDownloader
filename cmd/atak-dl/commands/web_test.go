@@ -31,8 +31,11 @@ func newTestHandler(t *testing.T, sourceFiles map[string]string) *WebHandler {
 			t.Fatal(err)
 		}
 	}
-	return NewWebHandler(xmlparser.New(dir), tilecalc.NewTileCalculator(), dir)
+	return NewWebHandler(xmlparser.New(dir), tilecalc.NewTileCalculator(), dir, testUserAgent)
 }
+
+// testUserAgent has the form of FR-polite-downloading-14.
+const testUserAgent = "atak-map-downloader/test (+https://github.com/Crank-Git/ATAKMapDownloader)"
 
 func serve(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -141,6 +144,41 @@ func TestSourcesReturnsAnEmptyArray(t *testing.T) {
 	}
 }
 
+func TestSourcesReturnsThePolicyOfEachSource(t *testing.T) {
+	googleXML := strings.Replace(testSourceXML, "https://example.com/", "https://mt1.google.com/", 1)
+	googleXML = strings.Replace(googleXML, "Test Source", "Google Test", 1)
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "google.xml": googleXML})
+	rec := serve(h, http.MethodGet, "/api/sources", "")
+
+	var got []sourceItem
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]sourceItem{
+		"Google Test": {
+			PolicyClass:        "restricted",
+			PolicyReferenceURL: "https://developers.google.com/maps/documentation/tile/policies",
+			RequestsPerSecond:  1,
+			PolicyHost:         "*.google.com, *.googleapis.com",
+		},
+		"Test Source": {
+			PolicyClass:       "conditional",
+			RequestsPerSecond: 4,
+			PolicyHost:        "example.com",
+		},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d sources, want %d", len(got), len(want))
+	}
+	for _, item := range got {
+		w := want[item.Name]
+		if item.PolicyClass != w.PolicyClass || item.PolicyReferenceURL != w.PolicyReferenceURL ||
+			item.RequestsPerSecond != w.RequestsPerSecond || item.PolicyHost != w.PolicyHost || item.PolicyReason == "" {
+			t.Errorf("source %q = %+v, want the policy fields of %+v and a reason", item.Name, item, w)
+		}
+	}
+}
+
 func TestPreviewRejectsInvertedBounds(t *testing.T) {
 	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
 	// The south value is above the north value.
@@ -158,5 +196,66 @@ func TestPreviewRejectsInvertedBounds(t *testing.T) {
 	}
 	if body.Error.Code != "invalid_bounds" {
 		t.Errorf("code = %q, want invalid_bounds", body.Error.Code)
+	}
+}
+
+func TestGeocodeSendsTheUserAgentToNominatim(t *testing.T) {
+	var got string
+	nominatim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.UserAgent()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`)) // The handler test below reports a failed write as a wrong response.
+	}))
+	t.Cleanup(nominatim.Close)
+	h := newTestHandler(t, nil)
+	h.geocodeURL = nominatim.URL
+
+	rec := serve(h, http.MethodPost, "/api/geocode", `{"query":"Berlin"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/geocode returned %d, want 200: %s", rec.Code, rec.Body)
+	}
+	if got != testUserAgent {
+		t.Errorf("Nominatim got User-Agent %q, want %q", got, testUserAgent)
+	}
+}
+
+// The browser behavior needs a manual check, so this test proves only that the served files carry the dialog (FR-polite-downloading-20, 21).
+func TestServedAssetsHoldThePolicyWarningDialog(t *testing.T) {
+	h := newTestHandler(t, nil)
+	tests := []struct {
+		path string
+		want []string
+	}{
+		{"/", []string{
+			`<dialog id="policyDialog"`,
+			`id="policyAccept"`,
+			`id="policyStart"`,
+			`id="policyCancel"`,
+			`id="policyLegend"`,
+			"I accept responsibility for this download",
+		}},
+		{"/static/js/app.js", []string{
+			"request.accept_terms = true",
+			"policy_class",
+			"policy_reason",
+			"policy_reference_url",
+			"policy_host",
+			"requests_per_second",
+			".showModal()",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rec := serve(h, http.MethodGet, tt.path, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			body := rec.Body.String()
+			for _, s := range tt.want {
+				if !strings.Contains(body, s) {
+					t.Errorf("%s does not contain %q", tt.path, s)
+				}
+			}
+		})
 	}
 }

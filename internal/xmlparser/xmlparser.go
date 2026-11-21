@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -48,6 +49,30 @@ func (m *MapSource) FormatURL(x, y, z int, serverPart string) string {
 	}
 
 	return url
+}
+
+// Hosts returns the distinct hosts of the tile URLs, in lower case and with no port.
+// It formats the URL once for each server part, because a server part can change the host.
+// A URL that does not parse, or that has no host, adds no host.
+func (m *MapSource) Hosts() []string {
+	parts := m.ServerParts
+	if len(parts) == 0 {
+		parts = []string{""}
+	}
+	hosts := []string{}
+	seen := map[string]bool{}
+	for _, part := range parts {
+		u, err := url.Parse(m.FormatURL(0, 0, 0, part))
+		if err != nil {
+			continue
+		}
+		h := strings.ToLower(u.Hostname())
+		if h != "" && !seen[h] {
+			seen[h] = true
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
 }
 
 // tileToQuadkey converts tile coordinates to Bing Maps quadkey.

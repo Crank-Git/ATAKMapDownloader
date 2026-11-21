@@ -81,7 +81,7 @@ func TestServePrintsTheNoAuthenticationWarningForANonLoopbackAddress(t *testing.
 			// serve makes the downloads directory in the working directory.
 			t.Chdir(t.TempDir())
 			root := &cobra.Command{Use: "atak-dl"}
-			root.AddCommand(NewServeCmd())
+			root.AddCommand(NewServeCmd(testUserAgent))
 			var stderr bytes.Buffer
 			root.SetErr(&stderr)
 			root.SetArgs([]string{"serve", "--addr", tt.addr, "--mapsources-dir", t.TempDir()})

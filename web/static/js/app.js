@@ -21,6 +21,7 @@ class ATAKDownloader {
         this.initTheme();
         this.initMap();
         this.loadMapSources();
+        this.loadConfig();
         this.bindEvents();
         this.initModal();
         this.logStatus('Application initialized');
@@ -190,8 +191,10 @@ class ATAKDownloader {
         this.mapSources.forEach(source => {
             const option = document.createElement('option');
             option.value = source.name;
-            option.textContent = `${source.name} (${source.format}) - Zoom ${source.min_zoom}-${source.max_zoom}`;
-            option.title = `${source.name} - Format: ${source.format} - Zoom range: ${source.min_zoom} to ${source.max_zoom}`;
+            // A native option holds text only, so the policy class badge is a text suffix.
+            option.textContent = `${source.name} (${source.format}) - Zoom ${source.min_zoom}-${source.max_zoom} [${source.policy_class}]`;
+            option.title = `${source.name} - Format: ${source.format} - Zoom range: ${source.min_zoom} to ${source.max_zoom} - Policy: ${source.policy_class}`;
+            option.className = 'policy-' + source.policy_class;
             select.appendChild(option);
         });
     }
@@ -375,6 +378,19 @@ class ATAKDownloader {
         this.logStatus('Preview cleared');
     }
     
+    // serve --no-geocode removes place search, so the web UI hides the search box (FR-polite-downloading-26).
+    async loadConfig() {
+        try {
+            const response = await fetch('/api/config');
+            const config = await response.json();
+            if (response.ok && config.geocode === false) {
+                document.getElementById('addressSearchGroup').hidden = true;
+            }
+        } catch (error) {
+            this.logStatus('Error loading config: ' + error.message, 'error');
+        }
+    }
+
     async searchAddress() {
         const query = document.getElementById('addressSearch').value.trim();
         if (!query) {
@@ -398,6 +414,10 @@ class ATAKDownloader {
                     .bindPopup('<strong>' + first.display_name + '</strong><br><small>Lat: ' + first.lat.toFixed(6) + ', Lon: ' + first.lon.toFixed(6) + '</small>')
                     .openPopup();
                 this.logStatus('Found: ' + first.display_name, 'success');
+            } else if (response.status === 502) {
+                this.logStatus('Place search is unavailable', 'error');
+            } else if (!response.ok) {
+                this.logStatus((result.error && result.error.message) || 'Place search failed', 'error');
             } else {
                 this.logStatus('No results found for "' + query + '"', 'warning');
             }
@@ -441,12 +461,53 @@ class ATAKDownloader {
     }
     
     async startDownload() {
-        if (!this.selectedArea || !document.getElementById('mapSourceSelect').value) {
+        const sourceName = document.getElementById('mapSourceSelect').value;
+        // An empty select value matches no source, so this one check covers the case with no source selected.
+        const source = this.mapSources.find(s => s.name === sourceName);
+        if (!this.selectedArea || !source) {
             this.logStatus('Select area and map source first', 'error');
             return;
         }
         const bounds = this.selectedArea;
         const concurrency = parseInt(document.getElementById('maxConcurrent').value) || 5;
+        const request = {
+            source: sourceName,
+            bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+            min_zoom: parseInt(document.getElementById('minZoom').value),
+            max_zoom: parseInt(document.getElementById('maxZoom').value),
+            name: document.getElementById('customName').value.trim(),
+            concurrency: concurrency,
+            failure_tolerance: parseFloat(document.getElementById('failureTolerance').value) || 0.3,
+            ignore_errors: document.getElementById('ignoreErrors').checked,
+            verify_tls: document.getElementById('verifyTLS').checked
+        };
+        // A restricted map source needs the policy warning dialog first (FR-polite-downloading-20, 21).
+        if (source.policy_class === 'restricted') {
+            const dialog = document.getElementById('policyDialog');
+            const accept = document.getElementById('policyAccept');
+            const start = document.getElementById('policyStart');
+            const link = document.getElementById('policyLink');
+            document.getElementById('policyBadge').textContent = source.policy_class;
+            document.getElementById('policyTitle').textContent = source.name;
+            document.getElementById('policyReason').textContent = source.policy_reason;
+            document.getElementById('policyRate').textContent = source.requests_per_second + ' request/s to ' + source.policy_host;
+            link.hidden = !source.policy_reference_url;
+            link.href = source.policy_reference_url;
+            accept.checked = false;
+            start.disabled = true;
+            accept.onchange = () => { start.disabled = !accept.checked; };
+            // Escape closes the dialog and keeps the previous return value, so the value is cleared first.
+            dialog.returnValue = '';
+            const accepted = await new Promise(resolve => {
+                dialog.addEventListener('close', () => resolve(dialog.returnValue === 'start' && accept.checked), { once: true });
+                dialog.showModal();
+            });
+            if (!accepted) {
+                this.logStatus('Download not started: the policy warning was cancelled', 'warning');
+                return;
+            }
+            request.accept_terms = true;
+        }
 
         this.hideDownloadResults();
         document.getElementById('downloadBtn').disabled = true;
@@ -455,17 +516,7 @@ class ATAKDownloader {
             const response = await fetch('/api/jobs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    source: document.getElementById('mapSourceSelect').value,
-                    bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-                    min_zoom: parseInt(document.getElementById('minZoom').value),
-                    max_zoom: parseInt(document.getElementById('maxZoom').value),
-                    name: document.getElementById('customName').value.trim(),
-                    concurrency: concurrency,
-                    failure_tolerance: parseFloat(document.getElementById('failureTolerance').value) || 0.3,
-                    ignore_errors: document.getElementById('ignoreErrors').checked,
-                    verify_tls: document.getElementById('verifyTLS').checked
-                })
+                body: JSON.stringify(request)
             });
             const result = await response.json();
             if (!response.ok) {

@@ -111,7 +111,7 @@ Then open http://localhost:5000 in your browser.
 ./atak-dl validate-source --source="Google - Satellite Only"
 
 # Download tiles
-./atak-dl download --source="Google - Satellite Only" --bbox=40.7,-74.1,40.8,-74.0 --min-zoom=10 --max-zoom=12
+./atak-dl download --source="Google - Satellite Only" --bbox=40.7,-74.1,40.8,-74.0 --min-zoom=10 --max-zoom=12 --accept-terms
 ```
 
 ### Options
@@ -120,6 +120,8 @@ Then open http://localhost:5000 in your browser.
 |---------|------|---------|-------------|
 | (global) | `--mapsources-dir` | `mapsources` | Directory containing XML map source files |
 | `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, `serve` prints a warning, because the server has no authentication. |
+| `serve` | `--geocoder-url` | `https://nominatim.openstreetmap.org` | Base URL of the Nominatim geocoder for place search. The server sends at most 1 geocode request per second, waits at most 5 s for a slot, and caches each result for 24 hours. A URL that is not an absolute `http` or `https` URL fails. |
+| `serve` | `--no-geocode` | `false` | Turn off place search. `POST /api/geocode` returns 404 `not_found`, `GET /api/config` returns `{"geocode": false}`, and the web UI hides the search box. |
 | `download` | `--source` | - | Map source name (required) |
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon (required) |
 | `download` | `--min-zoom` | 1 | Minimum zoom level. It must not be below the map source's minimum zoom level, or the command fails with `zoom_out_of_range`. |
@@ -127,6 +129,8 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--output` | `downloads/<name>.sqlite` | Output file path |
 | `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
 | `download` | `--insecure` | `false` | Do not verify the TLS certificates of the tile server. The command prints a warning to stderr when this flag is set. |
+| `download` | `--rate-limit` | `0` | Requests per second to the tile server. A value only lowers the policy rate of the map source, and `0` keeps it. A value above the policy rate gives the policy rate, with a note on stderr. A negative value fails with `invalid_rate_limit`. |
+| `download` | `--accept-terms` | `false` | Accept the terms of use of a `restricted` map source. Without this flag, the command prints the reason and the reference URL for a restricted map source, and it exits with code 2. With this flag, it prints a warning to stderr and starts the job. |
 
 ## Map Sources
 

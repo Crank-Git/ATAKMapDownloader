@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +14,7 @@ import (
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/crank-git/atak-map-downloader/web"
+	"golang.org/x/time/rate"
 )
 
 // WebHandler serves the web interface and API.
@@ -26,6 +25,19 @@ type WebHandler struct {
 	// outputDir is the directory of the output files of job API jobs.
 	outputDir string
 	jobRoutes *http.ServeMux
+	// userAgent is the User-Agent of every tile request and every geocode request (FR-polite-downloading-14).
+	userAgent string
+	// geocodeURL is the Nominatim search endpoint. A test points it at a fake Nominatim.
+	geocodeURL string
+	// geocodeOff removes the /api/geocode route (FR-polite-downloading-26).
+	geocodeOff bool
+	// geocodeClient is shared, so the geocode requests reuse one connection pool.
+	geocodeClient *http.Client
+	// geocodeLimiter is one limiter for every client of the server (FR-polite-downloading-22).
+	geocodeLimiter *rate.Limiter
+	// geocodeWait is the longest wait for the limiter. A test makes it short.
+	geocodeWait  time.Duration
+	geocodeCache *geocodeCache
 	// dlState is the job lock. createJob takes it, so two jobs never run at once.
 	dlState struct {
 		sync.Mutex
@@ -36,13 +48,21 @@ type WebHandler struct {
 }
 
 // NewWebHandler creates a new web handler.
-func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir string) *WebHandler {
+// Every tile request and every geocode request of the handler sends userAgent.
+func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir, userAgent string) *WebHandler {
 	h := &WebHandler{
-		parser:    parser,
-		calc:      calc,
-		mapsDir:   mapsDir,
-		outputDir: download.DownloadsDir(),
-		jobRoutes: http.NewServeMux(),
+		parser:     parser,
+		calc:       calc,
+		mapsDir:    mapsDir,
+		outputDir:  download.DownloadsDir(),
+		jobRoutes:  http.NewServeMux(),
+		userAgent:  userAgent,
+		geocodeURL: defaultGeocoderURL + "/search",
+		// The Nominatim usage policy allows at most 1 request per second (https://operations.osmfoundation.org/policies/nominatim/).
+		geocodeLimiter: rate.NewLimiter(1, 1),
+		geocodeClient:  &http.Client{Timeout: 10 * time.Second},
+		geocodeWait:    geocodeWait,
+		geocodeCache:   newGeocodeCache(),
 	}
 	h.routeJobs(h.jobRoutes)
 	return h
@@ -152,7 +172,13 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 	case "/api/preview":
 		h.apiPreview(w, r)
 	case "/api/geocode":
+		if h.geocodeOff {
+			writeError(w, http.StatusNotFound, "not_found", "Route not found")
+			return
+		}
 		h.apiGeocode(w, r)
+	case "/api/config":
+		h.apiConfig(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "Route not found")
 	}
@@ -160,18 +186,39 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
 	sources := h.parser.DiscoverSources(false)
-	list := []map[string]interface{}{}
+	list := []sourceItem{}
 	for _, name := range h.parser.ListSources() {
 		s := sources[name]
-		list = append(list, map[string]interface{}{
-			"name":     name,
-			"url":      s.URL,
-			"min_zoom": s.MinZoom,
-			"max_zoom": s.MaxZoom,
-			"format":   s.TileType,
+		p := sourcePolicy(s)
+		list = append(list, sourceItem{
+			Name:               name,
+			URL:                s.URL,
+			MinZoom:            s.MinZoom,
+			MaxZoom:            s.MaxZoom,
+			Format:             s.TileType,
+			PolicyClass:        string(p.PolicyClass),
+			PolicyReason:       p.Reason,
+			PolicyReferenceURL: p.ReferenceURL,
+			RequestsPerSecond:  p.RequestsPerSecond,
+			PolicyHost:         p.Hosts(),
 		})
 	}
 	writeJSON(w, list)
+}
+
+// sourceItem is one map source in the GET /api/sources response (FR-polite-downloading-16).
+// PolicyHost lists the host patterns of the policy entry, so the web UI can name the hosts that the rate applies to.
+type sourceItem struct {
+	Name               string  `json:"name"`
+	URL                string  `json:"url"`
+	MinZoom            int     `json:"min_zoom"`
+	MaxZoom            int     `json:"max_zoom"`
+	Format             string  `json:"format"`
+	PolicyClass        string  `json:"policy_class"`
+	PolicyReason       string  `json:"policy_reason"`
+	PolicyReferenceURL string  `json:"policy_reference_url"`
+	RequestsPerSecond  float64 `json:"requests_per_second"`
+	PolicyHost         string  `json:"policy_host"`
 }
 
 func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
@@ -353,68 +400,6 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 		"source":      req.Source,
 		"total_tiles": len(tiles),
 		"bounds":      req.Bounds,
-	})
-}
-
-func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
-		return
-	}
-	var req struct {
-		Query string `json:"query"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	if len(strings.TrimSpace(req.Query)) == 0 {
-		writeError(w, http.StatusBadRequest, "invalid_query", "Query is required")
-		return
-	}
-	apiURL := "https://nominatim.openstreetmap.org/search?q=" + url.QueryEscape(req.Query) + "&format=json&limit=5&addressdetails=1"
-	hr, _ := http.NewRequest("GET", apiURL, nil)
-	hr.Header.Set("User-Agent", "ATAK-Map-Downloader/1.0")
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(hr)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", "Geocoding failed: "+err.Error())
-		return
-	}
-	defer func() { _ = resp.Body.Close() }() // The body is fully read, so a close error loses nothing.
-	var results []struct {
-		DisplayName string   `json:"display_name"`
-		Lat         string   `json:"lat"`
-		Lon         string   `json:"lon"`
-		Boundingbox []string `json:"boundingbox"`
-		Type        string   `json:"type"`
-		Class       string   `json:"class"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", "Geocoding failed")
-		return
-	}
-	var locations []map[string]interface{}
-	for _, r := range results {
-		// Nominatim sends lat and lon as JSON strings.
-		lat, latErr := strconv.ParseFloat(r.Lat, 64)
-		lon, lonErr := strconv.ParseFloat(r.Lon, 64)
-		if latErr != nil || lonErr != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Geocoding failed: the result has a coordinate that is not a number")
-			return
-		}
-		locations = append(locations, map[string]interface{}{
-			"display_name": r.DisplayName,
-			"lat":          lat,
-			"lon":          lon,
-			"boundingbox":  r.Boundingbox,
-			"type":         r.Type,
-			"class":        r.Class,
-		})
-	}
-	writeJSON(w, map[string]interface{}{
-		"query":   req.Query,
-		"results": locations,
-		"count":   len(locations),
 	})
 }
 

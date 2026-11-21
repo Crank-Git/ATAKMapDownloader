@@ -37,6 +37,11 @@
                         <option value="">Loading sources...</option>
                     </select>
                     <small class="text-muted">Select a map source to download tiles from</small>
+                    <div id="policyLegend" class="policy-legend small mt-2">
+                        <div><span class="policy-badge open">open</span> Public domain or an open license that allows bulk download.</div>
+                        <div><span class="policy-badge conditional">conditional</span> Allowed at a low rate. A volunteer or community server.</div>
+                        <div><span class="policy-badge restricted">restricted</span> The provider's terms prohibit bulk or offline download. You confirm before each job.</div>
+                    </div>
                 </div>
                 
                 <!-- Area Selection -->
@@ -44,7 +49,7 @@
                     <h5>Area Selection</h5>
                     
                     <!-- Address Search -->
-                    <div class="mb-3">
+                    <div class="mb-3" id="addressSearchGroup">
                         <label for="addressSearch" class="form-label">Search Location</label>
                         <div class="input-group">
                             <input type="text" id="addressSearch" class="form-control" 
@@ -226,6 +231,25 @@
             </div>
         </div>
     </div>
+
+    <!-- Policy warning dialog (FR-polite-downloading-20, 21) -->
+    <dialog id="policyDialog" class="policy-dialog" aria-labelledby="policyTitle">
+        <form method="dialog">
+            <span id="policyBadge" class="policy-badge restricted">restricted</span>
+            <h5 id="policyTitle" class="mt-2 mb-1"></h5>
+            <p id="policyReason" class="policy-reason"></p>
+            <p><a id="policyLink" target="_blank" rel="noopener noreferrer">Read the provider's terms (opens the provider's page)</a></p>
+            <p class="small mb-2"><strong>Rate limit:</strong> <code id="policyRate"></code></p>
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="policyAccept">
+                <label class="form-check-label" for="policyAccept">I accept responsibility for this download</label>
+            </div>
+            <div class="d-flex justify-content-end gap-2">
+                <button type="submit" value="cancel" id="policyCancel" class="btn btn-secondary">Cancel</button>
+                <button type="submit" value="start" id="policyStart" class="btn btn-danger" disabled>Start Download</button>
+            </div>
+        </form>
+    </dialog>
 
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
