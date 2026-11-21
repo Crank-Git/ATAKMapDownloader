@@ -507,29 +507,27 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>Present:
 <ul>
-<li><code>&lt;label for&gt;</code> on the geocode input, the zoom inputs, the file name and the advanced
+<li><code>&lt;label for&gt;</code> on the source picker, the geocode input, the zoom inputs, the file
 </li>
 </ul>
 </li>
 </ul>
-<p>settings.</p>
+<p>name and the advanced settings.</p>
 <ul>
 <li><code>aria-expanded</code> and <code>aria-controls</code> on the <strong>Advanced Settings</strong> toggle.
 <ul>
 <li><code>role="status"</code> on the connection indicator.
 </li>
+<li><code>aria-label</code> on the icon-only theme and search buttons.
+</li>
+<li><code>aria-label="Job progress"</code> and <code>aria-valuenow</code> on the progress bar.
+</li>
+<li><code>aria-live="polite"</code> on the status log.
+</li>
 </ul>
 </li>
 <li>Missing:
 <ul>
-<li>A label on the source picker, which has only an <code>&lt;h5&gt;</code>.
-</li>
-<li><code>aria-label</code> on the icon-only theme and search buttons.
-</li>
-<li><code>aria-valuenow</code> on the progress bar.
-</li>
-<li><code>aria-live</code> on the status log.
-</li>
 <li>A keyboard path to draw bounds.
 </li>
 </ul>
@@ -810,7 +808,6 @@ body.rv-open .layout { padding-right:21rem; }
 <div class="table-wrap"><table>
 <tr><th>Defect</th><th>Repaired by</th></tr>
 <tr><td>No authentication on a non-loopback bind</td><td><code>team-server</code> (12)</td></tr>
-<tr><td>The geocode popup HTML</td><td><code>security-hardening</code> (05)</td></tr>
 <tr><td>Geocode route that breaks the Nominatim policy</td><td><code>polite-downloading</code> (06)</td></tr>
 <tr><td>Late cancel that keeps the output file</td><td><code>robust-downloads</code> (07)</td></tr>
 <tr><td>CDN dependencies, OSM base map, no fetch of the output file, missing loading and error states, accessibility gaps</td><td><code>offline-web-ui</code> (08)</td></tr>

@@ -242,15 +242,14 @@ Sidebar sections, top to bottom:
 Accessibility signals:
 
 - Present:
-  - `<label for>` on the geocode input, the zoom inputs, the file name and the advanced
-    settings.
+  - `<label for>` on the source picker, the geocode input, the zoom inputs, the file
+    name and the advanced settings.
   - `aria-expanded` and `aria-controls` on the **Advanced Settings** toggle.
   - `role="status"` on the connection indicator.
-- Missing:
-  - A label on the source picker, which has only an `<h5>`.
   - `aria-label` on the icon-only theme and search buttons.
-  - `aria-valuenow` on the progress bar.
-  - `aria-live` on the status log.
+  - `aria-label="Job progress"` and `aria-valuenow` on the progress bar.
+  - `aria-live="polite"` on the status log.
+- Missing:
   - A keyboard path to draw bounds.
 
 Theme and layout:
@@ -454,7 +453,6 @@ Known defects and the planned feature that repairs each:
 | Defect | Repaired by |
 |---|---|
 | No authentication on a non-loopback bind | `team-server` (12) |
-| The geocode popup HTML | `security-hardening` (05) |
 | Geocode route that breaks the Nominatim policy | `polite-downloading` (06) |
 | Late cancel that keeps the output file | `robust-downloads` (07) |
 | CDN dependencies, OSM base map, no fetch of the output file, missing loading and error states, accessibility gaps | `offline-web-ui` (08) |
