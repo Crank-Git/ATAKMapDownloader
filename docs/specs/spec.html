@@ -439,7 +439,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>AREA</strong> (built as bounds only). Planned: polygon and route buffer geometry as GeoJSON, with a zoom range for each area (feature 11).
 </li>
-<li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path is deleted first, and the file is deleted again on cancel. Planned: an extension per output format, no silent delete, and resume (features 07 and 10).
+<li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row <code>atakdl_source</code> names the map source. Planned: an extension per output format (feature 10).
 </li>
 <li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:34-37</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned, with no check.
 </li>

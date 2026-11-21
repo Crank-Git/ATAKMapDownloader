@@ -126,7 +126,10 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon (required) |
 | `download` | `--min-zoom` | 1 | Minimum zoom level. It must not be below the map source's minimum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--max-zoom` | 15 | Maximum zoom level. It must not be above the map source's maximum zoom level, or the command fails with `zoom_out_of_range`. |
-| `download` | `--output` | `downloads/<name>.sqlite` | Output file path |
+| `download` | `--output` | `downloads/<name>.sqlite` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
+| `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, the command exits with code 3. |
+| `download` | `--overwrite` | `false` | Delete the existing output file before the job starts. You cannot use it together with `--resume`. |
+| `download` | `--force` | `false` | With `--resume`, accept an output file that names no map source, for example a file from v0.1. |
 | `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
 | `download` | `--insecure` | `false` | Do not verify the TLS certificates of the tile server. The command prints a warning to stderr when this flag is set. |
 | `download` | `--rate-limit` | `0` | Requests per second to the tile server. A value only lowers the policy rate of the map source, and `0` keeps it. A value above the policy rate gives the policy rate, with a note on stderr. A negative value fails with `invalid_rate_limit`. |

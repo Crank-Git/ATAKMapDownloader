@@ -32,9 +32,9 @@ func fetch(t *testing.T, srv *testtiles.Server, path string) []byte {
 func TestPutStoresTheTestServerTileBytes(t *testing.T) {
 	srv := testtiles.New(t, testtiles.Table{{Z: 1, X: 1, Y: 0}: {Kind: testtiles.JPEG}})
 	path := filepath.Join(t.TempDir(), "out.mbtiles")
-	w, err := Create(path, map[string]string{"name": "test"})
+	w, err := Open(path, map[string]string{"name": "test"})
 	if err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
 
 	tests := []struct {

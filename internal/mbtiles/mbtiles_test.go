@@ -3,6 +3,7 @@ package mbtiles
 import (
 	"bytes"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,9 +23,9 @@ var wantSchema = []string{
 func create(t *testing.T, metadata map[string]string) (*Writer, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "out.mbtiles")
-	w, err := Create(path, metadata)
+	w, err := Open(path, metadata)
 	if err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
 	return w, path
 }
@@ -111,23 +112,53 @@ func TestCreateStoresTheMetadataKeys(t *testing.T) {
 	}
 }
 
-func TestCreateDeletesAnExistingOutputFile(t *testing.T) {
+func TestOpenKeepsTheTilesOfAnExistingOutputFile(t *testing.T) {
 	w, path := create(t, map[string]string{"name": "test"})
 	if err := w.Put(1, 0, 0, []byte("old")); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	closeWriter(t, w)
 
-	w, err := Create(path, map[string]string{"name": "test"})
+	w, err := Open(path, map[string]string{"name": "test"})
 	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if w.Has(1, 0, 0) {
-		t.Error("Has(1, 0, 0) = true after Create, want false")
+		t.Fatalf("Open: %v", err)
 	}
 	closeWriter(t, w)
-	if n := count(t, openFile(t, path)); n != 0 {
-		t.Errorf("tiles table holds %d rows, want 0", n)
+	if n := count(t, openFile(t, path)); n != 1 {
+		t.Errorf("tiles table holds %d rows, want 1", n)
+	}
+}
+
+func TestReadMetadata(t *testing.T) {
+	w, path := create(t, map[string]string{"atakdl_source": "OSM"})
+	closeWriter(t, w)
+
+	tests := []struct {
+		name      string
+		key       string
+		wantValue string
+		wantOK    bool
+	}{
+		{"returns the value of a stored key", "atakdl_source", "OSM", true},
+		{"reports false for a key that the file does not hold", "format", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value, ok, err := ReadMetadata(path, tt.key)
+			if err != nil || value != tt.wantValue || ok != tt.wantOK {
+				t.Errorf("ReadMetadata(%q) = %q, %v, %v; want %q, %v, nil", tt.key, value, ok, err, tt.wantValue, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestReadMetadataRejectsAFileThatIsNotAnOutputFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(path, []byte("not a database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadMetadata(path, "atakdl_source"); err == nil {
+		t.Error("ReadMetadata on a text file returned no error")
 	}
 }
 

@@ -487,7 +487,7 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 </li>
 </ul>
 <p><code>_</code>.</p>
-<p>The engine writes one autocommit <code>INSERT OR REPLACE</code> per tile. It uses one <code>*sql.DB</code> for all goroutines. The driver opens the output file with <code>_busy_timeout=5000</code>, so an insert waits up to 5 seconds for a locked file (<code>mbtiles.go:26-28</code>, #63). The project sets no other PRAGMA.</p>
+<p>The tile goroutines send each tile to one writer goroutine per job (#25). The writer commits one transaction per 500 tiles, and one more when the job ends. It writes each tile with <code>INSERT OR REPLACE</code>. The driver opens the output file with <code>journal_mode=WAL</code> and <code>busy_timeout=5000</code>, so a write waits up to 5 seconds for a locked file.</p>
 <h4 id="tile-download-how-atak-reads-the-output-file">How ATAK reads the output file</h4>
 <p>ATAK detects an imagery SQLite file by the columns of its <code>tiles</code> table, not by its extension. In ATAK-CIV, a <code>tiles</code> table with exactly <code>zoom_level</code>, <code>tile_column</code>, <code>tile_row</code> and <code>tile_data</code> is the "momap" type. That type reads TMS rows and the <code>minzoom</code>, <code>maxzoom</code> and <code>format</code> keys (<a href="https://github.com/deptofdefense/AndroidTacticalAssaultKit-CIV/blob/main/takkernel/engine/src/main/java/com/atakmap/android/maps/tilesets/TilesetInfo.java">TilesetInfo.java</a>, ATAK-CIV 4.6.0.5, retrieved 2026-11-21). The output file matches that path.</p>
 <p>This conclusion comes from the archived ATAK-CIV 4.6 source code. No one has imported an output file on a device to confirm it. Current ATAK 5.x, iTAK and WinTAK behavior is not known.</p>
@@ -517,21 +517,35 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 <li>`(<em>Engine).DownloadTiles(ctx, </em>MapSource, *GeographicBounds, zoomLevels []int,
 </li>
 </ul>
-<p>outputPath string, cb ProgressCallback) (bool, error)`. The callback returns false to cancel the job.</p>
+<p>outputPath string, cb ProgressCallback) (Result, error)<code>. The callback gets a copy of the progress counters, and it returns false to cancel the job. </code>Result.OK` is true when the job ends within its failure tolerance.</p>
 <ul>
 <li><code>GenerateOutputFilename(source, bounds, minZoom, maxZoom, customName) string</code>
 </li>
 <li><code>DownloadsDir() string</code>, which returns <code>./downloads</code> relative to the working directory.
 </li>
 </ul>
-<p><code>DownloadTiles</code> returns <code>(false, err)</code> for every failure. It never returns <code>(false, nil)</code>.</p>
+<p><code>DownloadTiles</code> returns <code>Result.OK</code> false and an error for every failure. It never returns <code>Result.OK</code> false with a nil error. The error is <code>write_failed</code> when the writer fails, and the engine keeps the output file.</p>
 <p><code>internal/mbtiles</code>:</p>
 <ul>
-<li><code>Create(path, metadata) (*sql.DB, error)</code>
-</li>
-<li><code>InsertTile(db, z, x, tmsY, data) error</code>
+<li><code>Create(path, metadata) (*Writer, error)</code> deletes an existing file at <code>path</code>, then
 </li>
 </ul>
+<p>calls <code>Open</code>.</p>
+<ul>
+<li><code>Open(path, metadata) (*Writer, error)</code> opens or creates the file, and it loads the
+</li>
+</ul>
+<p>keys of the stored tiles.</p>
+<ul>
+<li><code>(<em>Writer).Has(z, x, y) bool</code> and <code>(</em>Writer).Put(z, x, y, data) error</code> take the XYZ
+</li>
+</ul>
+<p>row. The writer stores the TMS row.</p>
+<ul>
+<li><code>(*Writer).Close() error</code> commits the last transaction and returns the first write
+</li>
+</ul>
+<p>error.</p>
 <p>The driver is <code>modernc.org/sqlite</code> v1.62.0, a pure-Go driver, so the build needs no CGO (<code>mbtiles.go:11-12</code>, #63). See <a href="../../adr/0005-pure-go-sqlite.md">ADR 0005</a>.</p>
 <h3 id="tile-download-edge-cases-failures">Edge cases &amp; failures</h3>
 <p>What the code handles:</p>
@@ -540,7 +554,7 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 </li>
 <li>SIGINT and SIGTERM stop new tile requests and delete the partial output file.
 </li>
-<li>A failed tile insert counts as a failed tile.
+<li>A failed tile write counts as a failed tile, and it stops the job with <code>write_failed</code>.
 </li>
 <li>TLS verification is on by default. A tile that fails verification counts as failed
 </li>
@@ -572,16 +586,6 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 </li>
 </ul>
 <p>reaches 100, and the ETA is too long.</p>
-<ul>
-<li><strong>Data races.</strong> Many goroutines write <code>progress.CurrentTile</code>, <code>progress.CurrentURL</code>,
-</li>
-</ul>
-<p><code>progress.Downloaded</code> and <code>progress.Failed</code> with no lock (<code>download.go:259-260</code>, <code>:279-280</code>). The CLI callback updates <code>lastPercent</code> with no lock (<code>commands/download.go:83-89</code>).</p>
-<ul>
-<li><strong>The failure path calls the callback before it updates <code>progress.Failed</code></strong>
-</li>
-</ul>
-<p>(<code>download.go:263-267</code>).</p>
 <ul>
 <li><strong>The retry waits ignore cancel.</strong> <code>time.Sleep</code> does not watch the context, and the
 </li>
