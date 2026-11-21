@@ -41,6 +41,9 @@ jobs:
           distribution: goreleaser
           version: v2.20.3
           args: release --snapshot --clean --skip=sign,sbom
+        env:
+          # Two tags can name one commit, for example v0.2.0-rc.3 and v0.2.0. The tag that started the workflow names the release.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       # The checks run the two volume choices of docs/server.md: a bind mount with the host user, and a named volume.
       - name: Run the image and check GET /healthz
@@ -106,6 +109,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       - uses: actions/attest-build-provenance@v4
         with:
