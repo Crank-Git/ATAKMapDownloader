@@ -244,12 +244,3 @@ func (t *TileCalculator) CalculateResolutionAtLatitude(lat float64, zoom int) fl
 	latRad := t.DegToRad(lat)
 	return (t.EarthCircumference * math.Cos(latRad)) / (256 * math.Pow(2, float64(zoom)))
 }
-
-// TilesIntersectGeometry checks if tile bounds intersect geographic bounds.
-func (t *TileCalculator) TilesIntersectGeometry(tileBounds *TileBounds, geoBounds *GeographicBounds) bool {
-	tileGeo := t.TileBoundsToGeographic(tileBounds)
-	return !(tileGeo.MaxLat < geoBounds.MinLat ||
-		tileGeo.MinLat > geoBounds.MaxLat ||
-		tileGeo.MaxLon < geoBounds.MinLon ||
-		tileGeo.MinLon > geoBounds.MaxLon)
-}

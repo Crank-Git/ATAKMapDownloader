@@ -5,6 +5,7 @@ go 1.26.0
 toolchain go1.27.4
 
 require (
+	github.com/paulmach/orb v0.14.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/time v0.16.0
 	modernc.org/sqlite v1.62.0
@@ -153,7 +154,6 @@ require (
 	github.com/nishanths/exhaustive v0.15.0 // indirect
 	github.com/nishanths/predeclared v0.3.0 // indirect
 	github.com/nunnatsa/ginkgolinter v0.24.0 // indirect
-	github.com/paulmach/orb v0.14.0 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/prometheus/client_golang v1.12.1 // indirect

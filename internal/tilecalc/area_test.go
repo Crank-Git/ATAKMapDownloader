@@ -91,6 +91,27 @@ func polygonsOf(g orb.Geometry) []orb.Polygon {
 	return []orb.Polygon{g.(orb.Polygon)}
 }
 
+// compareWithOracle fails the test when the selected tiles differ from the tiles that the oracle finds in box.
+func compareWithOracle(t *testing.T, got map[[2]int]bool, polygons []orb.Polygon, box *TileBounds) {
+	t.Helper()
+	for x := box.MinX; x <= box.MaxX; x++ {
+		for y := box.MinY; y <= box.MaxY; y++ {
+			want := false
+			for _, p := range polygons {
+				want = want || oracleIntersects(p, tileGeo(x, y, box.Zoom))
+			}
+			if got[[2]int{x, y}] != want {
+				t.Errorf("tile %d/%d/%d: selected = %v, intersects = %v", box.Zoom, x, y, got[[2]int{x, y}], want)
+			}
+		}
+	}
+	for tile := range got {
+		if !box.ContainsTile(tile[0], tile[1]) {
+			t.Errorf("tile %v is outside the bounds of the polygon", tile)
+		}
+	}
+}
+
 func TestAreaPolygonSelectsTheTilesThatIntersectThePolygon(t *testing.T) {
 	triangle := orb.Polygon{{{-105.0, 39.0}, {-104.0, 39.0}, {-104.5, 40.0}, {-105.0, 39.0}}}
 	square := orb.Ring{{10.0, 45.0}, {11.0, 45.0}, {11.0, 46.0}, {10.0, 46.0}, {10.0, 45.0}}
@@ -120,22 +141,7 @@ func TestAreaPolygonSelectsTheTilesThatIntersectThePolygon(t *testing.T) {
 			if len(got) >= box.TileCount() {
 				t.Errorf("polygon selects %d tiles, want fewer than the %d tiles of its bounds", len(got), box.TileCount())
 			}
-			for x := box.MinX; x <= box.MaxX; x++ {
-				for y := box.MinY; y <= box.MaxY; y++ {
-					want := false
-					for _, p := range polygonsOf(tt.geom) {
-						want = want || oracleIntersects(p, tileGeo(x, y, tt.zoom))
-					}
-					if got[[2]int{x, y}] != want {
-						t.Errorf("tile %d/%d/%d: selected = %v, intersects = %v", tt.zoom, x, y, got[[2]int{x, y}], want)
-					}
-				}
-			}
-			for tile := range got {
-				if !box.ContainsTile(tile[0], tile[1]) {
-					t.Errorf("tile %v is outside the bounds of the polygon", tile)
-				}
-			}
+			compareWithOracle(t, got, polygonsOf(tt.geom), box)
 		})
 	}
 }
