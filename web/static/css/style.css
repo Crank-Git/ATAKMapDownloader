@@ -454,6 +454,25 @@ summary:focus-visible {
     background: var(--ok);
 }
 
+/* Job panel: one column each for the downloaded, skipped and failed counts. */
+.job-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin: 6px 0;
+    text-align: center;
+}
+
+.job-stats strong {
+    display: block;
+    font-size: 16px;
+}
+
+.job-stats span {
+    font-size: 12px;
+    color: var(--muted);
+}
+
 /* Status log */
 #statusLog {
     max-height: 200px;
