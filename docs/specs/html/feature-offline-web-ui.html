@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Offline web UI</h1>
-<p class="meta">Epic 4: Offline web UI &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 4: Offline web UI &nbsp; <span class="badge">built</span></p>
 <h3 id="offline-web-ui-purpose">Purpose</h3>
 <p>Today the web UI loads Leaflet, leaflet-draw, Bootstrap and Font Awesome from public CDNs (<code>web/index.html:9-16,241-243</code>). With no internet the page does not work, and ATAK users often prepare maps on poor connections. The finished output file stays on the server's disk with no route to fetch it, so a browser on another machine cannot get it. Errors appear only in a small status log. A loading modal exists but is never shown (<code>web/static/js/app.js:576-581</code>).</p>
 <p>This feature vendors every asset, removes Bootstrap and Font Awesome, and adds an output file list with downloads. It adds a local base map from an output file and gives every screen its full set of states.</p>
@@ -239,7 +239,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-offline-web-ui-27 — The job status region has <code>aria-live="polite"</code>.
 </li>
-<li>FR-offline-web-ui-28 — The progress bar sets <code>aria-valuenow</code>, <code>aria-valuemin</code> and <code>aria-valuemax</code>.
+<li>FR-offline-web-ui-28 — The progress bar sets <code>aria-valuenow</code>, <code>aria-valuemin</code> and <code>aria-valuemax</code>. The progress bar has an accessible name (<code>aria-label</code>) (Epic 4 batch gate).
 </li>
 <li>FR-offline-web-ui-29 — The theme follows <code>prefers-color-scheme</code> until the user selects a theme.
 </li>

@@ -2,7 +2,7 @@
 id: offline-web-ui
 feature: Offline web UI
 epic: "Epic 4: Offline web UI"
-status: issued
+status: built
 issues: [30, 31, 32, 33, 34, 35]
 mockups: [mockups/01-workspace.html]
 ---
@@ -63,7 +63,7 @@ This feature vendors every asset, removes Bootstrap and Font Awesome, and adds a
 - FR-offline-web-ui-25 — Every form control has a visible `<label>`.
 - FR-offline-web-ui-26 — Every icon-only button has an `aria-label`.
 - FR-offline-web-ui-27 — The job status region has `aria-live="polite"`.
-- FR-offline-web-ui-28 — The progress bar sets `aria-valuenow`, `aria-valuemin` and `aria-valuemax`.
+- FR-offline-web-ui-28 — The progress bar sets `aria-valuenow`, `aria-valuemin` and `aria-valuemax`. The progress bar has an accessible name (`aria-label`) (Epic 4 batch gate).
 - FR-offline-web-ui-29 — The theme follows `prefers-color-scheme` until the user selects a theme.
 - FR-offline-web-ui-30 — Dark mode does not invert map tiles or preview tiles.
 - FR-offline-web-ui-31 — The web UI inserts server strings and user strings as text, never as HTML.

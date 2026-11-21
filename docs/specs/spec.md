@@ -536,3 +536,9 @@ FR coverage (each sub-issue and the requirements it quotes):
   - An API resume accepts a v0.1 file without force. The code `invalid_if_exists` is new (#91).
   - The progress percent clamps at 100 (#94).
   - Until #34 adds the overwrite/resume choice, a repeated web UI job for the same area returns 409 `output_exists`.
+- 2026-11-21: Epic 4 merged into `develop` (#109). Decisions at its gates:
+  - The vendored-asset budget is 520 KB instead of 400 KB, so that Leaflet-Geoman (MIT, needed by Epic 7) stays (#31 ruling).
+  - The web UI treats the browser as offline only when `navigator.onLine` is false or the first OSM tile fails. The connection indicator tracks the server, not the internet (batch fix, which corrects the #33 gate ruling).
+  - A running job makes the settings, Estimate and Start read-only (batch fix).
+  - FR-offline-web-ui-28 now also requires an accessible name on the progress bar.
+  - The PM checked the web UI with Playwright and axe-core: 0 critical violations (#30).

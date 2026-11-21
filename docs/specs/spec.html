@@ -796,6 +796,20 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 </ul>
 </li>
+<li>2026-11-21: Epic 4 merged into <code>develop</code> (#109). Decisions at its gates:
+<ul>
+<li>The vendored-asset budget is 520 KB instead of 400 KB, so that Leaflet-Geoman (MIT, needed by Epic 7) stays (#31 ruling).
+</li>
+<li>The web UI treats the browser as offline only when <code>navigator.onLine</code> is false or the first OSM tile fails. The connection indicator tracks the server, not the internet (batch fix, which corrects the #33 gate ruling).
+</li>
+<li>A running job makes the settings, Estimate and Start read-only (batch fix).
+</li>
+<li>FR-offline-web-ui-28 now also requires an accessible name on the progress bar.
+</li>
+<li>The PM checked the web UI with Playwright and axe-core: 0 critical violations (#30).
+</li>
+</ul>
+</li>
 </ul><nav class="pager">
 <span></span>
 <a href="html/feature-foundation.html">Feature: Foundation &rarr;</a>
