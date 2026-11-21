@@ -93,12 +93,8 @@ func prepareDataPackage(zipPath string, rule ifExists) error {
 }
 
 // unpackForResume writes the output file at path out of its data package, for a job with --resume and --data-package.
-// The zip step removed the output file, so the resume reads the tiles and the areas of the job from the zip.
-// It does nothing in each of these cases:
-//   - pkg is nil, the command has no --resume, or path is empty.
-//   - A file exists at path, or no file exists at the zip path.
-//
-// It returns an ExitError with exitOutputConflict when the zip is not a data package that holds the output file.
+// It does nothing when pkg is nil, the command has no --resume, or path is empty.
+// It returns an ExitError with exitOutputConflict for the *outputConflict of unpackOutput.
 func unpackForResume(cmd *cobra.Command, path string, pkg *packageOptions) error {
 	resume, err := cmd.Flags().GetBool("resume")
 	if err != nil {
@@ -107,21 +103,41 @@ func unpackForResume(cmd *cobra.Command, path string, pkg *packageOptions) error
 	if pkg == nil || !resume || path == "" {
 		return nil
 	}
+	err = unpackOutput(path, pkg)
+	var conflict *outputConflict
+	if errors.As(err, &conflict) {
+		// The zip stays unchanged, and the user decides between --overwrite and another --package-name.
+		cmd.SilenceUsage = true
+		return &ExitError{Code: exitOutputConflict, Err: err}
+	}
+	return err
+}
+
+// unpackOutput writes the output file at path out of the data package of pkg, before a resume.
+// The zip step removed the output file, so the resume reads the tiles and the areas of the job from the zip.
+// It does nothing when a file exists at path, or when no regular file exists at the zip path.
+// It returns an *outputConflict when the zip is not a data package that holds the output file.
+// It returns other errors when a file cannot be checked.
+func unpackOutput(path string, pkg *packageOptions) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("check the output file: %w", err)
 	}
 	zipPath := pkg.zipPath(path)
-	if _, err := os.Stat(zipPath); errors.Is(err, os.ErrNotExist) {
+	info, err := os.Stat(zipPath)
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("check the data package: %w", err)
 	}
+	// A directory holds no tiles, so the job downloads them and the zip step reports package_failed.
+	if !info.Mode().IsRegular() {
+		return nil
+	}
 	if err := datapackage.Extract(zipPath, filepath.Base(path), path); err != nil {
-		// The zip stays unchanged, and the user decides between --overwrite and another --package-name.
-		cmd.SilenceUsage = true
-		return &ExitError{Code: exitOutputConflict, Err: fmt.Errorf("read the output file out of %s: %w", zipPath, err)}
+		// The job API returns this message to a client, so it names the zip and not the server directory.
+		return &outputConflict{fmt.Sprintf("read the output file out of %s: %v", filepath.Base(zipPath), err)}
 	}
 	return nil
 }

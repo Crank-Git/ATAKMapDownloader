@@ -139,6 +139,8 @@ States: the default (MBTiles selected, no data package), a data package with an 
   - A data package goes through ATAK's Import Manager.
 - The package name allows `[A-Za-z0-9 _-]`, 1 to 64 characters, after the CLI and the API trim the spaces around it. Spaces become `_` in the file name.
 - `--data-package` with `--resume` resumes the inner output file and then rebuilds the zip.
+- If only the zip exists, a resume reads the inner output file out of the zip first. This applies to `--resume`, to `"if_exists": "resume"` and to `POST /api/jobs/{id}/resume`.
+- If that zip holds no inner output file, the CLI exits with code 3. A job of the job API ends `failed`, and its error starts with "read the output file out of". The zip stays unchanged.
 
 ## Data touched
 
