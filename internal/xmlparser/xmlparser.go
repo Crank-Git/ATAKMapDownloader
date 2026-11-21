@@ -3,14 +3,17 @@ package xmlparser
 
 import (
 	"encoding/xml"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
+	"unicode"
 )
 
 // MapSource represents a map tile source configuration.
@@ -24,31 +27,49 @@ type MapSource struct {
 	BackgroundColor string
 	IgnoreErrors    bool
 	ServerParts     []string
+	// InvertYCoordinate makes FormatURL send the TMS row as {$y} (FR-source-sync-21).
+	InvertYCoordinate bool
+	// Kind is KindTile. Issue #41 adds the WMS kind.
+	Kind string
+	// Origin is OriginSnapshot or OriginUser.
+	Origin string
 }
+
+// KindTile marks a map source with a tile URL template.
+const KindTile = "tile"
+
+// The origins of a map source (FR-source-sync-4).
+const (
+	OriginSnapshot = "snapshot"
+	OriginUser     = "user"
+)
 
 // FileExtension returns the file extension for this tile type.
 func (m *MapSource) FileExtension() string {
 	return strings.ToLower(m.TileType)
 }
 
-// FormatURL formats the URL template with tile coordinates.
+// FormatURL returns the tile URL of the XYZ tile x, y at zoom level z.
+// It puts serverPart in {$serverpart}.
+// An empty serverPart selects the server part of the tile key (FR-source-sync-23).
+// When InvertYCoordinate is true, {$y} is the TMS row (FR-source-sync-21).
+// {$q} always encodes the XYZ row, because a quadkey has its origin at the top left.
 func (m *MapSource) FormatURL(x, y, z int, serverPart string) string {
+	row := y
+	if m.InvertYCoordinate {
+		row = (1<<z - 1) - y
+	}
+	if serverPart == "" {
+		serverPart = m.GetServerPart(x, y)
+	}
 	url := m.URL
 	url = strings.ReplaceAll(url, "{$x}", strconv.Itoa(x))
-	url = strings.ReplaceAll(url, "{$y}", strconv.Itoa(y))
+	url = strings.ReplaceAll(url, "{$y}", strconv.Itoa(row))
 	url = strings.ReplaceAll(url, "{$z}", strconv.Itoa(z))
-
 	if strings.Contains(url, "{$q}") {
 		url = strings.ReplaceAll(url, "{$q}", m.tileToQuadkey(x, y, z))
 	}
-
-	if serverPart != "" && strings.Contains(url, "{$serverpart}") {
-		url = strings.ReplaceAll(url, "{$serverpart}", serverPart)
-	} else if len(m.ServerParts) > 0 && strings.Contains(url, "{$serverpart}") {
-		url = strings.ReplaceAll(url, "{$serverpart}", m.ServerParts[0])
-	}
-
-	return url
+	return strings.ReplaceAll(url, "{$serverpart}", serverPart)
 }
 
 // Hosts returns the distinct hosts of the tile URLs, in lower case and with no port.
@@ -92,102 +113,255 @@ func (m *MapSource) tileToQuadkey(x, y, z int) string {
 	return quadkey.String()
 }
 
-// GetServerPart returns a server part for load balancing.
-func (m *MapSource) GetServerPart(tileIndex int) string {
+// GetServerPart returns the server part of the XYZ tile x, y, which is (x + y) mod len(ServerParts) (FR-source-sync-23).
+// A tile thus always uses the same part, whatever the order of the requests is.
+// It returns an empty string when the map source has no server parts.
+func (m *MapSource) GetServerPart(x, y int) string {
 	if len(m.ServerParts) == 0 {
 		return ""
 	}
-	return m.ServerParts[tileIndex%len(m.ServerParts)]
+	return m.ServerParts[(x+y)%len(m.ServerParts)]
+}
+
+// knownPlaceholders are the placeholders of the ATAK-Maps XML reference v2.3.1, section "URL Placeholders" (FR-source-sync-24).
+// ATAK replaces them with exact string matches, so the letter case must match.
+var knownPlaceholders = map[string]bool{
+	"{$z}":          true,
+	"{$x}":          true,
+	"{$y}":          true,
+	"{$q}":          true,
+	"{$serverpart}": true,
+}
+
+var placeholderPattern = regexp.MustCompile(`\{\$[^}]*\}`)
+
+// unknownPlaceholder returns the first placeholder in url that the XML reference does not document.
+// It returns an empty string when url holds only known placeholders.
+func unknownPlaceholder(url string) string {
+	for _, p := range placeholderPattern.FindAllString(url, -1) {
+		if !knownPlaceholders[p] {
+			return p
+		}
+	}
+	return ""
+}
+
+// The skip reasons of a source file (FR-source-sync-27).
+// Issue #42 records SkipUnknownPlaceholder.
+const (
+	SkipParseError  = "parse_error"
+	SkipMissingName = "missing_name"
+	SkipMissingURL  = "missing_url"
+	// SkipUnsupportedCRS has no caller yet. The WMS parser of issue #41 records it, and the API documents it now.
+	SkipUnsupportedCRS     = "unsupported_crs"
+	SkipUnknownPlaceholder = "unknown_placeholder"
+	SkipDuplicateName      = "duplicate_name"
+)
+
+// SkipError tells why a source file adds no map source to the source catalog.
+type SkipError struct {
+	// Reason is one of the Skip constants.
+	Reason string
+	Detail string
+}
+
+func (e *SkipError) Error() string {
+	return e.Reason + ": " + e.Detail
+}
+
+// SkippedSource is a source file that adds no map source to the source catalog (FR-source-sync-26).
+type SkippedSource struct {
+	// Path is the path in the snapshot for a snapshot file, and the file path for a user file.
+	Path   string
+	Reason string
+	Detail string
 }
 
 // customMapSourceXML is the XML structure for parsing.
+// XMLName has no tag, so that parse can name the root element of a file that is not a customMapSource.
 type customMapSourceXML struct {
-	XMLName         xml.Name `xml:"customMapSource"`
-	Name            string   `xml:"name"`
-	URL             string   `xml:"url"`
-	MinZoom         int      `xml:"minZoom"`
-	MaxZoom         int      `xml:"maxZoom"`
-	TileType        string   `xml:"tileType"`
-	TileUpdate      string   `xml:"tileUpdate"`
-	BackgroundColor string   `xml:"backgroundColor"`
-	IgnoreErrors    bool     `xml:"ignoreErrors"`
-	ServerParts     string   `xml:"serverParts"`
+	XMLName         xml.Name
+	Name            string `xml:"name"`
+	URL             string `xml:"url"`
+	MinZoom         int    `xml:"minZoom"`
+	MaxZoom         int    `xml:"maxZoom"`
+	TileType        string `xml:"tileType"`
+	TileUpdate      string `xml:"tileUpdate"`
+	BackgroundColor string `xml:"backgroundColor"`
+	IgnoreErrors    bool   `xml:"ignoreErrors"`
+	ServerParts     string `xml:"serverParts"`
+	// InvertYCoordinate is a string, because the XML reference turns the inversion on only for the exact string true.
+	InvertYCoordinate string `xml:"invertYCoordinate"`
 }
 
 // XMLParser parses map source XML configuration files.
 type XMLParser struct {
 	MapsourcesDir string
-	sourcesCache  map[string]*MapSource
-	lastScanTime  time.Time
+	snapshot      fs.FS
 }
 
-// New creates a new XMLParser.
+// New returns a parser for the user source directory mapsourcesDir alone.
+// An empty mapsourcesDir gives a parser with no source directory.
 func New(mapsourcesDir string) *XMLParser {
-	return &XMLParser{
-		MapsourcesDir: mapsourcesDir,
-		sourcesCache:  make(map[string]*MapSource),
-	}
+	return &XMLParser{MapsourcesDir: mapsourcesDir}
 }
 
-// DiscoverSources discovers and parses all XML source files.
-func (p *XMLParser) DiscoverSources(forceRescan bool) map[string]*MapSource {
-	info, err := os.Stat(p.MapsourcesDir)
-	if err != nil {
-		slog.Debug("mapsources dir not found", "path", p.MapsourcesDir)
-		return p.sourcesCache
-	}
+// NewWithSnapshot returns a parser that loads the source files of snapshot first, then the user source directory mapsourcesDir.
+// A map source from mapsourcesDir replaces a snapshot map source with the same name (FR-source-sync-5).
+// In mapsourcesDir, a user's own file replaces a synced file under atak-maps/ with the same name.
+func NewWithSnapshot(snapshot fs.FS, mapsourcesDir string) *XMLParser {
+	p := New(mapsourcesDir)
+	p.snapshot = snapshot
+	return p
+}
 
-	currentTime := info.ModTime()
-	if !forceRescan && len(p.sourcesCache) > 0 && !currentTime.After(p.lastScanTime) {
-		return p.sourcesCache
-	}
-
-	slog.Info("scanning for XML sources", "dir", p.MapsourcesDir)
-	sources := make(map[string]*MapSource)
-
-	// The callback returns nil for every entry, so WalkDir returns nil.
-	_ = filepath.WalkDir(p.MapsourcesDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".xml") {
-			return nil
-		}
-		source, err := p.ParseFile(path)
-		if err != nil {
-			// Skip unsupported formats (e.g. customWmsMapSource) silently
-			if !strings.Contains(err.Error(), "customMapSource") {
-				slog.Debug("skipped XML", "file", path, "reason", err.Error())
-			}
-			return nil
-		}
-		if source != nil {
-			sources[source.Name] = source
-			slog.Debug("loaded source", "name", source.Name)
-		}
-		return nil
-	})
-
-	p.sourcesCache = sources
-	p.lastScanTime = currentTime
-	slog.Info("loaded map sources", "count", len(sources))
+// DiscoverSources returns the map sources of the snapshot and of the user source directory, by name.
+// It reads the source files on each call, so it always returns the current files.
+// A missing user source directory adds no map source and is not an error.
+func (p *XMLParser) DiscoverSources() map[string]*MapSource {
+	sources, _ := p.scan()
 	return sources
 }
 
-// ParseFile parses a single XML configuration file.
-func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
+// SkippedSources returns the source files that add no map source, in the order that DiscoverSources reads them.
+// It returns an empty slice when every source file loads.
+func (p *XMLParser) SkippedSources() []SkippedSource {
+	_, skipped := p.scan()
+	return skipped
+}
+
+// scan reads three layers in this order:
+//   - the snapshot
+//   - the synced files under atak-maps/ in the user source directory
+//   - the other files in the user source directory, which are the user's own files
+//
+// A map source of a later layer replaces a map source of the same name from an earlier layer.
+// It keeps no state, so concurrent HTTP handlers can call it.
+// A full scan of the snapshot takes less than 1 ms, so a cache saves no measurable time.
+func (p *XMLParser) scan() (map[string]*MapSource, []SkippedSource) {
+	sources := make(map[string]*MapSource)
+	skipped := []SkippedSource{}
+	// first holds the first file of each name in each directory of one tree (FR-source-sync-31).
+	type dirName struct{ origin, dir, name string }
+	first := make(map[dirName]string)
+
+	add := func(rel, shown string, source *MapSource, err error) {
+		if err != nil {
+			var se *SkipError
+			if !errors.As(err, &se) {
+				se = &SkipError{Reason: SkipParseError, Detail: err.Error()}
+			}
+			skipped = append(skipped, SkippedSource{Path: shown, Reason: se.Reason, Detail: se.Detail})
+			slog.Debug("skipped source file", "file", shown, "reason", se.Reason, "detail", se.Detail)
+			return
+		}
+		key := dirName{source.Origin, path.Dir(rel), source.Name}
+		if prev, ok := first[key]; ok {
+			skipped = append(skipped, SkippedSource{
+				Path:   shown,
+				Reason: SkipDuplicateName,
+				Detail: "map source " + strconv.Quote(source.Name) + " is also in " + prev,
+			})
+			return
+		}
+		first[key] = shown
+		// A later layer replaces a map source of the same name, so a user file replaces a synced or snapshot file (FR-source-sync-5).
+		sources[source.Name] = source
+	}
+
+	if p.snapshot != nil {
+		walkXML(p.snapshot, func(rel string) {
+			source, err := ParseFS(p.snapshot, rel)
+			add(rel, rel, source, err)
+		})
+	}
+	if p.MapsourcesDir != "" {
+		if _, err := os.Stat(p.MapsourcesDir); err == nil {
+			// A later layer replaces an earlier one, so the user's own files load after the synced files (FR-source-sync-5).
+			var synced, own []string
+			walkXML(os.DirFS(p.MapsourcesDir), func(rel string) {
+				if isSynced(rel) {
+					synced = append(synced, rel)
+				} else {
+					own = append(own, rel)
+				}
+			})
+			for _, rel := range append(synced, own...) {
+				full := filepath.Join(p.MapsourcesDir, filepath.FromSlash(rel))
+				source, err := ParseFile(full)
+				add(rel, full, source, err)
+			}
+		} else {
+			slog.Debug("mapsources dir not found", "path", p.MapsourcesDir)
+		}
+	}
+	slog.Debug("loaded map sources", "count", len(sources), "skipped", len(skipped))
+	return sources, skipped
+}
+
+// isSynced reports whether rel, a slash path in the user source directory, is a file that sources sync wrote.
+// The sync writes atak-maps/ and its temporary directories, whose prefixes are in internal/sourcesync.
+func isSynced(rel string) bool {
+	top, _, _ := strings.Cut(rel, "/")
+	return top == "atak-maps" ||
+		strings.HasPrefix(top, ".atak-maps-new-") ||
+		strings.HasPrefix(top, ".atak-maps-old-") ||
+		strings.HasPrefix(top, ".atak-maps-kept-")
+}
+
+// walkXML calls load for each .xml file in fsys, at any depth.
+// fs.WalkDir reads each directory in lexical order, so the first file of a duplicate name is the first in lexical path order.
+func walkXML(fsys fs.FS, load func(path string)) {
+	// The callback returns nil for every entry, so WalkDir returns nil.
+	_ = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(path), ".xml") {
+			load(path)
+		}
+		return nil
+	})
+}
+
+// ParseFile returns the map source of the source file at xmlPath, with origin user.
+// It returns a *SkipError when the file holds no valid customMapSource, and the read error when it cannot read the file.
+func ParseFile(xmlPath string) (*MapSource, error) {
 	data, err := os.ReadFile(xmlPath) //nolint:gosec // The operator chooses the map sources directory.
 	if err != nil {
 		return nil, err
 	}
+	return parse(data, OriginUser)
+}
 
+// ParseFS returns the map source of the snapshot source file name in fsys, with origin snapshot.
+// It returns a *SkipError when the file holds no valid customMapSource, and the read error when it cannot read the file.
+func ParseFS(fsys fs.FS, name string) (*MapSource, error) {
+	data, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return nil, err
+	}
+	return parse(data, OriginSnapshot)
+}
+
+func parse(data []byte, origin string) (*MapSource, error) {
 	var raw customMapSourceXML
 	if err := xml.Unmarshal(data, &raw); err != nil {
-		return nil, err
+		return nil, &SkipError{Reason: SkipParseError, Detail: err.Error()}
+	}
+	// TODO(#41): Parse the customWmsMapSource root element.
+	if raw.XMLName.Local != "customMapSource" {
+		return nil, &SkipError{Reason: SkipParseError, Detail: "root element <" + raw.XMLName.Local + "> is not <customMapSource>"}
 	}
 
 	raw.Name = strings.TrimSpace(raw.Name)
 	raw.URL = strings.TrimSpace(raw.URL)
-	if raw.Name == "" || raw.URL == "" {
-		slog.Warn("missing required fields", "file", xmlPath)
-		return nil, nil
+	if raw.Name == "" {
+		return nil, &SkipError{Reason: SkipMissingName, Detail: "the <name> element is empty or missing"}
+	}
+	if raw.URL == "" {
+		return nil, &SkipError{Reason: SkipMissingURL, Detail: "the <url> element is empty or missing"}
+	}
+
+	if p := unknownPlaceholder(raw.URL); p != "" {
+		return nil, &SkipError{Reason: SkipUnknownPlaceholder, Detail: "the <url> element holds the unknown placeholder " + p}
 	}
 
 	if raw.MinZoom == 0 && raw.MaxZoom == 0 {
@@ -203,13 +377,10 @@ func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
 		raw.BackgroundColor = "#000000"
 	}
 
-	serverParts := []string{}
-	if raw.ServerParts != "" {
-		for _, part := range strings.Fields(raw.ServerParts) {
-			if s := strings.TrimSpace(part); s != "" {
-				serverParts = append(serverParts, s)
-			}
-		}
+	// ATAK splits on white space only, but FR-source-sync-22 also splits on commas, so "a,b,c" gives three parts.
+	serverParts := strings.FieldsFunc(raw.ServerParts, func(r rune) bool { return unicode.IsSpace(r) || r == ',' })
+	if serverParts == nil {
+		serverParts = []string{}
 	}
 
 	return &MapSource{
@@ -222,18 +393,22 @@ func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
 		BackgroundColor: raw.BackgroundColor,
 		IgnoreErrors:    raw.IgnoreErrors,
 		ServerParts:     serverParts,
+		// A source file can put white space around the value, and the XML decoder keeps it.
+		InvertYCoordinate: strings.TrimSpace(raw.InvertYCoordinate) == "true",
+		Kind:              KindTile,
+		Origin:            origin,
 	}, nil
 }
 
 // GetSource returns a specific map source by name.
 func (p *XMLParser) GetSource(name string) *MapSource {
-	sources := p.DiscoverSources(false)
+	sources := p.DiscoverSources()
 	return sources[name]
 }
 
 // ListSources returns sorted source names.
 func (p *XMLParser) ListSources() []string {
-	sources := p.DiscoverSources(false)
+	sources := p.DiscoverSources()
 	names := make([]string, 0, len(sources))
 	for n := range sources {
 		names = append(names, n)

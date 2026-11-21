@@ -41,7 +41,7 @@ func runTileInfo(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("  Tile bounds: (%.6f, %.6f) to (%.6f, %.6f)\n", tileLat, tileLon, maxLat, maxLon)
 	fmt.Printf("  Resolution: %.2f meters/pixel\n", res)
 
-	sources := parser.DiscoverSources(false)
+	sources := parser.DiscoverSources()
 	count := 0
 	for _, name := range parser.ListSources() {
 		if count >= 3 {

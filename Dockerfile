@@ -8,7 +8,6 @@ ARG TARGETPLATFORM
 WORKDIR /home/nonroot
 
 COPY $TARGETPLATFORM/atak-dl /usr/bin/atak-dl
-COPY mapsources /home/nonroot/mapsources
 
 EXPOSE 5000
 

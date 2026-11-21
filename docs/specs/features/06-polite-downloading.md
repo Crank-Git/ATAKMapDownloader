@@ -149,10 +149,10 @@ Initial policy table. The research spike collected these sources on 2026-11-21. 
 | `*.arcgisonline.com`, `*.arcgis.com` | restricted | 1 | https://www.esri.com/content/dam/arcgisonline/docs/tou_summary.pdf |
 | `tile.openstreetmap.org`, `*.tile.openstreetmap.org` | restricted | 1 | https://operations.osmfoundation.org/policies/tiles/ |
 | `*.opentopomap.org` | conditional | 2 | https://opentopomap.org/about |
-| `*.tile-cyclosm.openstreetmap.fr` | conditional | 2 | Volunteer-run. No published limit was found. |
-| `*.openseamap.org` | conditional | 2 | Volunteer-run. No published limit was found. |
-| `*.mtbmap.cz` | conditional | 2 | Volunteer-run. No published limit was found. |
-| `*.waymarkedtrails.org` | conditional | 2 | Volunteer-run. No published limit was found. |
+| `*.tile-cyclosm.openstreetmap.fr` | restricted | 1 | https://www.cyclosm.org/ (the OSMF tile policy prohibits bulk download) |
+| `*.openseamap.org` | conditional | 2 | https://wiki.openstreetmap.org/wiki/OpenSeaMap (no published limit) |
+| `*.mtbmap.cz` | conditional | 2 | https://mtbmap.cz/ (no published usage policy) |
+| `*.waymarkedtrails.org` | conditional | 2 | https://github.com/waymarkedtrails/waymarked-trails-site/blob/master/django/locale/en-gb/helppages.yaml (moderate rates, mass download strongly discouraged) |
 | `*.nationalmap.gov`, `*.usgs.gov` | open | 8 | https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map |
 | `*.usda.gov` (NAIP) | open | 8 | https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map (NAIP is public domain) |
 | `*.fema.gov` | conditional | 2 | The license is unverified (see Open questions). |

@@ -307,7 +307,9 @@ Feature 08 replaces these assets. Since #31, the binary embeds Leaflet and Leafl
   - 6 at zoom level 10 or less,
   - 4 from zoom level 11 to 15,
   - 3 above zoom level 15.
-- The preview uses the first server part for every tile.
+- The preview uses the server part of the tile key for each tile (FR-source-sync-23).
+- `POST /api/preview` accepts an old map source name and returns the new name in
+  `source`. The server log gets the deprecation warning (FR-source-sync-16).
 - The web UI changes a maximum zoom level that is not above the minimum to the minimum
   plus 1.
 - On a source change, the web UI sets the zoom inputs to `max(1, source min)` and

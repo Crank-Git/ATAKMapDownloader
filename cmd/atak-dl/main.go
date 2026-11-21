@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/crank-git/atak-map-downloader/cmd/atak-dl/commands"
 	"github.com/spf13/cobra"
@@ -23,7 +24,7 @@ func main() {
 	}
 }
 
-// userAgent returns the User-Agent of every tile request and every geocode request (FR-polite-downloading-14).
+// userAgent returns the User-Agent of every tile request, geocode request and GitHub request (FR-polite-downloading-14).
 // The project URL lets a server operator find the project.
 func userAgent(version string) string {
 	return "atak-map-downloader/" + version + " (+https://github.com/Crank-Git/ATAKMapDownloader)"
@@ -38,7 +39,8 @@ func newRootCmd(version, commit, date string) *cobra.Command {
 		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 	}
 
-	root.PersistentFlags().String("mapsources-dir", "mapsources", "Directory containing XML map source files")
+	root.PersistentFlags().String("mapsources-dir", defaultSourcesDir(), "User source directory, loaded after the embedded snapshot")
+	root.PersistentFlags().Bool("no-snapshot", false, "Load only the user source directory, without the embedded snapshot")
 
 	root.AddCommand(commands.NewListSourcesCmd())
 	root.AddCommand(commands.NewEstimateCmd())
@@ -46,6 +48,17 @@ func newRootCmd(version, commit, date string) *cobra.Command {
 	root.AddCommand(commands.NewValidateSourceCmd())
 	root.AddCommand(commands.NewDownloadCmd(userAgent(version)))
 	root.AddCommand(commands.NewServeCmd(userAgent(version)))
+	root.AddCommand(commands.NewSourcesCmd(userAgent(version)))
 
 	return root
+}
+
+// defaultSourcesDir returns <user config dir>/atak-dl/mapsources (FR-source-sync-6).
+// When the OS names no user config directory, it returns "", so the catalog holds only the snapshot.
+func defaultSourcesDir() string {
+	config, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(config, "atak-dl", "mapsources")
 }

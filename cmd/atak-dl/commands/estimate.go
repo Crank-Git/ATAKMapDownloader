@@ -34,11 +34,8 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	bboxStr, _ := cmd.Flags().GetString("bbox")
 	bounds, coords := parseBBox(bboxStr)
 
-	sourceName, _ := cmd.Flags().GetString("source")
-	source := parser.GetSource(sourceName)
-	if source == nil {
-		exitErr("Source '" + sourceName + "' not found")
-	}
+	source := sourceFlag(cmd, parser)
+	sourceName := source.Name
 
 	zoom, _ := cmd.Flags().GetInt("zoom")
 	zoomRange, _ := cmd.Flags().GetString("zoom-range")

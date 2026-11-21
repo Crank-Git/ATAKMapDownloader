@@ -2,7 +2,7 @@
 id: source-sync
 feature: Source sync and WMS
 epic: "Epic 5: Source sync and WMS"
-status: issued
+status: built
 issues: [36, 37, 38, 39, 40, 41, 42]
 mockups: []
 ---
@@ -30,7 +30,12 @@ This feature embeds a pinned snapshot in the binary, adds a sync command, suppor
 - FR-source-sync-2 — `internal/snapshot/VERSION` holds the ATAK-Maps tag and commit of the snapshot.
 - FR-source-sync-3 — The binary embeds the ATAK-Maps `LICENSE`, and `NOTICE.md` credits ATAK-Maps.
 - FR-source-sync-4 — The source catalog loads the snapshot first. Then it loads the user source directory.
-- FR-source-sync-5 — A map source from the user source directory replaces a snapshot map source with the same name.
+- FR-source-sync-5 — A map source of a later layer replaces a map source of an earlier layer with the same name. The layers are, in order:
+  1. the snapshot
+  2. the synced files in `<user source directory>/atak-maps/`
+  3. the other files in the user source directory, which are the user's own files
+
+  So a user's own source file always replaces a synced or snapshot file with the same name.
 - FR-source-sync-6 — The user source directory is `--mapsources-dir`, and its default is `<user config dir>/atak-dl/mapsources`.
 - FR-source-sync-7 — `--no-snapshot` loads only the user source directory.
 - FR-source-sync-8 — The repository `mapsources/` folder is removed.
@@ -38,9 +43,9 @@ This feature embeds a pinned snapshot in the binary, adds a sync command, suppor
 
 ### Sync command
 
-- FR-source-sync-10 — `atak-dl sources sync` downloads the latest ATAK-Maps release archive from GitHub into the user source directory.
+- FR-source-sync-10 — `atak-dl sources sync` downloads the latest ATAK-Maps release archive from GitHub into `<user source directory>/atak-maps/`.
 - FR-source-sync-11 — `atak-dl sources sync --tag <tag>` downloads that release.
-- FR-source-sync-12 — `sources sync` writes the tag and commit to `<user source directory>/VERSION`.
+- FR-source-sync-12 — `sources sync` writes the tag and commit to `<user source directory>/atak-maps/VERSION`.
 - FR-source-sync-13 — `sources sync` extracts only `.xml` files under `maps/`, and it rejects any archive path that leaves the target directory.
 - FR-source-sync-14 — `sources sync` prints the number of added, changed and removed source files.
 
@@ -85,7 +90,7 @@ flowchart TD
   A[Process start] --> B{--no-snapshot?}
   B -->|no| C[Load embedded snapshot]
   B -->|yes| D
-  C --> D[Load user source directory]
+  C --> D[Load atak-maps/, then the user's own files]
   D --> E{Each source file}
   E -->|parses| F[Add or replace map source by name]
   E -->|fails| G[Record skipped: path + reason]
@@ -95,7 +100,7 @@ flowchart TD
 ```
 
 1. If the command has no `--no-snapshot`, the project loads the embedded snapshot.
-2. The project loads the user source directory.
+2. The project loads `<user source directory>/atak-maps/`, then the other files in the user source directory.
 3. For each source file that parses, the project adds the map source, or it replaces the map source with the same name.
 4. For each source file that fails, the project records the path and the reason.
 5. The project applies the policy table from feature 06.
@@ -116,7 +121,7 @@ sequenceDiagram
     G-->>C: release tag + archive URL
     C->>G: GET archive
     C->>C: extract maps/**/*.xml to a temp dir, validate paths
-    C->>C: swap temp dir into the user source directory
+    C->>C: swap temp dir into atak-maps/ in the user source directory
     C-->>U: v2.4.0: 3 added, 5 changed, 1 removed
   end
 ```
@@ -125,7 +130,7 @@ sequenceDiagram
 2. The CLI asks GitHub for the latest ATAK-Maps release.
 3. If the request fails, the CLI keeps the existing source files and exits with code 1.
 4. The CLI downloads the archive and extracts the XML files to a temporary directory.
-5. The CLI replaces the user source directory with the temporary directory.
+5. The CLI replaces `<user source directory>/atak-maps/` with the temporary directory.
 6. The CLI prints the counts.
 
 ## Screens & states
@@ -138,6 +143,13 @@ sequenceDiagram
 - WMS tile bounds come from `tilecalc` for the tile at zoom level z, column x and row y, in EPSG:3857 metres.
 - The WMS `BBOX` axis order for 1.3.0 with EPSG:3857 is `minx,miny,maxx,maxy`. Confirm this against the OGC WMS 1.3.0 standard before you build it.
 - `sources sync` honours the GitHub API rate limit and sends the project User-Agent from feature 06.
+- `sources sync` changes no file outside `<user source directory>/atak-maps/`. Its temporary directories in the user source directory start with `.atak-maps-`.
+- `sources sync` rejects an archive in these cases, and changes no file:
+  - the response is larger than 64 MiB
+  - the entry bodies are larger than 256 MiB in total
+  - the archive has more than 10000 entries
+- `sources sync` skips a symbolic link entry and every entry that is not a regular file.
+- `POST /api/validate-source` and `POST /api/preview` accept an old map source name. They use the new name in the response, and the server log gets the deprecation warning.
 - The snapshot adds about 200 KB to the binary.
 
 ## Data touched
@@ -160,6 +172,7 @@ sequenceDiagram
 - If the archive has a path with `..`, the CLI stops and changes nothing.
 - If the archive has no `maps/` directory, the CLI stops and changes nothing. An upstream layout change is a reason to update this feature.
 - If a WMS server returns an XML exception with status 200, tile validation from feature 07 rejects it with reason `not_image`.
+- If the swap of `atak-maps/` fails and the restore of the old files fails too, the old files stay in a `.atak-maps-kept-` directory. The error names that directory, and the next sync keeps it.
 - If an old map source name has no v2 equivalent (for example Michelin, removed upstream), `--source` fails with "map source removed upstream in ATAK-Maps v1.10.1".
 
 ## Acceptance criteria
@@ -173,6 +186,7 @@ sequenceDiagram
 - `atak-dl download --source "Google - Satellite Only" ...` prints the deprecation warning and uses the v2 name.
 - `atak-dl sources sync` against a fake release server writes the XML files and `VERSION`, and prints the counts.
 - An archive with `../evil.xml` makes `sources sync` exit 1, and the user source directory is unchanged.
+- A user source file with the name of a synced map source replaces the synced map source, whether its path sorts before or after `atak-maps/`.
 - `atak-dl --mapsources-dir X serve` loads source files from `X`.
 
 ## Out of scope

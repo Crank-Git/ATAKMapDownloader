@@ -7,26 +7,47 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/crank-git/atak-map-downloader/internal/snapshot"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
 )
 
 // NewListSourcesCmd returns the list-sources command, which prints the map sources in the source catalog.
+// With --skipped, it prints each skipped source file as "path  reason  detail" (FR-source-sync-28).
 func NewListSourcesCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list-sources",
 		Short: "List all available map sources",
 		RunE:  runListSources,
 	}
+	cmd.Flags().Bool("skipped", false, "List the source files that did not load, each with its reason")
+	return cmd
 }
 
 func runListSources(cmd *cobra.Command, _ []string) error {
-	dir, _ := cmd.Root().PersistentFlags().GetString("mapsources-dir")
-	parser := xmlparser.New(dir)
-	sources := parser.DiscoverSources(false)
+	parser := getParser(cmd)
+	skippedOnly, err := cmd.Flags().GetBool("skipped")
+	if err != nil {
+		return fmt.Errorf("read --skipped: %w", err)
+	}
 
 	var b strings.Builder
+	if skippedOnly {
+		skipped := parser.SkippedSources()
+		if len(skipped) == 0 {
+			fmt.Fprintln(&b, "No skipped source files.")
+		}
+		for _, s := range skipped {
+			fmt.Fprintf(&b, "%s  %s  %s\n", s.Path, s.Reason, s.Detail)
+		}
+		if _, err := io.WriteString(cmd.OutOrStdout(), b.String()); err != nil {
+			return fmt.Errorf("write the skipped list: %w", err)
+		}
+		return nil
+	}
+
+	sources := parser.DiscoverSources()
 	if len(sources) == 0 {
 		fmt.Fprintln(&b, "No map sources found.")
 		fmt.Fprintf(&b, "Make sure XML files exist in: %s\n", parser.MapsourcesDir)
@@ -35,8 +56,8 @@ func runListSources(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintln(&b, "--------------------")
 		for _, name := range parser.ListSources() {
 			s := sources[name]
-			fmt.Fprintf(&b, "  %s (%s) - Zoom %d-%d - %s - %s\n",
-				name, s.TileType, s.MinZoom, s.MaxZoom, s.TileUpdate, sourcePolicy(s).PolicyClass)
+			fmt.Fprintf(&b, "  %s (%s) - Zoom %d-%d - %s - %s - %s - %s\n",
+				name, s.TileType, s.MinZoom, s.MaxZoom, s.TileUpdate, sourcePolicy(s).PolicyClass, s.Kind, s.Origin)
 		}
 		fmt.Fprintf(&b, "\nFound %d map sources\n", len(sources))
 	}
@@ -46,12 +67,15 @@ func runListSources(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// getParser returns the parser for the global --mapsources-dir and --no-snapshot flags.
+// A root command without a flag gives the zero value, so a test can define only the flags it needs.
 func getParser(cmd *cobra.Command) *xmlparser.XMLParser {
 	dir, _ := cmd.Root().PersistentFlags().GetString("mapsources-dir")
-	if dir == "" {
-		dir = "mapsources"
+	noSnapshot, _ := cmd.Root().PersistentFlags().GetBool("no-snapshot")
+	if noSnapshot {
+		return xmlparser.New(dir)
 	}
-	return xmlparser.New(dir)
+	return xmlparser.NewWithSnapshot(snapshot.FS(), dir)
 }
 
 func exitErr(msg string) {

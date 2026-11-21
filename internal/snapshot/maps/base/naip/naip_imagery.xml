@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    NAIP from USGS The National Map. USDA's own server (gis.apfo.usda.gov)
+    resets every TLS connection, so this uses the same imagery from USGS.
+    The USGS service has no tile cache, so it is WMS: tiles render on request.
+-->
+<customWmsMapSource>
+    <name>NAIP Imagery</name>
+    <minZoom>0</minZoom>
+    <maxZoom>18</maxZoom>
+    <tileType>jpg</tileType>
+    <version>1.3.0</version>
+    <layers>USGSNAIPImagery</layers>
+    <url><![CDATA[https://imagery.nationalmap.gov/arcgis/services/USGSNAIPImagery/ImageServer/WMSServer?]]></url>
+    <coordinatesystem>EPSG:3857</coordinatesystem>
+    <backgroundColor>#000000</backgroundColor>
+</customWmsMapSource>

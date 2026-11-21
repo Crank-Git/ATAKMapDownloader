@@ -13,7 +13,7 @@ allowed-tools: Bash, Read
 4. Check that the server is up: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:<port>/` returns `200`.
 5. Check that the source catalog loaded: `curl -s http://127.0.0.1:<port>/api/sources` returns a non-empty JSON array.
 6. For a small CLI job, use the demo area. It is about 60 tiles on an `open` or `conditional` map source:
-   `./atak-dl download --source "OpenTopo - Opentopomap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12`
+   `./atak-dl download --source "OpenTopoMap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12`
 7. Stop the server when you finish.
 
 Do not start a job on a `restricted` map source (Google, Bing, Esri, OSM tile servers) for a check. Use the test tile server in tests instead of real tile servers.
