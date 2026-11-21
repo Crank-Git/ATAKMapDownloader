@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
+	"github.com/spf13/cobra"
 )
 
 func TestDownloadRejectsAnOutputFormatThatIsNotValid(t *testing.T) {
@@ -181,6 +183,76 @@ func TestJobAPIWritesAnMBTilesFileByDefault(t *testing.T) {
 			info, err := output.ReadInfo(filepath.Join(s.handler.outputDir, rec.OutputFile))
 			if err != nil || info.Format != output.MBTiles {
 				t.Errorf("ReadInfo = %+v, %v; want format mbtiles", info, err)
+			}
+		})
+	}
+}
+
+// runTypedDownload runs the download command for one tile of a map source with the tile type tileType, with args at the end.
+func runTypedDownload(t *testing.T, srv *testtiles.Server, tileType string, args ...string) (string, error) {
+	t.Helper()
+	root := &cobra.Command{Use: "atak-dl"}
+	root.PersistentFlags().String("mapsources-dir", "", "")
+	root.AddCommand(NewDownloadCmd(testUserAgent))
+	var stderr bytes.Buffer
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&stderr)
+	root.SetArgs(append([]string{
+		"--mapsources-dir", writeTypedSource(t, srv, "Test Typed", tileType),
+		"download", "--source", "Test Typed", "--bbox", oneTileBBox(),
+		"--min-zoom", "10", "--max-zoom", "10", "--concurrent", "1",
+	}, args...))
+	err := root.Execute()
+	return stderr.String(), err
+}
+
+func TestDownloadRefusesAGeoPackageOfTilesThatAreNotPNGOrJPEG(t *testing.T) {
+	tests := []struct {
+		name     string
+		tileType string
+		format   string
+		refuse   bool
+	}{
+		{"refuses gpkg for webp tiles", "webp", "gpkg", true},
+		{"refuses gpkg for gif tiles", "gif", "gpkg", true},
+		{"refuses gpkg for upper case GIF tiles", "GIF", "gpkg", true},
+		{"accepts gpkg for jpg tiles", "jpg", "gpkg", false},
+		{"accepts gpkg for jpeg tiles", "jpeg", "gpkg", false},
+		{"accepts osmdroid for webp tiles", "webp", "osmdroid", false},
+		{"accepts mbtiles for gif tiles", "gif", "mbtiles", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := testtiles.New(t, nil)
+			path := filepath.Join(t.TempDir(), "out")
+			stderr, err := runTypedDownload(t, srv, tt.tileType, "--format", tt.format, "--output", path)
+			if got := strings.Contains(stderr, "unsupported_tile_type"); got != tt.refuse {
+				t.Fatalf("stderr = %q; holds unsupported_tile_type = %v, want %v", stderr, got, tt.refuse)
+			}
+			if !tt.refuse {
+				return
+			}
+			if got := ExitCode(err); got != 1 {
+				t.Errorf("ExitCode(%v) = %d, want 1", err, got)
+			}
+			if n := srv.TotalRequests(); n != 0 {
+				t.Errorf("server got %d tile requests, want 0", n)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("Stat(%s) error = %v, want no output file", path, err)
+			}
+		})
+	}
+}
+
+func TestJobAPIRefusesAGeoPackageOfTilesThatAreNotPNGOrJPEG(t *testing.T) {
+	for _, tileType := range []string{"webp", "gif"} {
+		t.Run(tileType, func(t *testing.T) {
+			s := newTypedJobServer(t, nil, "Test Tiles", tileType)
+			body := strings.TrimSuffix(jobBody(fourTiles), "}") + `,"output_format":"gpkg"}`
+			checkError(t, s.request(t, http.MethodPost, "/api/jobs", body), http.StatusBadRequest, "unsupported_tile_type")
+			if n := s.tiles.TotalRequests(); n != 0 {
+				t.Errorf("server got %d tile requests, want 0", n)
 			}
 		})
 	}

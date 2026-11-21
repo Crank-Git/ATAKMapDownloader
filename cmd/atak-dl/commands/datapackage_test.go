@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/crank-git/atak-map-downloader/internal/datapackage"
 	"github.com/crank-git/atak-map-downloader/internal/snapshot"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
+	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
 )
@@ -331,5 +333,95 @@ func TestPackageOutputReturnsAContextThatALaterCancelDoesNotEnd(t *testing.T) {
 	cancel()
 	if fctx.Err() != nil {
 		t.Errorf("context after the cancel = %v, want no error, because the job is complete", fctx.Err())
+	}
+}
+
+func TestDownloadTrimsThePackageName(t *testing.T) {
+	tests := []struct {
+		name    string
+		pkgName string
+		wantZip string
+	}{
+		{"trims the spaces around the package name", "  hood  ", "hood.zip"},
+		{"keeps the inner spaces of the package name", " Mt Hood ", "Mt_Hood.zip"},
+		{"rejects a package name of spaces only", "   ", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := testtiles.New(t, nil)
+			dir := t.TempDir()
+			stderr, err := runDownloadInto(t, srv, filepath.Join(dir, "hood.mbtiles"), []string{"--data-package", "--package-name", tt.pkgName})
+			if tt.wantZip == "" {
+				if got := ExitCode(err); got != 1 || !strings.Contains(stderr, "invalid_package_name") {
+					t.Errorf("ExitCode(%v) = %d, stderr %q; want 1 and invalid_package_name", err, got, stderr)
+				}
+				if n := srv.TotalRequests(); n != 0 {
+					t.Errorf("server got %d tile requests, want 0", n)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("download error = %v, stderr %q", err, stderr)
+			}
+			checkDataPackage(t, filepath.Join(dir, tt.wantZip), "hood.mbtiles")
+		})
+	}
+}
+
+func TestJobAPITrimsThePackageName(t *testing.T) {
+	s := newJobServer(t, nil)
+	body := strings.TrimSuffix(jobBody(fourTiles), "}") + `,"data_package":true,"package_name":"  Mt Hood  "}`
+	rec := s.startJob(t, body)
+	if final := s.finalRecord(t, rec.ID); final.State != jobComplete || final.OutputFile != "Mt_Hood.zip" {
+		t.Errorf("final record = state %q, output_file %q; want complete and Mt_Hood.zip", final.State, final.OutputFile)
+	}
+}
+
+func TestJobAPIRejectsAPackageNameOfSpacesOnly(t *testing.T) {
+	s := newJobServer(t, nil)
+	body := strings.TrimSuffix(jobBody(fourTiles), "}") + `,"data_package":true,"package_name":"   "}`
+	checkError(t, s.request(t, http.MethodPost, "/api/jobs", body), http.StatusBadRequest, "invalid_package_name")
+	if n := s.tiles.TotalRequests(); n != 0 {
+		t.Errorf("server got %d tile requests, want 0", n)
+	}
+}
+
+// triangleGeoJSON returns a GeoJSON FeatureCollection with one polygon over the lower left half of the tiles of tb.
+func triangleGeoJSON(tb tilecalc.TileBounds) string {
+	b := boundsOf(tb)
+	return fmt.Sprintf(`{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},`+
+		`"geometry":{"type":"Polygon","coordinates":[[[%f,%f],[%f,%f],[%f,%f],[%f,%f]]]}}]}`,
+		b[0], b[1], b[2], b[1], b[0], b[3], b[0], b[1])
+}
+
+func TestDownloadResumeWithDataPackageReadsTheOutputFileOutOfTheZip(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	dir := t.TempDir()
+	areaFile := filepath.Join(dir, "area.geojson")
+	square := tilecalc.TileBounds{MinX: 300, MaxX: 303, MinY: 400, MaxY: 403, Zoom: 10}
+	if err := os.WriteFile(areaFile, []byte(triangleGeoJSON(square)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "hood.gpkg")
+	zipPath := filepath.Join(dir, "hood.zip")
+	pkgArgs := []string{"--output", path, "--format", "gpkg", "--data-package", "--package-name", "hood"}
+	if stderr, err := runDownloadArgs(t, srv, append([]string{"--area", areaFile, "--min-zoom", "10", "--max-zoom", "10"}, pkgArgs...)...); err != nil {
+		t.Fatalf("first download error = %v, stderr %q", err, stderr)
+	}
+	first := srv.TotalRequests()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Stat(%s) error = %v, want the unzipped output file removed", path, err)
+	}
+
+	// The resume has no --area and no --bbox, so it reads the areas from the output file in the zip.
+	if stderr, err := runDownloadArgs(t, srv, append([]string{"--resume"}, pkgArgs...)...); err != nil {
+		t.Fatalf("download --resume --data-package error = %v, stderr %q", err, stderr)
+	}
+	if n := srv.TotalRequests(); n != first {
+		t.Errorf("server got %d tile requests in total, want %d, because the zip holds every tile", n, first)
+	}
+	checkDataPackage(t, zipPath, "hood.gpkg")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("Stat(%s) error = %v, want the unzipped output file removed after the resume", path, err)
 	}
 }

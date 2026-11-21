@@ -135,16 +135,22 @@ func writeSource(t *testing.T, srv *testtiles.Server) string {
 // writeNamedSource returns a map source directory whose one source is named name and points at srv.
 func writeNamedSource(t *testing.T, srv *testtiles.Server, name string) string {
 	t.Helper()
+	return writeTypedSource(t, srv, name, "png")
+}
+
+// writeTypedSource returns a map source directory whose one source is named name, has the tile type tileType and points at srv.
+func writeTypedSource(t *testing.T, srv *testtiles.Server, name, tileType string) string {
+	t.Helper()
 	dir := t.TempDir()
 	xml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <customMapSource>
     <name>%s</name>
     <minZoom>0</minZoom>
     <maxZoom>18</maxZoom>
-    <tileType>png</tileType>
+    <tileType>%s</tileType>
     <url>%s</url>
 </customMapSource>
-`, name, srv.URLTemplate())
+`, name, tileType, srv.URLTemplate())
 	if err := os.WriteFile(filepath.Join(dir, "tls.xml"), []byte(xml), 0o600); err != nil {
 		t.Fatalf("write map source: %v", err)
 	}

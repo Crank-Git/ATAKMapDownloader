@@ -310,3 +310,68 @@ func TestDownloadNeedsTheBBoxUnlessItResumesAFileWithAreas(t *testing.T) {
 		})
 	}
 }
+
+func TestDownloadResumeReadsTheAreasOfAGeoPackageOrOSMDroidFile(t *testing.T) {
+	square := tilecalc.TileBounds{MinX: 300, MaxX: 305, MinY: 400, MaxY: 405, Zoom: 10}
+	b := boundsOf(square)
+	triangle := []tilecalc.JobArea{{
+		Area:    tilecalc.Area{Kind: tilecalc.AreaPolygon, Geometry: orb.Polygon{{{b[0], b[1]}, {b[2], b[1]}, {b[0], b[3]}, {b[0], b[1]}}}},
+		MinZoom: 10, MaxZoom: 10,
+	}}
+	var all []testtiles.Tile
+	for tile := range tilecalc.JobTiles(t.Context(), triangle) {
+		all = append(all, testtiles.Tile{Z: tile.Z, X: tile.X, Y: tile.Y})
+	}
+	encoded, err := tilecalc.EncodeAreas(triangle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := map[string]string{
+		"name": "Test TLS", "format": "png", "minzoom": "10", "maxzoom": "10",
+		"bounds":        fmt.Sprintf("%f,%f,%f,%f", b[0], b[1], b[2], b[3]),
+		"atakdl_source": "Test TLS", "atakdl_areas": string(encoded),
+	}
+	tests := []struct {
+		format string
+		file   string
+	}{
+		{output.GeoPackage, "out.gpkg"},
+		{output.OSMDroid, "out.sqlite"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			srv := testtiles.New(t, nil)
+			path := filepath.Join(t.TempDir(), tt.file)
+			stored := all[:len(all)/2]
+			w, err := output.Open(tt.format, path, metadata)
+			if err != nil {
+				t.Fatalf("open the %s file: %v", tt.format, err)
+			}
+			for _, tile := range stored {
+				if err := w.Put(tile.Z, tile.X, tile.Y, []byte("stored")); err != nil {
+					t.Fatalf("Put: %v", err)
+				}
+			}
+			if err := w.Close(); err != nil {
+				t.Fatalf("close the %s file: %v", tt.format, err)
+			}
+
+			if stderr, err := runDownloadArgs(t, srv, "--output", path, "--format", tt.format, "--resume"); err != nil {
+				t.Fatalf("download --resume = %v, stderr %q", err, stderr)
+			}
+			if n := srv.TotalRequests(); n != len(all)-len(stored) {
+				t.Errorf("tile server got %d requests, want %d, the missing tiles of the triangle", n, len(all)-len(stored))
+			}
+			for _, tile := range stored {
+				if n := srv.Requests(tile); n != 0 {
+					t.Errorf("stored tile %v got %d requests, want 0", tile, n)
+				}
+			}
+			for _, tile := range all {
+				if _, ok, err := output.ReadTile(path, tile.Z, tile.X, tile.Y); err != nil || !ok {
+					t.Errorf("ReadTile(%v) = %v, %v; want the tile in the file", tile, ok, err)
+				}
+			}
+		})
+	}
+}
