@@ -142,6 +142,9 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--rate-limit` | `0` | Requests per second to the tile server. A value only lowers the policy rate of the map source, and `0` keeps it. A value above the policy rate gives the policy rate, with a note on stderr. A negative value fails with `invalid_rate_limit`. |
 | `download` | `--accept-terms` | `false` | Accept the terms of use of a `restricted` map source. Without this flag, the command prints the reason and the reference URL for a restricted map source, and it exits with code 2. With this flag, it prints a warning to stderr and starts the job. |
 | `download` | `--max-tiles` | `500000` | Tile cap of the job. If the job has more tiles, the command prints `too_many_tiles` and exits with code 4 before it sends a request. |
+| `download` | `--data-package` | `false` | Wrap the output file in an ATAK data package, `<package name>.zip`, beside the output file. Import it on the device through ATAK's Import Manager. The zip holds `MANIFEST/manifest.xml` (Mission Package v2, with a new UUID v4 as `uid` and `onReceiveImport` set to `true`) and the output file. The command removes the unzipped output file after the zip is complete. If the zip step fails, the command prints `package_failed` and keeps the output file. An existing zip follows the `--resume` and `--overwrite` rules of the output file. With `--resume`, the job resumes the output file and then rebuilds the zip. `POST /api/jobs` accepts `data_package`, and the job record then names the zip in `output_file`. A failed zip step ends the job `failed` with `package_failed`. `GET /api/files` lists the zip with `format` set to `data_package`. |
+| `download` | `--include-source` | `false` | With `--data-package`, add the source file of the map source to the zip. `POST /api/jobs` accepts `include_source`. |
+| `download` | `--package-name` | - | With `--data-package`, the package name (required). It holds 1 to 64 characters of `A-Z`, `a-z`, `0-9`, space, `_` and `-`. Each space becomes `_` in the file name. Another name fails with `invalid_package_name`. `POST /api/jobs` accepts `package_name`, and returns 400 `invalid_package_name` for a name that is not valid. |
 
 ### Progress and exit codes
 
@@ -231,6 +234,7 @@ ATAKMapDownloader/
 │   ├── tilecalc/        # Tile coordinate calculations
 │   ├── download/        # Download engine
 │   ├── output/          # Output writer interface and format registry
+│   ├── datapackage/     # ATAK data package zip and manifest
 │   └── mbtiles/         # MBTiles writer
 ├── web/                 # Embedded web UI
 │   ├── index.html

@@ -237,7 +237,7 @@ func TestDetect(t *testing.T) {
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	pkgData, err := os.ReadFile(pkg)
+	pkgData, err := os.ReadFile(pkg) //nolint:gosec // G304: The test wrote the file at this path.
 	if err != nil {
 		t.Fatal(err)
 	}

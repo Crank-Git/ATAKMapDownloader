@@ -1,8 +1,8 @@
 #!/bin/sh
 # smoke.sh builds atak-dl, starts serve on a free port, and checks eleven responses and the bind warning.
-# It also checks the terms exit code, the output file exit code, the tile cap, the output format, --no-geocode and the sources sync command.
+# It also checks the terms exit code, the output file exit code, the tile cap, the output format, the package name, --no-geocode and the sources sync command.
 # FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25,
-# FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27, FR-output-formats-1 and -3,
+# FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27, FR-output-formats-1, -3 and -19,
 # and FR-source-sync-10, -11, -16 and -29 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
@@ -226,6 +226,26 @@ if json.load(sys.stdin).get("error", {}).get("code") != "invalid_output_format":
     sys.exit("smoke: POST /api/jobs with output_format kmz did not return invalid_output_format")
 '
 echo "smoke: POST /api/jobs with output_format kmz returned invalid_output_format"
+
+# A package name with a slash exits with code 1 before a request (FR-output-formats-19).
+# The output directory is a regular file, so a build without the check fails before it sends a request.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--data-package --package-name "a/b" --output "$terms_file/out.mbtiles" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q "invalid_package_name" "$stderr_file"; then
+	echo "smoke: download with --package-name a/b exited $status, want 1 and invalid_package_name" >&2
+	exit 1
+fi
+echo "smoke: download with --package-name a/b exited 1 with invalid_package_name"
+
+# The job API rejects a data package with no package name before it sends a request.
+curl -s -X POST -H 'Content-Type: application/json' \
+	-d '{"source":"USGS Topo","bounds":[-74.1,40.7,-74.0,40.8],"min_zoom":10,"max_zoom":10,"data_package":true}' "$base/api/jobs" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("error", {}).get("code") != "invalid_package_name":
+    sys.exit("smoke: POST /api/jobs with data_package and no package_name did not return invalid_package_name")
+'
+echo "smoke: POST /api/jobs with data_package and no package_name returned invalid_package_name"
 
 # serve --no-geocode removes the geocode route and reports geocode false (FR-polite-downloading-26).
 port2=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
