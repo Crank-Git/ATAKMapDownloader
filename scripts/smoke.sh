@@ -3,7 +3,7 @@
 # It also checks the terms exit code, the output file exit code, the tile cap, the output format, the package name,
 # --no-geocode, the sources sync command and the area file parser.
 # FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9 and -17,
-# FR-team-server-17, -19, -20, -29 and -30, FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27,
+# FR-team-server-17, -19, -20, -23, -25, -29 and -30, FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27,
 # FR-output-formats-1, -3 and -19, FR-source-sync-10, -11, -16 and -29, and FR-area-selection-16 and -18 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
@@ -167,6 +167,32 @@ if [ "$status" != "200" ]; then
 	exit 1
 fi
 echo "smoke: serve --addr 0.0.0.0 printed a token, and GET /api/sources returned 401 without it and 200 with it"
+
+# The Jobs page needs the token, and the sign-in page and its files need none (FR-team-server-23 and -25).
+for check in "/jobs  302" "/signin  200" "/static/js/signin.js  200" "/jobs $token 200"; do
+	set -- $check
+	if [ $# -eq 3 ]; then
+		status=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $2" "http://127.0.0.1:$open_port$1")
+		want=$3
+	else
+		status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$open_port$1")
+		want=$2
+	fi
+	if [ "$status" != "$want" ]; then
+		echo "smoke: GET $1 returned $status, want $want" >&2
+		exit 1
+	fi
+done
+echo "smoke: GET /jobs returned 302 without the token and 200 with it, and the sign-in page returned 200 without it"
+
+# The footer of the Jobs page shows the version, the bind address, the data directory and the worker count of serve.
+curl -sf -H "Authorization: Bearer $token" "http://127.0.0.1:$open_port/api/config" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("version") != sys.argv[2] or body.get("addr") != "0.0.0.0:" + sys.argv[1] or body.get("workers") != 1 or not body.get("data_dir"):
+    sys.exit("smoke: GET /api/config did not return the version, addr, data_dir and workers of serve: %s" % body)
+print("smoke: GET /api/config returned the version, addr, data_dir and workers of serve")
+' "$open_port" "$(./atak-dl --version | cut -d' ' -f3)"
 
 # The health route needs no token, and it reports the version of the binary (FR-team-server-17 and -29).
 want_version=$(./atak-dl --version | cut -d' ' -f3)

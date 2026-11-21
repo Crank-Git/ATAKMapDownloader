@@ -68,8 +68,7 @@ func TestAuthHandler(t *testing.T) {
 		{name: "passes a page request with a valid cookie", method: http.MethodGet, path: "/", cookie: testToken, status: http.StatusOK},
 		{name: "passes the style sheet of the sign-in page with no token", method: http.MethodGet, path: "/static/css/style.css", status: http.StatusOK},
 		{name: "passes GET /healthz with no token", method: http.MethodGet, path: "/healthz", status: http.StatusOK},
-		// The sign-in page does not exist yet, so the request reaches the 404 of ServeHTTP.
-		{name: "passes GET /signin with no token", method: http.MethodGet, path: "/signin", status: http.StatusNotFound, code: "not_found"},
+		{name: "passes GET /signin with no token", method: http.MethodGet, path: "/signin", status: http.StatusOK},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

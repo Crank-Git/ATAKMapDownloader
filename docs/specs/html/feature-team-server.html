@@ -376,6 +376,10 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>CLI: <code>serve --workers &lt;n&gt;</code> (1 to 8), <code>--data-dir &lt;dir&gt;</code> and <code>--token &lt;token&gt;</code>.
 </li>
+<li><code>GET /api/config</code> adds <code>version</code>, <code>addr</code>, <code>data_dir</code> and <code>workers</code>. The server footer of the Jobs page shows them (#59).
+</li>
+<li>The job record adds <code>area_name</code>, the name of the first area. The Jobs page shows it when the job has no label (#59).
+</li>
 <li><code>crypto/subtle.ConstantTimeCompare</code>: https://pkg.go.dev/crypto/subtle.
 </li>
 <li>GoReleaser <code>dockers_v2</code> image from Epic 0: https://goreleaser.com/customization/docker/.

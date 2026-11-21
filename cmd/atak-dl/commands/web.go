@@ -53,6 +53,9 @@ type WebHandler struct {
 	jobs map[string]*job
 	// store is the jobs.jsonl file of the data directory. useDataDir opens it.
 	store *jobs.Store
+	// addr and workers are the --addr and --workers values of serve. The footer of the Jobs page shows them.
+	addr    string
+	workers int
 }
 
 // NewWebHandler creates a new web handler.
@@ -130,6 +133,10 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveIndex(w, r)
 	case r.URL.Path == "/healthz":
 		h.serveHealth(w, r)
+	case r.URL.Path == "/jobs":
+		servePage(w, web.JobsHTML())
+	case r.URL.Path == "/signin":
+		servePage(w, web.SigninHTML())
 	case r.URL.Path == "/api/jobs" || strings.HasPrefix(r.URL.Path, "/api/jobs/"):
 		h.jobRoutes.ServeHTTP(w, r)
 	case r.URL.Path == "/api/session":
@@ -146,8 +153,13 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WebHandler) serveIndex(w http.ResponseWriter, _ *http.Request) {
+	servePage(w, web.IndexHTML())
+}
+
+// servePage writes the HTML page.
+func servePage(w http.ResponseWriter, page []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(web.IndexHTML()) // A failed write means that the client closed the connection.
+	_, _ = w.Write(page) // A failed write means that the client closed the connection.
 }
 
 func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {

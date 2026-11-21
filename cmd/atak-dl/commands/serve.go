@@ -69,6 +69,7 @@ func runServe(cmd *cobra.Command, userAgent, version string) error {
 	if err != nil {
 		return err
 	}
+	wh.addr, wh.workers = addr, workers
 	if !loopback {
 		if wh.auth, err = serverAuth(cmd); err != nil {
 			return err

@@ -205,3 +205,60 @@ func TestAppJSInsertsNoServerOrUserStringAsHTML(t *testing.T) {
 		t.Errorf("app.js calls bindPopup %d times, and only %d calls pass a DOM node (FR-offline-web-ui-31)", popups, nodes)
 	}
 }
+
+func TestEveryPageHasALangATitleLabelledControlsAndLiveRegions(t *testing.T) {
+	tests := []struct {
+		page string
+		html string
+		live []string
+	}{
+		{"jobs.html", string(JobsHTML()), []string{`<p id="jobsStatus"[^>]*\baria-live="polite"`, `<div id="drawerLog"[^>]*\baria-live="polite"`, `<div id="errorBanner"[^>]*\brole="alert"`}},
+		{"signin.html", string(SigninHTML()), []string{`<p id="signinError"[^>]*\brole="alert"`}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.page, func(t *testing.T) {
+			if !strings.Contains(tt.html, `<html lang="en"`) {
+				t.Error("the page has no lang attribute")
+			}
+			if !regexp.MustCompile(`<title>\s*\S[^<]*</title>`).MatchString(tt.html) {
+				t.Error("the page has no title")
+			}
+			checkControlNames(t, tt.html)
+			for _, live := range tt.live {
+				if !regexp.MustCompile(live).MatchString(tt.html) {
+					t.Errorf("the page does not match %s (FR-offline-web-ui-27)", live)
+				}
+			}
+		})
+	}
+}
+
+// checkControlNames checks that each form control of page has a label and each button has a name.
+func checkControlNames(t *testing.T, page string) {
+	t.Helper()
+	for _, m := range regexp.MustCompile(`<(?:select|input|textarea)\b[^>]*\bid="([^"]+)"`).FindAllStringSubmatch(page, -1) {
+		if !regexp.MustCompile(`<label\b[^>]*\bfor="` + regexp.QuoteMeta(m[1]) + `"[^>]*>\s*\S`).MatchString(page) {
+			t.Errorf("the control %q has no <label for> with text (FR-offline-web-ui-25)", m[1])
+		}
+	}
+	buttons := regexp.MustCompile(`(?s)<button\b([^>]*)>(.*?)</button>`).FindAllStringSubmatch(page, -1)
+	if len(buttons) == 0 {
+		t.Fatal("the page has no button, so the pattern is stale")
+	}
+	tag := regexp.MustCompile(`<[^>]+>`)
+	for _, m := range buttons {
+		if strings.TrimSpace(tag.ReplaceAllString(m[2], "")) == "" && !strings.Contains(m[1], `aria-label="`) {
+			t.Errorf("the button <button%s> has no text and no aria-label (FR-offline-web-ui-26)", m[1])
+		}
+	}
+}
+
+func TestJobsPageNamesEveryProgressBar(t *testing.T) {
+	// jobs.js makes the progress bars, so the check reads the script, not the page.
+	jobs := pageScript(t, "jobs.js")
+	for _, want := range []string{"setAttribute('role', 'progressbar')", "setAttribute('aria-label', 'Progress of job ' + ", "setAttribute('aria-valuenow'"} {
+		if !strings.Contains(jobs, want) {
+			t.Errorf("jobs.js does not contain %q (FR-offline-web-ui-28)", want)
+		}
+	}
+}

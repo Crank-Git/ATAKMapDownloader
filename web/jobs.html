@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jobs - ATAK Tile Downloader</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- theme.js runs before the page draws, so a dark theme does not flash light first. -->
+    <script src="/static/js/theme.js"></script>
+</head>
+<body>
+    <header class="app-header">
+        <h1>Jobs</h1>
+        <a href="/" class="btn btn-sm">Workspace</a>
+        <button id="signOut" class="btn btn-sm" type="button">Sign out</button>
+    </header>
+
+    <div class="jobs-layout">
+        <main class="jobs-main">
+            <div id="errorBanner" class="banner err" hidden role="alert">
+                <div>
+                    <span id="errorMessage"></span>
+                    <div class="button-row">
+                        <button id="errorRetry" class="btn btn-sm" type="button">Retry</button>
+                    </div>
+                </div>
+            </div>
+            <p id="jobsStatus" class="hint" aria-live="polite">Loading jobs</p>
+
+            <!-- The skeleton rows show until the first job list arrives. -->
+            <div id="jobsLoading" class="jobs-loading" aria-hidden="true">
+                <div class="skeleton-row"></div>
+                <div class="skeleton-row"></div>
+                <div class="skeleton-row"></div>
+            </div>
+
+            <div id="jobsEmpty" class="jobs-empty" hidden>
+                <p>No jobs yet</p>
+                <a href="/" class="btn btn-primary">Start a job in the workspace</a>
+            </div>
+
+            <div id="jobsTables" hidden>
+                <section class="jobs-section" aria-labelledby="queueTitle">
+                    <h2 id="queueTitle">Queue</h2>
+                    <div class="table-scroll">
+                        <table class="job-table">
+                            <thead>
+                                <tr><th scope="col">Job</th><th scope="col">Map source</th><th scope="col">Area or label</th><th scope="col">Zoom</th><th scope="col">State</th><th scope="col">Progress</th><th scope="col">Created</th><th scope="col">Actions</th></tr>
+                            </thead>
+                            <tbody id="queueRows"></tbody>
+                        </table>
+                    </div>
+                    <p id="queueEmpty" class="hint" hidden>No queued or running jobs</p>
+                </section>
+
+                <section class="jobs-section" aria-labelledby="historyTitle">
+                    <h2 id="historyTitle">History</h2>
+                    <div class="table-scroll">
+                        <table class="job-table">
+                            <thead>
+                                <tr><th scope="col">Job</th><th scope="col">Map source</th><th scope="col">Area or label</th><th scope="col">Zoom</th><th scope="col">State</th><th scope="col">Progress</th><th scope="col">Created</th><th scope="col">Actions</th></tr>
+                            </thead>
+                            <tbody id="historyRows"></tbody>
+                        </table>
+                    </div>
+                    <p id="historyEmpty" class="hint" hidden>No finished jobs</p>
+                </section>
+
+                <!-- GET /api/jobs returns 50 jobs per page, newest first. -->
+                <nav id="jobsPager" class="button-row" aria-label="Job list pages" hidden>
+                    <button id="pageNewer" class="btn btn-sm" type="button">Newer</button>
+                    <span id="pageInfo" class="hint"></span>
+                    <button id="pageOlder" class="btn btn-sm" type="button">Older</button>
+                </nav>
+            </div>
+        </main>
+
+        <aside id="jobDrawer" class="job-drawer" hidden aria-labelledby="drawerTitle">
+            <div class="drawer-head">
+                <h2 id="drawerTitle"></h2>
+                <button id="drawerClose" class="btn btn-sm" type="button" aria-label="Close the job details">Close</button>
+            </div>
+            <dl id="drawerFields" class="job-fields"></dl>
+            <h3>Event log</h3>
+            <!-- The log scrolls, so a keyboard user needs a focus stop to scroll it. -->
+            <div id="drawerLog" class="job-log" aria-live="polite" tabindex="0"></div>
+        </aside>
+    </div>
+
+    <footer id="serverFooter" class="server-footer"></footer>
+
+    <script src="/static/js/jobs.js"></script>
+</body>
+</html>
