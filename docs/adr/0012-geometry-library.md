@@ -20,7 +20,7 @@ The root `orb` package imports only the standard library. `orb/geojson` imports 
 
 `tilecalc.Area` holds its geometry as an `orb.Geometry`. `tilecalc` imports only the root `orb` package. The tile selection for polygons and route buffers is written in `internal/tilecalc/area.go`:
 
-- A polygon tile is a tile whose square meets an edge, or whose center row test puts it inside.
+- A polygon tile is a tile whose square meets an edge, or whose center is inside the polygon.
 - A route buffer tile is a tile whose square is within the buffer of one line segment.
 - Both work in Web Mercator tile units at each zoom level, and send tiles one row at a time.
 
