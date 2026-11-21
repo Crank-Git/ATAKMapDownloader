@@ -506,7 +506,7 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 <tr><td><code>--insecure</code></td><td>false</td><td>Turns off TLS verification for the job, with a warning (#75)</td></tr>
 </table></div>
 <p><code>--min-zoom</code> and <code>--max-zoom</code> must be inside the zoom range of the map source, or the command fails with <code>zoom_out_of_range</code> (#81).</p>
-<p>Exit codes: 0 on success, 1 on any error, failure or cancel.</p>
+<p>Exit codes: 0 on success, 2 when a restricted map source has no <code>--accept-terms</code> (#85), and 1 on any other error, failure or cancel.</p>
 <h4 id="tile-download-module-contract">Module contract</h4>
 <p><code>internal/download</code>:</p>
 <ul>

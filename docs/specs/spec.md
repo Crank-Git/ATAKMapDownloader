@@ -238,7 +238,7 @@ erDiagram
     string detail
   }
   SOURCE_POLICY {
-    string host_pattern PK
+    string host_patterns PK "list, the first pattern names the entry"
     string policy_class
     float requests_per_second
     string reason

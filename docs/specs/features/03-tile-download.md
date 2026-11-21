@@ -264,7 +264,7 @@ known.
 `--min-zoom` and `--max-zoom` must be inside the zoom range of the map source, or the
 command fails with `zoom_out_of_range` (#81).
 
-Exit codes: 0 on success, 1 on any error, failure or cancel.
+Exit codes: 0 on success, 2 when a restricted map source has no `--accept-terms` (#85), and 1 on any other error, failure or cancel.
 
 ### Module contract
 

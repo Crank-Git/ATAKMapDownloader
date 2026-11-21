@@ -24,15 +24,15 @@ Several bundled map sources come from providers whose terms prohibit bulk downlo
 ### Policy table
 
 - FR-polite-downloading-1 — The binary embeds a policy table at `internal/policy/policy.json`.
-- FR-polite-downloading-2 — Each policy entry has `host_pattern`, `policy_class`, `requests_per_second`, `reason` and `reference_url`.
+- FR-polite-downloading-2 — Each policy entry has `host_patterns`, `policy_class`, `requests_per_second`, `reason` and `reference_url`.
 - FR-polite-downloading-3 — `policy_class` is one of `open`, `conditional` or `restricted`.
-- FR-polite-downloading-4 — The project matches a map source to the first entry whose `host_pattern` matches the host of the map source URL.
+- FR-polite-downloading-4 — The project matches a map source to the first entry with a pattern in `host_patterns` that matches the host of the map source URL.
 - FR-polite-downloading-5 — A map source with no matching entry gets `policy_class` `conditional` and 4 requests per second.
 - FR-polite-downloading-6 — The policy table ships the initial entries in Behaviour rules.
 
 ### Rate limits and backoff
 
-- FR-polite-downloading-7 — The engine sends no more requests per second to one host than its policy entry allows.
+- FR-polite-downloading-7 — The engine sends no more requests per second to the hosts of one policy entry than the entry allows.
 - FR-polite-downloading-8 — The engine sends at most 4 requests at the same time to one host, whatever the job concurrency is.
 - FR-polite-downloading-9 — If a tile response is 429 or 503 and has a `Retry-After` header, the engine waits that long before it sends the next request to that host.
 - FR-polite-downloading-10 — If a 429 or 503 response has no `Retry-After` header, the engine waits with exponential backoff: 1 s, 2 s, 4 s, then 8 s at most, with ±20% jitter.
@@ -142,23 +142,35 @@ flowchart TD
 
 Initial policy table. The research spike collected these sources on 2026-11-21. Re-read each reference before you ship, and record the retrieval date in `policy.json`.
 
-| host_pattern | policy_class | requests/s | Reference |
+| host_patterns | policy_class | requests/s | Reference |
 |---|---|---|---|
 | `*.google.com`, `*.googleapis.com` | restricted | 1 | https://developers.google.com/maps/documentation/tile/policies |
 | `*.virtualearth.net`, `*.bing.com` | restricted | 1 | https://learn.microsoft.com/en-us/bingmaps/rest-services/directly-accessing-the-bing-maps-tiles |
 | `*.arcgisonline.com`, `*.arcgis.com` | restricted | 1 | https://www.esri.com/content/dam/arcgisonline/docs/tou_summary.pdf |
 | `tile.openstreetmap.org`, `*.tile.openstreetmap.org` | restricted | 1 | https://operations.osmfoundation.org/policies/tiles/ |
 | `*.opentopomap.org` | conditional | 2 | https://opentopomap.org/about |
-| `*.tile-cyclosm.openstreetmap.fr`, `*.openseamap.org`, `*.mtbmap.cz`, `*.waymarkedtrails.org` | conditional | 2 | Volunteer-run. No published limit was found. |
+| `*.tile-cyclosm.openstreetmap.fr` | conditional | 2 | Volunteer-run. No published limit was found. |
+| `*.openseamap.org` | conditional | 2 | Volunteer-run. No published limit was found. |
+| `*.mtbmap.cz` | conditional | 2 | Volunteer-run. No published limit was found. |
+| `*.waymarkedtrails.org` | conditional | 2 | Volunteer-run. No published limit was found. |
 | `*.nationalmap.gov`, `*.usgs.gov` | open | 8 | https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map |
 | `*.usda.gov` (NAIP) | open | 8 | https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map (NAIP is public domain) |
-| `*.fema.gov`, `*.nrcan.gc.ca`, `maps.geogratis.gc.ca`, `*.maanmittauslaitos.fi`, `tiles.kartat.kapsi.fi`, `*.geoportal.gov.pl` | conditional | 2 | The license is unverified (see Open questions). |
+| `*.fema.gov` | conditional | 2 | The license is unverified (see Open questions). |
+| `*.nrcan.gc.ca` | conditional | 2 | The license is unverified (see Open questions). |
+| `maps.geogratis.gc.ca` | conditional | 2 | The license is unverified (see Open questions). |
+| `*.maanmittauslaitos.fi` | conditional | 2 | The license is unverified (see Open questions). |
+| `tiles.kartat.kapsi.fi` | conditional | 2 | The license is unverified (see Open questions). |
+| `*.geoportal.gov.pl` | conditional | 2 | The license is unverified (see Open questions). |
 
-- `requests_per_second` can be lowered, but not raised, with `--rate-limit` on the CLI and `rate_limit` in the job API. A value of 0 or below returns 400 `invalid_rate_limit` (#87).
+- Each row of the table is one policy entry. All hosts of one entry share one rate limit, so two map sources of one provider cannot get twice the rate (#18 gate).
+- `requests_per_second` can be lowered, but not raised, with `--rate-limit` on the CLI and `rate_limit` in the job API (#87).
+- In the job API, a `rate_limit` of 0 or below returns 400 `invalid_rate_limit`.
+- On the CLI, `--rate-limit 0` keeps the policy rate. A negative value fails with `invalid_rate_limit`.
 - The host patterns match the hosts that the bundled source files use. `tiles.kartat.kapsi.fi` and `maps.geogratis.gc.ca` were added at the #84 gate, and the CyclOSM pattern is `*.tile-cyclosm.openstreetmap.fr` (#84).
-- A host that matches no entry gets `conditional` at 4 requests per second, with `HostPattern` set to the host itself.
+- A host that matches no entry gets `conditional` at 4 requests per second, with the host itself as its only host pattern. That host gets its own rate limit.
 - Each job counts its own consecutive refusals. The host pause is shared by every job (#87).
 - The policy class comes only from the embedded table. A source file cannot set its own policy class.
+- `/api/preview` is not a job. It returns the URLs of at most 36 tiles, and the browser gets those tiles for the preview. The server sends no tile request, and the preview needs no terms acceptance.
 
 ## Data touched
 
@@ -170,7 +182,7 @@ Initial policy table. The research spike collected these sources on 2026-11-21. 
 
 - `GET /api/sources` adds `policy_class`, `policy_reason`, `policy_reference_url` and `requests_per_second` to each item.
 - `POST /api/jobs` accepts `accept_terms` (boolean) and `rate_limit` (number, requests per second).
-- `GET /api/sources` also returns `policy_host`, the `host_pattern` of the chosen entry (#84).
+- `GET /api/sources` also returns `policy_host`, the `host_patterns` of the chosen entry joined with `, ` (#84).
 - `GET /api/config` returns `{"geocode": true|false}`. The web UI reads it at load and hides the search box when it is false (#88).
 - `POST /api/geocode` keeps its shape. It adds 429 `geocode_busy` and 502 `geocode_failed`.
 - CLI: `download --accept-terms`, `download --rate-limit <n>`, `serve --geocoder-url <url>`, `serve --no-geocode`.
@@ -180,7 +192,7 @@ Initial policy table. The research spike collected these sources on 2026-11-21. 
 
 ## Edge cases & failures
 
-- If a map source uses several server parts on different hosts (for example `mt0` to `mt3`), the rate limit applies to the `host_pattern`, so all parts share one limit.
+- If a map source uses several server parts on different hosts (for example `mt0` to `mt3`), the rate limit applies to the policy entry, so all parts share one limit.
 - If `Retry-After` is an HTTP date, the engine converts it to a duration. If the value is invalid, the engine uses the backoff schedule.
 - If `Retry-After` is longer than 300 seconds, the engine stops the job with reason `server_refused` instead of waiting.
 - Some servers return a 200 "blocked" image (OSM does this to some TAK user agents, per ATAK-Maps commit 66be333). Feature 07 detects that through tile validation.
