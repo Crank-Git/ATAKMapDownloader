@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"math/rand/v2"
@@ -299,10 +300,13 @@ func outputMetadata(source *xmlparser.MapSource, bounds *tilecalc.GeographicBoun
 	if source.Overlay {
 		layerType = "overlay"
 	}
-	attribution := source.File
+	// The output file can go to other devices, so the attribution holds no directory of the operator.
+	attribution := filepath.Base(source.File)
 	if source.Origin == xmlparser.OriginSnapshot {
 		attribution = source.Name + " via ATAK-Maps"
 	}
+	// MBTiles 1.3 defines attribution as an HTML string, so a reader shows it as markup.
+	attribution = html.EscapeString(attribution)
 	minZoom := zoomLevels[0]
 	return map[string]string{
 		"name":        fmt.Sprintf("%s - %.4f,%.4f to %.4f,%.4f", source.Name, bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon),
