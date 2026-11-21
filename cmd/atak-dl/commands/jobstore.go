@@ -202,10 +202,9 @@ func (h *WebHandler) listJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, jobList{Jobs: recs[start:end], Page: page, Pages: pages})
 }
 
-// uniqueOutput returns outputFile and the package name of req with the first suffix -2, -3 and so on that frees both names.
-// A name is not free when a queued or running job writes a file of that name, the output file or the data package.
-// With no clash, it returns the names with no suffix. The caller holds h.jobMu.
-func (h *WebHandler) uniqueOutput(outputFile string, req jobRequest) (string, string) {
+// heldNames returns the file names that the queued and running jobs write: each output file and each data package.
+// The caller holds h.jobMu.
+func (h *WebHandler) heldNames() map[string]bool {
 	held := map[string]bool{}
 	for _, j := range h.jobs {
 		j.mu.Lock()
@@ -219,13 +218,32 @@ func (h *WebHandler) uniqueOutput(outputFile string, req jobRequest) (string, st
 			held[datapackage.FileName(pkg.name)] = true
 		}
 	}
+	return held
+}
+
+// holdsOutput reports whether held holds the output file outputFile or the data package of req.
+func holdsOutput(held map[string]bool, outputFile string, req jobRequest) bool {
+	return held[outputFile] || (req.DataPackage && held[datapackage.FileName(req.PackageName)])
+}
+
+// maxPackageName is the longest package name that datapackage.ValidName accepts.
+const maxPackageName = 64
+
+// uniqueOutput returns outputFile and the package name of req with the first suffix -2, -3 and so on that frees both names.
+// A name is not free when a queued or running job writes a file of that name, the output file or the data package.
+// The suffix shortens a long package name first, so the name stays valid by datapackage.ValidName.
+// With no clash, it returns the names with no suffix. The caller holds h.jobMu.
+func (h *WebHandler) uniqueOutput(outputFile string, req jobRequest) (string, string) {
+	held := h.heldNames()
 	ext := filepath.Ext(outputFile)
 	base := strings.TrimSuffix(outputFile, ext)
 	name, pkgName := outputFile, req.PackageName
-	for n := 2; held[name] || (req.DataPackage && held[datapackage.FileName(pkgName)]); n++ {
-		name = fmt.Sprintf("%s-%d%s", base, n, ext)
+	for n := 2; holdsOutput(held, name, jobRequest{DataPackage: req.DataPackage, PackageName: pkgName}); n++ {
+		suffix := fmt.Sprintf("-%d", n)
+		name = base + suffix + ext
 		if req.DataPackage {
-			pkgName = fmt.Sprintf("%s-%d", req.PackageName, n)
+			// A valid package name holds only ASCII characters, so a byte cut is a character cut.
+			pkgName = req.PackageName[:min(len(req.PackageName), maxPackageName-len(suffix))] + suffix
 		}
 	}
 	return name, pkgName

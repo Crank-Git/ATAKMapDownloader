@@ -715,6 +715,7 @@ func (h *WebHandler) cancelJob(w http.ResponseWriter, r *http.Request) {
 // It returns 202 with the record. The job keeps its id, its request and its output file.
 // The engine skips the tiles that the output file holds, so the job requests only the missing tiles.
 // It returns 404 job_not_found for an unknown id, 409 invalid_state for a job in another state, and 429 queue_full.
+// It returns 409 output_in_use when a queued or running job writes the output file or the data package of the job.
 func (h *WebHandler) resumeJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	// The lock covers the state check and the replace, so two resumes of one job never queue it twice.
@@ -733,6 +734,11 @@ func (h *WebHandler) resumeJob(w http.ResponseWriter, r *http.Request) {
 	// A job of jobs.jsonl can name a map source that the server no longer has.
 	if old.source == nil {
 		writeError(w, http.StatusConflict, "invalid_state", fmt.Sprintf("job source %q is not found; the job cannot resume", prev.Source))
+		return
+	}
+	// A job that a member submitted while this job was not active can hold its output file name.
+	if holdsOutput(h.heldNames(), prev.OutputFile, old.req) {
+		writeError(w, http.StatusConflict, "output_in_use", fmt.Sprintf("a queued or running job writes the output file %s", prev.OutputFile))
 		return
 	}
 	req := old.req
