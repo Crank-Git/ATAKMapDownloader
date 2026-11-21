@@ -25,6 +25,8 @@ func NewServeCmd(userAgent string) *cobra.Command {
 	}
 	cmd.Flags().String("addr", "localhost:5000", "Address to listen on")
 	cmd.Flags().String("mapsources-dir", "mapsources", "Directory containing XML map source files")
+	cmd.Flags().String("geocoder-url", defaultGeocoderURL, "Base URL of the Nominatim geocoder for place search")
+	cmd.Flags().Bool("no-geocode", false, "Turn off place search and hide the search box in the web UI")
 	return cmd
 }
 
@@ -50,7 +52,11 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
 
 	calc := tilecalc.NewTileCalculator()
-	handler := newServerHandler(NewWebHandler(parser, calc, dir, userAgent))
+	wh := NewWebHandler(parser, calc, dir, userAgent)
+	if err := applyGeocodeFlags(cmd, wh); err != nil {
+		return err
+	}
+	handler := newServerHandler(wh)
 
 	if !loopback {
 		// TODO(#58): Replace this warning with the token.

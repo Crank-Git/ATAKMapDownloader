@@ -21,6 +21,7 @@ class ATAKDownloader {
         this.initTheme();
         this.initMap();
         this.loadMapSources();
+        this.loadConfig();
         this.bindEvents();
         this.initModal();
         this.logStatus('Application initialized');
@@ -377,6 +378,19 @@ class ATAKDownloader {
         this.logStatus('Preview cleared');
     }
     
+    // serve --no-geocode removes place search, so the web UI hides the search box (FR-polite-downloading-26).
+    async loadConfig() {
+        try {
+            const response = await fetch('/api/config');
+            const config = await response.json();
+            if (response.ok && config.geocode === false) {
+                document.getElementById('addressSearchGroup').hidden = true;
+            }
+        } catch (error) {
+            this.logStatus('Error loading config: ' + error.message, 'error');
+        }
+    }
+
     async searchAddress() {
         const query = document.getElementById('addressSearch').value.trim();
         if (!query) {
@@ -400,6 +414,10 @@ class ATAKDownloader {
                     .bindPopup('<strong>' + first.display_name + '</strong><br><small>Lat: ' + first.lat.toFixed(6) + ', Lon: ' + first.lon.toFixed(6) + '</small>')
                     .openPopup();
                 this.logStatus('Found: ' + first.display_name, 'success');
+            } else if (response.status === 502) {
+                this.logStatus('Place search is unavailable', 'error');
+            } else if (!response.ok) {
+                this.logStatus((result.error && result.error.message) || 'Place search failed', 'error');
             } else {
                 this.logStatus('No results found for "' + query + '"', 'warning');
             }

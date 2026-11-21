@@ -1,6 +1,6 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, checks five responses, the bind warning and the terms exit code.
-# FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, and FR-polite-downloading-18 define the checks.
+# smoke.sh builds atak-dl, starts serve on a free port, checks six responses, the bind warning, the terms exit code and --no-geocode.
+# FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, and FR-polite-downloading-18 and -26 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -58,6 +58,14 @@ if body.get("error", {}).get("code") != "cross_origin":
 print("smoke: a cross-site POST /api/jobs returned cross_origin")
 '
 
+# The smoke test sends no geocode request, because a test never calls the real Nominatim.
+curl -sf "$base/api/config" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("geocode") is not True:
+    sys.exit("smoke: GET /api/config did not return geocode true")
+print("smoke: GET /api/config returned geocode true")
+'
+
 # A body larger than 1 MiB returns 413 (FR-security-hardening-17).
 status=$(head -c 2097152 /dev/zero | curl -s -o /dev/null -w '%{http_code}' --data-binary @- "$base/api/jobs")
 if [ "$status" != "413" ]; then
@@ -94,5 +102,32 @@ if [ "$status" != "2" ] || ! grep -q "https://developers.google.com/maps/documen
 	exit 1
 fi
 echo "smoke: download of a Google map source without --accept-terms exited 2"
+
+# serve --no-geocode removes the geocode route and reports geocode false (FR-polite-downloading-26).
+port2=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+base2="http://127.0.0.1:$port2"
+./atak-dl serve --addr "127.0.0.1:$port2" --no-geocode >/dev/null &
+off_pid=$!
+trap 'kill "$pid" "$open_pid" "$off_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file"' EXIT INT TERM
+attempt=0
+until [ "$(curl -s -o /dev/null -w '%{http_code}' "$base2/" || true)" = "200" ]; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 50 ]; then
+		echo "smoke: serve --no-geocode did not answer GET / within 10 s" >&2
+		exit 1
+	fi
+	sleep 0.2
+done
+status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"query":"Berlin"}' "$base2/api/geocode")
+if [ "$status" != "404" ]; then
+	echo "smoke: POST /api/geocode with --no-geocode returned $status, want 404" >&2
+	exit 1
+fi
+curl -sf "$base2/api/config" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("geocode") is not False:
+    sys.exit("smoke: GET /api/config with --no-geocode did not return geocode false")
+'
+echo "smoke: serve --no-geocode returned 404 for POST /api/geocode and geocode false"
 
 echo "smoke: pass"
