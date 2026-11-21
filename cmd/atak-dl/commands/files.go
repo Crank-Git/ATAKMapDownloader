@@ -44,9 +44,14 @@ const formatDataPackage = "data_package"
 var outputFileName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // validOutputFileName reports whether name is an allowed output file name.
-// The pattern accepts "." and "..", so the check rejects them by name.
+// The name has the extension of an output format or of a data package.
+// The output directory is the data directory and holds jobs.jsonl, so the extension check keeps the job store out of the file routes.
 func validOutputFileName(name string) bool {
-	return outputFileName.MatchString(name) && name != "." && name != ".."
+	if !outputFileName.MatchString(name) {
+		return false
+	}
+	ext := filepath.Ext(name)
+	return ext == ".zip" || slices.ContainsFunc(output.Formats, func(f string) bool { return output.Extension(f) == ext })
 }
 
 // maxTileZoom is the highest zoom level that the tile route accepts, so that 1<<z fits in an int on every platform.
