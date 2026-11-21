@@ -7,16 +7,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/crank-git/atak-map-downloader/internal/output"
-
-	// The blank import registers the "sqlite" driver with database/sql.
-	_ "modernc.org/sqlite"
+	"github.com/crank-git/atak-map-downloader/internal/output/sqlitequeue"
 )
 
 // MaxZoom is the highest zoom level that the writer accepts.
@@ -29,16 +24,6 @@ var ErrZoomOutOfRange = errors.New("zoom_out_of_range")
 
 // srid is the value of the srid row of ATAK_metadata, which TilesetInfo.java reads with Integer.parseInt.
 const srid = "3857"
-
-// batchSize is the number of tiles that the writer commits in one transaction (FR-robust-downloads-2).
-const batchSize = 500
-
-// queueSize is the number of tiles that Put can queue before it waits for the writer goroutine.
-const queueSize = 64
-
-// dsnPragmas sets the pragmas of FR-robust-downloads-3 on every connection.
-// modernc.org/sqlite runs each _pragma value as "PRAGMA <value>", and it runs busy_timeout first.
-const dsnPragmas = "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
 
 // The tiles, ATAK_catalog and ATAK_metadata statements are those of OSMDroidTileContainer.createTables.
 // ATAK reads a file with both ATAK tables the same as a tile cache that ATAK wrote, and an empty ATAK_catalog gives no expiration.
@@ -53,44 +38,15 @@ const schema = `
 	CREATE UNIQUE INDEX IF NOT EXISTS atakdl_failed_tile_index ON atakdl_failed_tiles (zoom_level, tile_column, tile_row);
 `
 
-// The statements that the writer goroutine runs for each queued operation. The row is the XYZ row.
-const (
-	insertTile   = "INSERT OR REPLACE INTO tiles (key, provider, tile) VALUES (?, ?, ?)"
-	removeFailed = "DELETE FROM atakdl_failed_tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?"
-	recordFailed = `INSERT INTO atakdl_failed_tiles (zoom_level, tile_column, tile_row, reason, attempts) VALUES (?, ?, ?, ?, 1)
-		ON CONFLICT (zoom_level, tile_column, tile_row) DO UPDATE SET reason = excluded.reason, attempts = attempts + 1`
-)
-
-// op is one operation that waits in the queue of the writer goroutine.
-type op struct {
-	z, x, y int
-	// data is the tile data of a Put.
-	data []byte
-	// reason is the failure reason of a Fail. A Put has no reason.
-	reason string
-	// reply is set only for a Failed request, and the writer goroutine sends the failed tiles to it.
-	reply chan<- failedList
-}
-
-// failedList is the answer of the writer goroutine to a Failed request.
-type failedList struct {
-	tiles []output.FailedTile
-	err   error
-}
+// insertTile is the statement that the writer goroutine runs for each Put.
+const insertTile = "INSERT OR REPLACE INTO tiles (key, provider, tile) VALUES (?, ?, ?)"
 
 // Writer writes the tiles of one job to an OSMDroid output file, and it satisfies output.Writer.
-// One writer goroutine owns the database, and it commits one transaction per 500 tiles.
+// The queue of sqlitequeue owns the database, and it commits one transaction per 500 operations.
 // Has, Put, Fail and Failed are safe for concurrent use. Close must not run at the same time as any of them.
 type Writer struct {
-	db       *sql.DB
+	*sqlitequeue.Queue[int64]
 	provider string
-	queue    chan op
-	done     chan struct{}
-
-	mu   sync.RWMutex
-	keys map[int64]struct{}
-	// err is the first write error. After it, the writer goroutine drops every queued tile.
-	err error
 }
 
 func init() {
@@ -122,16 +78,10 @@ func Open(path string, metadata map[string]string) (*Writer, error) {
 	if maxZoom, err := strconv.Atoi(metadata["maxzoom"]); err == nil && maxZoom > MaxZoom {
 		return nil, zoomError(maxZoom)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil { //nolint:gosec // The mode 0755 is the same as the MBTiles writer.
-		return nil, err
-	}
-	db, err := sql.Open("sqlite", path+dsnPragmas)
+	db, err := sqlitequeue.OpenDB(path)
 	if err != nil {
 		return nil, err
 	}
-	// Only the writer goroutine writes, so a second connection would only wait on the file lock.
-	db.SetMaxOpenConns(1)
-
 	if err := setUp(db, metadata); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
@@ -140,14 +90,13 @@ func Open(path string, metadata map[string]string) (*Writer, error) {
 		return nil, errors.Join(err, db.Close())
 	}
 
-	w := &Writer{
-		db:       db,
-		provider: metadata["atakdl_source"],
-		queue:    make(chan op, queueSize),
-		done:     make(chan struct{}),
-		keys:     keys,
-	}
-	go w.run()
+	w := &Writer{provider: metadata["atakdl_source"]}
+	w.Queue = sqlitequeue.New(db, keys, sqlitequeue.Format[int64]{
+		Key: tileKey,
+		// atakdl_failed_tiles holds XYZ rows, the same rows as the key.
+		FailedRow: func(_, y int) int { return y },
+		Insert:    w.insert,
+	})
 	return w, nil
 }
 
@@ -330,192 +279,26 @@ func parseBounds(row string) ([4]float64, bool) {
 	return b, true
 }
 
-// Has reports whether the output file holds the tile z, x, y, or whether Put queued it.
-// The row y is the XYZ row.
-func (w *Writer) Has(z, x, y int) bool {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	_, ok := w.keys[tileKey(z, x, y)]
-	return ok
-}
-
 // Put queues the tile z, x, y with data for the writer goroutine. The row y is the XYZ row.
-// The writer removes the row of the tile from atakdl_failed_tiles in the same transaction (FR-robust-downloads-23).
 // It returns ErrZoomOutOfRange for z above MaxZoom and queues nothing.
-// It returns the first write error of the writer, and the writer drops every tile after that error.
+// Otherwise it returns the error of sqlitequeue.Queue.Put.
 func (w *Writer) Put(z, x, y int, data []byte) error {
 	if z > MaxZoom {
 		return zoomError(z)
 	}
-	w.queue <- op{z: z, x: x, y: y, data: data}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.keys[tileKey(z, x, y)] = struct{}{}
-	return w.err
+	return w.Queue.Put(z, x, y, data)
 }
 
-// Fail queues a row in atakdl_failed_tiles for the tile z, x, y with reason. The row y is the XYZ row.
-// A tile that has a row keeps one row: the writer replaces the reason and adds 1 to attempts.
-// It returns the first write error of the writer.
-func (w *Writer) Fail(z, x, y int, reason string) error {
-	w.queue <- op{z: z, x: x, y: y, reason: reason}
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.err
-}
-
-// Failed returns the rows of atakdl_failed_tiles in tile order.
-// The writer goroutine commits every queued operation first, so the rows include each Fail and Put before the call.
-// It returns the first write error of the writer, or the query error.
-func (w *Writer) Failed() ([]output.FailedTile, error) {
-	reply := make(chan failedList, 1)
-	w.queue <- op{reply: reply}
-	l := <-reply
-	return l.tiles, l.err
-}
-
-// Close commits the queued tiles, stops the writer goroutine and closes the output file.
-// It moves the WAL content into the file and sets journal_mode=DELETE, so no -wal or -shm file stays.
-// A data package holds only the one file, and a read-only reader cannot open a file in WAL mode.
-// It returns the first write error, joined with the journal error and the close error.
-func (w *Writer) Close() error {
-	close(w.queue)
-	<-w.done
-	w.mu.RLock()
-	errs := []error{w.err}
-	w.mu.RUnlock()
-
-	// SQLite returns the old mode when another connection blocks the switch, so Close reads the result.
-	var mode string
-	if _, err := w.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		errs = append(errs, fmt.Errorf("checkpoint the WAL file: %w", err))
-	} else if err := w.db.QueryRow("PRAGMA journal_mode=DELETE").Scan(&mode); err != nil {
-		errs = append(errs, fmt.Errorf("set journal_mode=DELETE: %w", err))
-	} else if mode != "delete" {
-		errs = append(errs, fmt.Errorf("set journal_mode=DELETE: the mode stays %s", mode))
-	}
-	return errors.Join(append(errs, w.db.Close())...)
-}
-
-// run writes the queued operations until Close closes the queue.
-func (w *Writer) run() {
-	defer close(w.done)
-	batch := make([]op, 0, batchSize)
-	for o := range w.queue {
-		if o.reply != nil {
-			if len(batch) > 0 && !w.failed() {
-				w.commit(batch)
-			}
-			batch = batch[:0]
-			o.reply <- w.listFailed()
-			continue
-		}
-		if w.failed() {
-			continue
-		}
-		batch = append(batch, o)
-		if len(batch) == batchSize {
-			w.commit(batch)
-			batch = batch[:0]
-		}
-	}
-	if len(batch) > 0 && !w.failed() {
-		w.commit(batch)
-	}
-}
-
-// failed reports whether the writer has a write error.
-func (w *Writer) failed() bool {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.err != nil
-}
-
-// commit writes batch in one transaction. It records the first error in w.err.
-func (w *Writer) commit(batch []op) {
-	err := w.insert(batch)
-	if err == nil {
-		return
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.err == nil {
-		w.err = err
-	}
-}
-
-// insert writes the operations of batch in one transaction, and it replaces a stored tile with the same key.
-func (w *Writer) insert(batch []op) error {
-	tx, err := w.db.Begin()
+// insert writes tiles in tx with the OSMDroid key and the provider of the writer, and it replaces a stored tile with the same key.
+func (w *Writer) insert(tx *sql.Tx, tiles []sqlitequeue.Tile) (func(), error) {
+	put, err := tx.Prepare(insertTile)
 	if err != nil {
-		return fmt.Errorf("begin the tile transaction: %w", err)
+		return nil, fmt.Errorf("prepare %q: %w", insertTile, err)
 	}
-	var stmts []*sql.Stmt
-	for _, query := range []string{insertTile, removeFailed, recordFailed} {
-		stmt, err := tx.Prepare(query)
-		if err != nil {
-			return errors.Join(fmt.Errorf("prepare %q: %w", query, err), closeAll(stmts), tx.Rollback())
-		}
-		stmts = append(stmts, stmt)
-	}
-	put, remove, record := stmts[0], stmts[1], stmts[2]
-	for _, o := range batch {
-		var err error
-		if o.reason == "" {
-			if _, err = put.Exec(tileKey(o.z, o.x, o.y), w.provider, o.data); err == nil {
-				_, err = remove.Exec(o.z, o.x, o.y)
-			}
-		} else {
-			_, err = record.Exec(o.z, o.x, o.y, o.reason)
-		}
-		if err != nil {
-			return errors.Join(fmt.Errorf("write tile %d/%d/%d: %w", o.z, o.x, o.y, err), closeAll(stmts), tx.Rollback())
+	for _, t := range tiles {
+		if _, err := put.Exec(tileKey(t.Z, t.X, t.Y), w.provider, t.Data); err != nil {
+			return nil, errors.Join(fmt.Errorf("write tile %d/%d/%d: %w", t.Z, t.X, t.Y, err), sqlitequeue.CloseAll(put))
 		}
 	}
-	if err := closeAll(stmts); err != nil {
-		return errors.Join(err, tx.Rollback())
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit %d tiles: %w", len(batch), err)
-	}
-	return nil
-}
-
-// closeAll closes each statement in stmts and returns the joined close errors.
-func closeAll(stmts []*sql.Stmt) error {
-	var errs []error
-	for _, s := range stmts {
-		if err := s.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close a tile statement: %w", err))
-		}
-	}
-	return errors.Join(errs...)
-}
-
-// listFailed returns the rows of atakdl_failed_tiles. Only the writer goroutine calls it.
-func (w *Writer) listFailed() failedList {
-	w.mu.RLock()
-	err := w.err
-	w.mu.RUnlock()
-	if err != nil {
-		return failedList{err: err}
-	}
-	rows, err := w.db.Query("SELECT zoom_level, tile_column, tile_row, reason, attempts FROM atakdl_failed_tiles ORDER BY zoom_level, tile_column, tile_row")
-	if err != nil {
-		return failedList{err: fmt.Errorf("read the failed tiles: %w", err)}
-	}
-	defer func() { _ = rows.Close() }() // rows.Err below reports a read failure.
-
-	var tiles []output.FailedTile
-	for rows.Next() {
-		var f output.FailedTile
-		if err := rows.Scan(&f.Z, &f.X, &f.Y, &f.Reason, &f.Attempts); err != nil {
-			return failedList{err: fmt.Errorf("read the failed tiles: %w", err)}
-		}
-		tiles = append(tiles, f)
-	}
-	if err := rows.Err(); err != nil {
-		return failedList{err: fmt.Errorf("read the failed tiles: %w", err)}
-	}
-	return failedList{tiles: tiles}
+	return nil, sqlitequeue.CloseAll(put)
 }

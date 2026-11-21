@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/crank-git/atak-map-downloader/internal/output"
+	"github.com/crank-git/atak-map-downloader/internal/output/sqlitequeue"
 )
 
 // The four MBTiles statements must not change with the driver (FR-foundation-4).
@@ -418,7 +419,7 @@ func TestPutReportsAWriteFailureAndCloseReturnsIt(t *testing.T) {
 	}
 
 	var putErr error
-	for i := 0; i < 2*batchSize && putErr == nil; i++ {
+	for i := 0; i < 2*sqlitequeue.BatchSize && putErr == nil; i++ {
 		putErr = w.Put(12, i, 0, []byte{1})
 	}
 	if putErr == nil {
