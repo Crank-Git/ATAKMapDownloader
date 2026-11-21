@@ -41,7 +41,10 @@ func validOutputFileName(name string) bool {
 	return outputFileName.MatchString(name) && name != "." && name != ".."
 }
 
-// serveFiles serves GET /api/files and GET /api/files/{name}.
+// maxTileZoom is the highest zoom level that the tile route accepts, so that 1<<z fits in an int on every platform.
+const maxTileZoom = 30
+
+// serveFiles serves GET /api/files, GET /api/files/{name} and GET /api/files/{name}/tiles/{z}/{x}/{y}.
 // It reads r.URL.Path itself, because http.ServeMux redirects a path with ".." before a handler can return file_not_found.
 func (h *WebHandler) serveFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -52,7 +55,74 @@ func (h *WebHandler) serveFiles(w http.ResponseWriter, r *http.Request) {
 		h.listFiles(w)
 		return
 	}
-	h.downloadFile(w, r, strings.TrimPrefix(r.URL.Path, "/api/files/"))
+	rest := strings.TrimPrefix(r.URL.Path, "/api/files/")
+	if parts := strings.Split(rest, "/"); len(parts) == 5 && parts[1] == "tiles" {
+		h.serveTile(w, parts[0], parts[2:])
+		return
+	}
+	h.downloadFile(w, r, rest)
+}
+
+// serveTile writes one tile of the output file name (FR-offline-web-ui-13).
+// zxy holds the zoom level, the column and the XYZ row of the request.
+// It writes:
+//   - 204 when the output file does not hold the tile (FR-offline-web-ui-14).
+//   - 404 not_found when zxy is not a tile at its zoom level.
+//   - 404 file_not_found when name is not an MBTiles output file in the output directory, for example a data package.
+func (h *WebHandler) serveTile(w http.ResponseWriter, name string, zxy []string) {
+	notFound := func() { writeError(w, http.StatusNotFound, "file_not_found", "Output file not found") }
+	if !validOutputFileName(name) {
+		notFound()
+		return
+	}
+	var c [3]int
+	for i, s := range zxy {
+		v, err := strconv.Atoi(s)
+		if err != nil || v < 0 {
+			writeError(w, http.StatusNotFound, "not_found", "Tile not found")
+			return
+		}
+		c[i] = v
+	}
+	z, x, y := c[0], c[1], c[2]
+	if z > maxTileZoom || x >= 1<<z || y >= 1<<z {
+		writeError(w, http.StatusNotFound, "not_found", "Tile not found")
+		return
+	}
+
+	root, err := os.OpenRoot(h.outputDir)
+	if err != nil {
+		notFound()
+		return
+	}
+	defer func() { _ = root.Close() }() // The root is read-only here, so a close error loses nothing.
+	// Lstat does not follow a symbolic link, and the check stops the driver from creating a missing file.
+	info, err := root.Lstat(name)
+	if err != nil || !info.Mode().IsRegular() {
+		notFound()
+		return
+	}
+	// SQLite opens a file by path, so ReadTile gets the path of the file that Lstat checked.
+	data, ok, err := mbtiles.ReadTile(filepath.Join(h.outputDir, name), z, x, y)
+	if err != nil {
+		slog.Debug("reject a tile request for a file that is not an MBTiles output file", "name", name, "error", err)
+		notFound()
+		return
+	}
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	// The engine stores only a PNG, JPEG, GIF or WebP body, and DetectContentType knows each signature.
+	contentType := http.DetectContentType(data)
+	// A user can copy any file into the output directory, so a body that is not an image goes out as octet-stream.
+	if !strings.HasPrefix(contentType, "image/") {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	//nolint:gosec // G705: The Content-Type is an image type or application/octet-stream with nosniff, so the browser runs no script from the body.
+	_, _ = w.Write(data) // A failed write means that the client closed the connection.
 }
 
 // listFiles writes the output files in the output directory, newest first (FR-offline-web-ui-7).

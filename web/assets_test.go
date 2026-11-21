@@ -246,6 +246,93 @@ func TestAppJSSendsTheStateFieldsAndAcceptsOneZoomLevel(t *testing.T) {
 	}
 }
 
+func TestIndexHoldsTheBaseMapSwitcherWithTheOnlineBaseMap(t *testing.T) {
+	index := string(IndexHTML())
+	for _, want := range []string{
+		`id="baseMap" class="basemap"`,
+		`<select id="baseMapSelect">`,
+		`<option value="">Online (OpenStreetMap)</option>`,
+	} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html does not contain %q", want)
+		}
+	}
+}
+
+// methodBody returns the source of the app.js method name, from its signature to the closing brace at 4 spaces of indent.
+func methodBody(t *testing.T, app, name string) string {
+	t.Helper()
+	m := regexp.MustCompile(`(?ms)^    (?:async )?` + regexp.QuoteMeta(name) + `\([^)]*\) \{\n.*?^    \}\n`).FindString(app)
+	if m == "" {
+		t.Fatalf("app.js has no method %s", name)
+	}
+	return m
+}
+
+func TestAppJSOffersOneLocalBaseMapPerOutputFile(t *testing.T) {
+	b, err := staticFS.ReadFile("static/js/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	app := string(b)
+	// The list refresh after a job also refreshes the switcher, so a new output file appears in both (FR-offline-web-ui-15).
+	if !strings.Contains(methodBody(t, app, "renderOutputFiles"), "this.renderBaseMaps(files)") {
+		t.Error("renderOutputFiles does not call renderBaseMaps")
+	}
+	render := methodBody(t, app, "renderBaseMaps")
+	for _, want := range []string{"option.value = file.name", "option.textContent = file.name"} {
+		if !strings.Contains(render, want) {
+			t.Errorf("renderBaseMaps does not contain %q", want)
+		}
+	}
+	if !strings.Contains(app, "'/api/files/' + encodeURIComponent(name) + '/tiles/{z}/{x}/{y}'") {
+		t.Error("app.js does not request the tiles of an output file from the tile route")
+	}
+}
+
+func TestAppJSSelectsTheNewestOutputFileWhenOfflineAtLoad(t *testing.T) {
+	b, err := staticFS.ReadFile("static/js/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	app := string(b)
+	fallback := methodBody(t, app, "fallBackToLocalBaseMap")
+	for _, want := range []string{
+		"navigator.onLine",
+		"this.connectionState === 'offline'",
+		// GET /api/files sorts newest first, so the first file is the most recent one (FR-offline-web-ui-16).
+		"this.outputFiles[0]",
+		"this.showError('baseMap', 'Offline: no local base map'",
+	} {
+		if !strings.Contains(fallback, want) {
+			t.Errorf("fallBackToLocalBaseMap does not contain %q", want)
+		}
+	}
+	if !strings.Contains(methodBody(t, app, "setConnection"), "this.fallBackToLocalBaseMap()") {
+		t.Error("setConnection does not call fallBackToLocalBaseMap, so the offline indicator does not change the base map")
+	}
+}
+
+func TestAppJSDisablesStartWhileTheIndicatorReadsOffline(t *testing.T) {
+	b, err := staticFS.ReadFile("static/js/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	app := string(b)
+	// One method sets the disabled state of Start, so no other code path enables it while offline.
+	if n := strings.Count(app, "getElementById('downloadBtn').disabled ="); n != 1 {
+		t.Errorf("app.js sets the disabled state of Start in %d places, want 1", n)
+	}
+	gate := methodBody(t, app, "setStartEnabled")
+	if !strings.Contains(gate, "getElementById('downloadBtn').disabled = !ready || this.connectionState === 'offline'") {
+		t.Error("setStartEnabled does not disable Start while the indicator reads offline")
+	}
+	// A reconnect enables Start again only when it was ready before the server went offline.
+	if !strings.Contains(methodBody(t, app, "setConnection"), "this.setStartEnabled(this.startReady)") {
+		t.Error("setConnection does not apply the connection state to Start")
+	}
+}
+
 func TestEveryElementIDThatAppJSReadsIsInIndex(t *testing.T) {
 	app, err := staticFS.ReadFile("static/js/app.js")
 	if err != nil {

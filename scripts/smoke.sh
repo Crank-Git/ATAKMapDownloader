@@ -1,7 +1,7 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, and checks nine responses and the bind warning.
+# smoke.sh builds atak-dl, starts serve on a free port, and checks ten responses and the bind warning.
 # It also checks the terms exit code, the output file exit code, the tile cap and --no-geocode.
-# FR-offline-web-ui-1, -7 and -10, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
+# FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
 # and FR-robust-downloads-6, -26 and -27 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
@@ -74,6 +74,15 @@ body, status = sys.stdin.read().rsplit("\n", 1)
 if status != "404" or json.loads(body).get("error", {}).get("code") != "file_not_found":
     sys.exit("smoke: GET /api/files/..%2Fgo.mod returned " + status + ", want 404 file_not_found")
 print("smoke: GET /api/files/..%2Fgo.mod returned 404 file_not_found")
+'
+
+# The tile route of a name that is not an output file returns 404 file_not_found (FR-offline-web-ui-13).
+curl -s -w '\n%{http_code}' "$base/api/files/missing.mbtiles/tiles/0/0/0" | python3 -c '
+import json, sys
+body, status = sys.stdin.read().rsplit("\n", 1)
+if status != "404" or json.loads(body).get("error", {}).get("code") != "file_not_found":
+    sys.exit("smoke: GET /api/files/missing.mbtiles/tiles/0/0/0 returned " + status + ", want 404 file_not_found")
+print("smoke: GET /api/files/missing.mbtiles/tiles/0/0/0 returned 404 file_not_found")
 '
 
 # A browser adds Sec-Fetch-Site: cross-site to a request from another web page.

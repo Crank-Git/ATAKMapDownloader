@@ -218,6 +218,14 @@
         <main id="map"></main>
     </div>
 
+    <!-- The base map switcher (FR-offline-web-ui-15). initMap moves it into a Leaflet control on the map and shows it. -->
+    <div id="baseMap" class="basemap" hidden>
+        <strong>Base map</strong>
+        <select id="baseMapSelect">
+            <option value="">Online (OpenStreetMap)</option>
+        </select>
+    </div>
+
     <!-- Policy warning dialog (FR-polite-downloading-20, 21) -->
     <dialog id="policyDialog" class="policy-dialog" aria-labelledby="policyTitle">
         <form method="dialog">

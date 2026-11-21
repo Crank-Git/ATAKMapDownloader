@@ -182,7 +182,7 @@ Regions:
 |---|---|---|---|
 | GET | `/api/files` | 200 `[{name, size, modified, format, source, min_zoom, max_zoom, bounds, in_progress}]` | — |
 | GET | `/api/files/{name}` | 200 attachment, `Content-Disposition: attachment` | 404 `file_not_found` |
-| GET | `/api/files/{name}/tiles/{z}/{x}/{y}` | 200 image, or 204 | 404 |
+| GET | `/api/files/{name}/tiles/{z}/{x}/{y}` | 200 image, or 204 | 404 `file_not_found`, or 404 `not_found` for a tile outside its zoom level |
 
 - Leaflet 1.9.4: https://leafletjs.com/reference.html (1.9.4 reference). The release list is at https://github.com/Leaflet/Leaflet/releases.
 - Leaflet-Geoman v2.20.8: https://github.com/geoman-io/leaflet-geoman. Confirm the free-edition license before you vendor it.
