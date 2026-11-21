@@ -21,13 +21,21 @@ func TestCreateWritesTheFourSchemaStatements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	rows, err := db.Query("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY rowid")
 	if err != nil {
 		t.Fatalf("query sqlite_master: %v", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	var got []string
 	for rows.Next() {
@@ -57,7 +65,11 @@ func TestCreateStoresTheMetadataKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	for k, want := range meta {
 		var got string
@@ -75,7 +87,11 @@ func TestInsertTileStoresTheTMSRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	tiles := []struct {
 		z, x, tmsY int
@@ -120,7 +136,11 @@ func TestInsertTileAcceptsConcurrentWriters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	const writers = 32
 	errs := make(chan error, writers)
@@ -154,7 +174,11 @@ func TestInsertTileReplacesARowWithTheSameKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	if err := InsertTile(db, 1, 0, 1, []byte("old")); err != nil {
 		t.Fatalf("InsertTile: %v", err)

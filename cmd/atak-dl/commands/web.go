@@ -94,7 +94,7 @@ func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // The file is read-only, so a close error loses nothing.
 	stat, err := f.Stat()
 	if err != nil {
 		http.NotFound(w, r)
@@ -351,7 +351,7 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"Geocoding failed: `+err.Error()+`"}`, http.StatusInternalServerError)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // The body is fully read, so a close error loses nothing.
 	var results []struct {
 		DisplayName string   `json:"display_name"`
 		Lat         string   `json:"lat"`
@@ -391,7 +391,7 @@ func (h *WebHandler) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // The connection ends here, so a close error changes nothing.
 
 	sendJSON(conn, map[string]interface{}{"type": "status", "message": "Connected to ATAK Downloader"})
 
@@ -469,7 +469,8 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	})
 
 	engine := download.NewEngine(cfg)
-	success, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
+	// reportResult reads the result from success and ctx. #15 sends the error text to the client.
+	success, _ := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
 		sendJSON(conn, map[string]interface{}{
 			"type":       "download_progress",
 			"progress":   p.ProgressPercent(),

@@ -141,7 +141,7 @@ func (e *Engine) DownloadTiles(
 	if err != nil {
 		return false, err
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck // A close error does not change the result today (#25).
 
 	progress := &Progress{
 		TotalTiles: totalTiles,
@@ -321,7 +321,7 @@ func (e *Engine) downloadTile(url string) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // The body is fully read, so a close error loses nothing.
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {

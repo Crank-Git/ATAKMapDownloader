@@ -4,8 +4,8 @@
 version: "2"
 
 linters:
-  # Enable only the linters that FR-foundation-6 names.
-  default: none
+  # The standard set runs, and FR-foundation-6 adds eight linters to it.
+  default: standard
   enable:
     - cyclop
     - errorlint
