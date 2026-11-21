@@ -80,7 +80,7 @@ class ATAKDownloader {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 19
         }).addTo(this.map);
-        // A failed OSM tile before any OSM tile loads means that the browser has no internet at load time (Flow 1).
+        // A failed OpenStreetMap tile before any OpenStreetMap tile loads means that the browser has no internet at load time (Flow 1).
         online.once('tileload', () => { this.onlineTileLoaded = true; });
         online.once('tileerror', () => {
             if (this.onlineTileLoaded) return;
@@ -226,7 +226,7 @@ class ATAKDownloader {
     }
 
     // fallBackToLocalBaseMap selects the most recent output file when the web UI loads with no internet (FR-offline-web-ui-16).
-    // Three signals mean offline: navigator.onLine, a failed first OSM tile, and the connection indicator.
+    // Three signals mean offline: navigator.onLine, a failed first OpenStreetMap tile, and the connection indicator.
     // It selects a base map once, and never after the user selects one.
     fallBackToLocalBaseMap() {
         const offline = navigator.onLine === false || this.onlineTileFailed || this.connectionState === 'offline';

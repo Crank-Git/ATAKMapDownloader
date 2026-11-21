@@ -115,7 +115,7 @@ func (h *WebHandler) serveTile(w http.ResponseWriter, name string, zxy []string)
 	}
 	// The engine stores only a PNG, JPEG, GIF or WebP body, and DetectContentType knows each signature.
 	contentType := http.DetectContentType(data)
-	// A copied-in file can hold any bytes, so a body that is not an image never goes out as HTML or script.
+	// A user can copy any file into the output directory, so a body that is not an image goes out as octet-stream.
 	if !strings.HasPrefix(contentType, "image/") {
 		contentType = "application/octet-stream"
 	}
