@@ -24,11 +24,10 @@ import (
 
 // Config holds download engine configuration.
 type Config struct {
-	MaxConcurrent       int
-	Timeout             time.Duration
-	DelayBetweenBatches time.Duration
-	MaxFailureRate      float64
-	IgnoreErrors        bool
+	MaxConcurrent  int
+	Timeout        time.Duration
+	MaxFailureRate float64
+	IgnoreErrors   bool
 	// VerifyTLS makes the engine reject a tile server whose TLS certificate does not verify.
 	// A tile that fails verification counts as failed.
 	VerifyTLS bool
@@ -37,12 +36,11 @@ type Config struct {
 // DefaultConfig returns default download config.
 func DefaultConfig() Config {
 	return Config{
-		MaxConcurrent:       5,
-		Timeout:             30 * time.Second,
-		DelayBetweenBatches: 200 * time.Millisecond,
-		MaxFailureRate:      0.2,
-		IgnoreErrors:        false,
-		VerifyTLS:           true,
+		MaxConcurrent:  5,
+		Timeout:        30 * time.Second,
+		MaxFailureRate: 0.2,
+		IgnoreErrors:   false,
+		VerifyTLS:      true,
 	}
 }
 
