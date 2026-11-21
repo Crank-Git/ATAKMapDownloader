@@ -635,6 +635,13 @@ func (h *WebHandler) startJob(id string) {
 	j.mu.Unlock()
 	j.save(rec)
 	close(j.started)
+	// A job that completes while this job is queued can write the zip, so the unpack waits for the start.
+	if pkg := j.req.packageOptions(); pkg != nil && j.req.IfExists == ifExistsResume {
+		if err := unpackOutput(filepath.Join(h.outputDir, rec.OutputFile), pkg); err != nil {
+			j.result <- jobResult{state: jobFailed, err: err}
+			return
+		}
+	}
 	// A file can appear while the job is queued, so the if_exists rule applies again at the start.
 	if err := h.prepareJobOutput(j.req, j.source, rec.OutputFile); err != nil {
 		j.result <- jobResult{state: jobFailed, err: errors.New(outputErrorMessage(err))}

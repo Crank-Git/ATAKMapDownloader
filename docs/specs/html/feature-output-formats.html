@@ -329,6 +329,10 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><code>--data-package</code> with <code>--resume</code> resumes the inner output file and then rebuilds the zip.
 </li>
+<li>If only the zip exists, a resume reads the inner output file out of the zip first. This applies to <code>--resume</code>, to <code>"if_exists": "resume"</code> and to <code>POST /api/jobs/{id}/resume</code>.
+</li>
+<li>If that zip holds no inner output file, the CLI exits with code 3. A job of the job API ends <code>failed</code>, and its error starts with "read the output file out of". The zip stays unchanged.
+</li>
 </ul>
 <h3 id="output-formats-data-touched">Data touched</h3>
 <ul>
