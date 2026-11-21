@@ -42,7 +42,7 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 
 	parser := getParser(cmd)
 	dir := parser.MapsourcesDir
-	sources := parser.DiscoverSources(false)
+	sources := parser.DiscoverSources()
 	if len(sources) == 0 {
 		fmt.Fprintf(os.Stderr, "Warning: No map sources found in %s\n", dir)
 	}

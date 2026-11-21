@@ -68,7 +68,7 @@ func TestXMLParser_DiscoverSources(t *testing.T) {
 </customMapSource>`)
 
 	parser := New(dir)
-	sources := parser.DiscoverSources(false)
+	sources := parser.DiscoverSources()
 	if len(sources) != 1 {
 		t.Fatalf("expected 1 source, got %d", len(sources))
 	}

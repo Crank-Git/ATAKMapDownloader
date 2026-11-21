@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// runListSourcesCmd returns the output of list-sources with the user source directory dir and the global flags in args.
+// runListSourcesCmd returns the output of list-sources with the user source directory dir and the flags in args.
 func runListSourcesCmd(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	root := &cobra.Command{Use: "atak-dl"}
@@ -22,7 +23,8 @@ func runListSourcesCmd(t *testing.T, dir string, args ...string) string {
 	root.AddCommand(NewListSourcesCmd())
 	var out bytes.Buffer
 	root.SetOut(&out)
-	root.SetArgs(append(args, "list-sources"))
+	// Cobra reads a global flag after the command name too, so args can hold global and local flags.
+	root.SetArgs(append([]string{"list-sources"}, args...))
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute() returned %v", err)
 	}
@@ -102,6 +104,61 @@ func TestListSourcesWithNoSnapshotListsOnlyTheUserSourceDirectory(t *testing.T) 
 	out := runListSourcesCmd(t, dir, "--no-snapshot")
 	if !strings.Contains(out, "\nFound 1 map sources\n") || strings.Contains(out, "Google Satellite") {
 		t.Errorf("list-sources --no-snapshot printed %q, want only Test Source", out)
+	}
+}
+
+func TestListSourcesSkippedListsEverySnapshotSourceFileThatDidNotLoad(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	files := 0
+	err := fs.WalkDir(snapshot.FS(), "maps", func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(path, ".xml") {
+			files++
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The acceptance criterion of issue #38 names 53 source files in the pinned snapshot.
+	if files != 53 {
+		t.Fatalf("the snapshot holds %d source files, want 53", files)
+	}
+
+	var loaded int
+	for _, line := range strings.Split(runListSourcesCmd(t, missing), "\n") {
+		if _, err := fmt.Sscanf(line, "Found %d map sources", &loaded); err == nil {
+			break
+		}
+	}
+
+	reasons := map[string]bool{
+		xmlparser.SkipParseError:         true,
+		xmlparser.SkipMissingName:        true,
+		xmlparser.SkipMissingURL:         true,
+		xmlparser.SkipUnsupportedCRS:     true,
+		xmlparser.SkipUnknownPlaceholder: true,
+		xmlparser.SkipDuplicateName:      true,
+	}
+	out := strings.TrimRight(runListSourcesCmd(t, missing, "--skipped"), "\n")
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		fields := strings.SplitN(line, "  ", 3)
+		if len(fields) != 3 || !strings.HasPrefix(fields[0], "maps/") || !reasons[fields[1]] || fields[2] == "" {
+			t.Errorf("list-sources --skipped line = %q, want path  reason  detail", line)
+		}
+	}
+	if loaded+len(lines) != files {
+		t.Errorf("loaded %d + skipped %d = %d, want %d source files", loaded, len(lines), loaded+len(lines), files)
+	}
+}
+
+func TestListSourcesSkippedReportsNoSkippedSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test.xml"), []byte(testSourceXML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out := runListSourcesCmd(t, dir, "--no-snapshot", "--skipped"); out != "No skipped source files.\n" {
+		t.Errorf("list-sources --skipped printed %q, want the empty message", out)
 	}
 }
 

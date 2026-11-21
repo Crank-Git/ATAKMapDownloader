@@ -37,6 +37,19 @@
                         <option value="">Loading sources...</option>
                     </select>
                     <small class="text-muted">Select a map source to download tiles from</small>
+                    <!-- Skipped source files (FR-source-sync-30). app.js shows the block when the list is not empty. -->
+                    <div id="skippedSources" class="small mt-1" hidden>
+                        <a href="#" id="skippedLink"></a>
+                        <dialog id="skippedDialog" aria-labelledby="skippedTitle">
+                            <form method="dialog">
+                                <h5 id="skippedTitle">Skipped source files</h5>
+                                <ul id="skippedList" class="small"></ul>
+                                <div class="d-flex justify-content-end">
+                                    <button type="submit" class="btn btn-secondary btn-sm">Close</button>
+                                </div>
+                            </form>
+                        </dialog>
+                    </div>
                     <div id="policyLegend" class="policy-legend small mt-2">
                         <div><span class="policy-badge open">open</span> Public domain or an open license that allows bulk download.</div>
                         <div><span class="policy-badge conditional">conditional</span> Allowed at a low rate. A volunteer or community server.</div>

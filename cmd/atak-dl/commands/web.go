@@ -166,6 +166,8 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/sources":
 		h.apiSources(w, r)
+	case "/api/sources/skipped":
+		h.apiSkippedSources(w, r)
 	case "/api/estimate":
 		h.apiEstimate(w, r)
 	case "/api/tile-info":
@@ -188,7 +190,7 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
-	sources := h.parser.DiscoverSources(false)
+	sources := h.parser.DiscoverSources()
 	list := []sourceItem{}
 	for _, name := range h.parser.ListSources() {
 		s := sources[name]
@@ -204,9 +206,30 @@ func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
 			PolicyReferenceURL: p.ReferenceURL,
 			RequestsPerSecond:  p.RequestsPerSecond,
 			PolicyHost:         p.Hosts(),
+			Kind:               s.Kind,
+			Origin:             s.Origin,
 		})
 	}
 	writeJSON(w, list)
+}
+
+func (h *WebHandler) apiSkippedSources(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		return
+	}
+	list := []skippedItem{}
+	for _, s := range h.parser.SkippedSources() {
+		list = append(list, skippedItem{Path: s.Path, Reason: s.Reason, Detail: s.Detail})
+	}
+	writeJSON(w, list)
+}
+
+// skippedItem is one source file in the GET /api/sources/skipped response (FR-source-sync-29).
+type skippedItem struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+	Detail string `json:"detail"`
 }
 
 // sourceItem is one map source in the GET /api/sources response (FR-polite-downloading-16).
@@ -222,6 +245,8 @@ type sourceItem struct {
 	PolicyReferenceURL string  `json:"policy_reference_url"`
 	RequestsPerSecond  float64 `json:"requests_per_second"`
 	PolicyHost         string  `json:"policy_host"`
+	Kind               string  `json:"kind"`
+	Origin             string  `json:"origin"`
 }
 
 func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {

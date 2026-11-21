@@ -3,14 +3,15 @@ package xmlparser
 
 import (
 	"encoding/xml"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // MapSource represents a map tile source configuration.
@@ -113,36 +114,61 @@ func (m *MapSource) GetServerPart(tileIndex int) string {
 	return m.ServerParts[tileIndex%len(m.ServerParts)]
 }
 
+// The skip reasons of a source file (FR-source-sync-27).
+// Issue #41 records SkipUnsupportedCRS and issue #42 records SkipUnknownPlaceholder.
+const (
+	SkipParseError         = "parse_error"
+	SkipMissingName        = "missing_name"
+	SkipMissingURL         = "missing_url"
+	SkipUnsupportedCRS     = "unsupported_crs"
+	SkipUnknownPlaceholder = "unknown_placeholder"
+	SkipDuplicateName      = "duplicate_name"
+)
+
+// SkipError tells why a source file adds no map source to the source catalog.
+type SkipError struct {
+	// Reason is one of the Skip constants.
+	Reason string
+	Detail string
+}
+
+func (e *SkipError) Error() string {
+	return e.Reason + ": " + e.Detail
+}
+
+// SkippedSource is a source file that adds no map source to the source catalog (FR-source-sync-26).
+type SkippedSource struct {
+	// Path is the path in the snapshot for a snapshot file, and the file path for a user file.
+	Path   string
+	Reason string
+	Detail string
+}
+
 // customMapSourceXML is the XML structure for parsing.
+// XMLName has no tag, so that parse can name the root element of a file that is not a customMapSource.
 type customMapSourceXML struct {
-	XMLName         xml.Name `xml:"customMapSource"`
-	Name            string   `xml:"name"`
-	URL             string   `xml:"url"`
-	MinZoom         int      `xml:"minZoom"`
-	MaxZoom         int      `xml:"maxZoom"`
-	TileType        string   `xml:"tileType"`
-	TileUpdate      string   `xml:"tileUpdate"`
-	BackgroundColor string   `xml:"backgroundColor"`
-	IgnoreErrors    bool     `xml:"ignoreErrors"`
-	ServerParts     string   `xml:"serverParts"`
+	XMLName         xml.Name
+	Name            string `xml:"name"`
+	URL             string `xml:"url"`
+	MinZoom         int    `xml:"minZoom"`
+	MaxZoom         int    `xml:"maxZoom"`
+	TileType        string `xml:"tileType"`
+	TileUpdate      string `xml:"tileUpdate"`
+	BackgroundColor string `xml:"backgroundColor"`
+	IgnoreErrors    bool   `xml:"ignoreErrors"`
+	ServerParts     string `xml:"serverParts"`
 }
 
 // XMLParser parses map source XML configuration files.
 type XMLParser struct {
 	MapsourcesDir string
 	snapshot      fs.FS
-	sourcesCache  map[string]*MapSource
-	scanned       bool
-	lastScanTime  time.Time
 }
 
 // New returns a parser for the user source directory mapsourcesDir alone.
 // An empty mapsourcesDir gives a parser with no source directory.
 func New(mapsourcesDir string) *XMLParser {
-	return &XMLParser{
-		MapsourcesDir: mapsourcesDir,
-		sourcesCache:  make(map[string]*MapSource),
-	}
+	return &XMLParser{MapsourcesDir: mapsourcesDir}
 }
 
 // NewWithSnapshot returns a parser that loads the source files of snapshot first, then the user source directory mapsourcesDir.
@@ -154,62 +180,77 @@ func NewWithSnapshot(snapshot fs.FS, mapsourcesDir string) *XMLParser {
 }
 
 // DiscoverSources returns the map sources of the snapshot and of the user source directory, by name.
-// It reads the files again when forceRescan is true or when the modification time of the user source directory changes.
+// It reads the source files on each call, so it always returns the current files.
 // A missing user source directory adds no map source and is not an error.
-func (p *XMLParser) DiscoverSources(forceRescan bool) map[string]*MapSource {
-	var currentTime time.Time
-	userDir := false
+func (p *XMLParser) DiscoverSources() map[string]*MapSource {
+	sources, _ := p.scan()
+	return sources
+}
+
+// SkippedSources returns the source files that add no map source, in the order that DiscoverSources reads them.
+// It returns an empty slice when every source file loads.
+func (p *XMLParser) SkippedSources() []SkippedSource {
+	_, skipped := p.scan()
+	return skipped
+}
+
+// scan reads the snapshot, then the user source directory.
+// It keeps no state, so concurrent HTTP handlers can call it.
+// A full scan of the snapshot takes less than 1 ms, so a cache saves no measurable time.
+func (p *XMLParser) scan() (map[string]*MapSource, []SkippedSource) {
+	sources := make(map[string]*MapSource)
+	skipped := []SkippedSource{}
+	// first holds the first file of each name in each directory of one tree (FR-source-sync-31).
+	type dirName struct{ origin, dir, name string }
+	first := make(map[dirName]string)
+
+	add := func(rel, shown string, source *MapSource, err error) {
+		if err != nil {
+			var se *SkipError
+			if !errors.As(err, &se) {
+				se = &SkipError{Reason: SkipParseError, Detail: err.Error()}
+			}
+			skipped = append(skipped, SkippedSource{Path: shown, Reason: se.Reason, Detail: se.Detail})
+			slog.Debug("skipped source file", "file", shown, "reason", se.Reason, "detail", se.Detail)
+			return
+		}
+		key := dirName{source.Origin, path.Dir(rel), source.Name}
+		if prev, ok := first[key]; ok {
+			skipped = append(skipped, SkippedSource{
+				Path:   shown,
+				Reason: SkipDuplicateName,
+				Detail: "map source " + strconv.Quote(source.Name) + " is also in " + prev,
+			})
+			return
+		}
+		first[key] = shown
+		// A later tree replaces a map source of the same name, so a user file replaces a snapshot file (FR-source-sync-5).
+		sources[source.Name] = source
+	}
+
+	if p.snapshot != nil {
+		walkXML(p.snapshot, func(rel string) {
+			source, err := p.ParseFS(p.snapshot, rel)
+			add(rel, rel, source, err)
+		})
+	}
 	if p.MapsourcesDir != "" {
-		if info, err := os.Stat(p.MapsourcesDir); err == nil {
-			currentTime = info.ModTime()
-			userDir = true
+		if _, err := os.Stat(p.MapsourcesDir); err == nil {
+			walkXML(os.DirFS(p.MapsourcesDir), func(rel string) {
+				full := filepath.Join(p.MapsourcesDir, filepath.FromSlash(rel))
+				source, err := p.ParseFile(full)
+				add(rel, full, source, err)
+			})
 		} else {
 			slog.Debug("mapsources dir not found", "path", p.MapsourcesDir)
 		}
 	}
-
-	if !forceRescan && p.scanned && !currentTime.After(p.lastScanTime) {
-		return p.sourcesCache
-	}
-
-	sources := make(map[string]*MapSource)
-	add := func(path string, source *MapSource, err error) {
-		if err != nil {
-			// Skip unsupported formats (e.g. customWmsMapSource) silently
-			if !strings.Contains(err.Error(), "customMapSource") {
-				slog.Debug("skipped XML", "file", path, "reason", err.Error())
-			}
-			return
-		}
-		if source != nil {
-			sources[source.Name] = source
-			slog.Debug("loaded source", "name", source.Name, "origin", source.Origin)
-		}
-	}
-
-	if p.snapshot != nil {
-		walkXML(p.snapshot, func(path string) {
-			source, err := p.ParseFS(p.snapshot, path)
-			add(path, source, err)
-		})
-	}
-	if userDir {
-		slog.Info("scanning for XML sources", "dir", p.MapsourcesDir)
-		walkXML(os.DirFS(p.MapsourcesDir), func(path string) {
-			full := filepath.Join(p.MapsourcesDir, filepath.FromSlash(path))
-			source, err := p.ParseFile(full)
-			add(full, source, err)
-		})
-	}
-
-	p.sourcesCache = sources
-	p.scanned = true
-	p.lastScanTime = currentTime
-	slog.Info("loaded map sources", "count", len(sources))
-	return sources
+	slog.Debug("loaded map sources", "count", len(sources), "skipped", len(skipped))
+	return sources, skipped
 }
 
 // walkXML calls load for each .xml file in fsys, at any depth.
+// fs.WalkDir reads each directory in lexical order, so the first file of a duplicate name is the first in lexical path order.
 func walkXML(fsys fs.FS, load func(path string)) {
 	// The callback returns nil for every entry, so WalkDir returns nil.
 	_ = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
@@ -221,36 +262,42 @@ func walkXML(fsys fs.FS, load func(path string)) {
 }
 
 // ParseFile returns the map source of the source file at xmlPath, with origin user.
-// It returns nil and no error for a file with no name or no URL.
+// It returns a *SkipError when the file holds no valid customMapSource, and the read error when it cannot read the file.
 func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
 	data, err := os.ReadFile(xmlPath) //nolint:gosec // The operator chooses the map sources directory.
 	if err != nil {
 		return nil, err
 	}
-	return parse(data, xmlPath, OriginUser)
+	return parse(data, OriginUser)
 }
 
 // ParseFS returns the map source of the snapshot source file name in fsys, with origin snapshot.
-// It returns nil and no error for a file with no name or no URL.
+// It returns a *SkipError when the file holds no valid customMapSource, and the read error when it cannot read the file.
 func (p *XMLParser) ParseFS(fsys fs.FS, name string) (*MapSource, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
 	}
-	return parse(data, name, OriginSnapshot)
+	return parse(data, OriginSnapshot)
 }
 
-func parse(data []byte, xmlPath, origin string) (*MapSource, error) {
+func parse(data []byte, origin string) (*MapSource, error) {
 	var raw customMapSourceXML
 	if err := xml.Unmarshal(data, &raw); err != nil {
-		return nil, err
+		return nil, &SkipError{Reason: SkipParseError, Detail: err.Error()}
+	}
+	// TODO(#41): Parse the customWmsMapSource root element.
+	if raw.XMLName.Local != "customMapSource" {
+		return nil, &SkipError{Reason: SkipParseError, Detail: "root element <" + raw.XMLName.Local + "> is not <customMapSource>"}
 	}
 
 	raw.Name = strings.TrimSpace(raw.Name)
 	raw.URL = strings.TrimSpace(raw.URL)
-	if raw.Name == "" || raw.URL == "" {
-		slog.Warn("missing required fields", "file", xmlPath)
-		return nil, nil
+	if raw.Name == "" {
+		return nil, &SkipError{Reason: SkipMissingName, Detail: "the <name> element is empty or missing"}
+	}
+	if raw.URL == "" {
+		return nil, &SkipError{Reason: SkipMissingURL, Detail: "the <url> element is empty or missing"}
 	}
 
 	if raw.MinZoom == 0 && raw.MaxZoom == 0 {
@@ -292,13 +339,13 @@ func parse(data []byte, xmlPath, origin string) (*MapSource, error) {
 
 // GetSource returns a specific map source by name.
 func (p *XMLParser) GetSource(name string) *MapSource {
-	sources := p.DiscoverSources(false)
+	sources := p.DiscoverSources()
 	return sources[name]
 }
 
 // ListSources returns sorted source names.
 func (p *XMLParser) ListSources() []string {
-	sources := p.DiscoverSources(false)
+	sources := p.DiscoverSources()
 	names := make([]string, 0, len(sources))
 	for n := range sources {
 		names = append(names, n)
