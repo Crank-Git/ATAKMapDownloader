@@ -1,7 +1,7 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, and checks six responses and the bind warning.
+# smoke.sh builds atak-dl, starts serve on a free port, and checks seven responses and the bind warning.
 # It also checks the terms exit code, the output file exit code, the tile cap and --no-geocode.
-# FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
+# FR-offline-web-ui-1, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
 # and FR-robust-downloads-6, -26 and -27 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
@@ -41,6 +41,14 @@ if not isinstance(body, list) or not body:
     sys.exit("smoke: GET /api/sources did not return a non-empty JSON array")
 print("smoke: GET /api/sources returned %d sources" % len(body))
 '
+
+# The page loads Leaflet from the binary, so the web UI works with no internet (FR-offline-web-ui-1).
+status=$(curl -s -o /dev/null -w '%{http_code}' "$base/static/vendor/leaflet/leaflet.js")
+if [ "$status" != "200" ]; then
+	echo "smoke: GET /static/vendor/leaflet/leaflet.js returned $status, want 200" >&2
+	exit 1
+fi
+echo "smoke: GET /static/vendor/leaflet/leaflet.js returned 200"
 
 # No job runs yet, so the job API returns the job_not_found error shape.
 curl -s "$base/api/jobs/000000000000" | python3 -c '
