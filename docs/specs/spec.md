@@ -130,15 +130,15 @@ The project exists because ATAK users often work with no network. Examples are s
 
 | Feature set | Spec file | Epic | Status | Mockups |
 |---|---|---|---|---|
-| Foundation | [features/00-foundation.md](features/00-foundation.md) | Epic 0: Foundation | planned | — |
+| Foundation | [features/00-foundation.md](features/00-foundation.md) | Epic 0: Foundation | built | — |
 | Map source catalog | [features/01-map-sources.md](features/01-map-sources.md) | Existing (built) | built | — |
 | Area estimate and tile info | [features/02-area-estimate.md](features/02-area-estimate.md) | Existing (built) | built | — |
 | Tile download and output file | [features/03-tile-download.md](features/03-tile-download.md) | Existing (built) | built | — |
 | Web UI and server | [features/04-web-ui.md](features/04-web-ui.md) | Existing (built) | built | — |
-| Security hardening | [features/05-security-hardening.md](features/05-security-hardening.md) | Epic 1: Security hardening | planned | — |
-| Polite downloading | [features/06-polite-downloading.md](features/06-polite-downloading.md) | Epic 2: Polite downloading | planned | 04-source-policy-warning |
-| Robust downloads | [features/07-robust-downloads.md](features/07-robust-downloads.md) | Epic 3: Robust downloads | planned | — |
-| Offline web UI | [features/08-offline-web-ui.md](features/08-offline-web-ui.md) | Epic 4: Offline web UI | planned | 01-workspace |
+| Security hardening | [features/05-security-hardening.md](features/05-security-hardening.md) | Epic 1: Security hardening | built | — |
+| Polite downloading | [features/06-polite-downloading.md](features/06-polite-downloading.md) | Epic 2: Polite downloading | built | 04-source-policy-warning |
+| Robust downloads | [features/07-robust-downloads.md](features/07-robust-downloads.md) | Epic 3: Robust downloads | built | — |
+| Offline web UI | [features/08-offline-web-ui.md](features/08-offline-web-ui.md) | Epic 4: Offline web UI | built | 01-workspace |
 | Source sync and WMS | [features/09-source-sync.md](features/09-source-sync.md) | Epic 5: Source sync and WMS | built, except WMS (#41) | — |
 | Output formats | [features/10-output-formats.md](features/10-output-formats.md) | Epic 6: Output formats | planned | 03-export-options |
 | Area selection | [features/11-area-selection.md](features/11-area-selection.md) | Epic 7: Area selection | planned | 02-area-tools |
@@ -546,3 +546,9 @@ FR coverage (each sub-issue and the requirements it quotes):
   - A running job makes the settings, Estimate and Start read-only (batch fix).
   - FR-offline-web-ui-28 now also requires an accessible name on the progress bar.
   - The PM checked the web UI with Playwright and axe-core: 0 critical violations (#30).
+- 2026-11-21: Epic 5 merged into `develop` (#111) **without WMS (#41)**. #41 waits on a maintainer question about the CRS of the FEMA source, and the PM shipped the rest because it stands alone. Decisions at its gates:
+  - Source precedence is the snapshot, then the synced `atak-maps/`, then the user's own files. The user's own file always wins (batch fix, FR-source-sync-5).
+  - `sources sync` changes only `<user source directory>/atak-maps/` (cross-check amendment, #105).
+  - OpenRailwayMap (#101) and CyclOSM (batch fix) are `restricted`, because their terms ban bulk use. Waymarked Trails only discourages bulk use, so it stays conditional.
+  - Commas also split `serverParts`. This is a superset of ATAK's whitespace split (#42).
+  - Pending repair: `/api/estimate` does not resolve old map source names yet.

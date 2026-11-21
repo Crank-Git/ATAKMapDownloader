@@ -270,15 +270,15 @@ body.rv-open .layout { padding-right:21rem; }
 <h2 id="feature-map">Feature map</h2>
 <div class="table-wrap"><table>
 <tr><th>Feature set</th><th>Spec file</th><th>Epic</th><th>Status</th><th>Mockups</th></tr>
-<tr><td>Foundation</td><td><a href="html/feature-foundation.html">features/00-foundation.md</a></td><td>Epic 0: Foundation</td><td>planned</td><td>—</td></tr>
+<tr><td>Foundation</td><td><a href="html/feature-foundation.html">features/00-foundation.md</a></td><td>Epic 0: Foundation</td><td>built</td><td>—</td></tr>
 <tr><td>Map source catalog</td><td><a href="html/feature-map-sources.html">features/01-map-sources.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Area estimate and tile info</td><td><a href="html/feature-area-estimate.html">features/02-area-estimate.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Tile download and output file</td><td><a href="html/feature-tile-download.html">features/03-tile-download.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
 <tr><td>Web UI and server</td><td><a href="html/feature-web-ui.html">features/04-web-ui.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
-<tr><td>Security hardening</td><td><a href="html/feature-security-hardening.html">features/05-security-hardening.md</a></td><td>Epic 1: Security hardening</td><td>planned</td><td>—</td></tr>
-<tr><td>Polite downloading</td><td><a href="html/feature-polite-downloading.html">features/06-polite-downloading.md</a></td><td>Epic 2: Polite downloading</td><td>planned</td><td>04-source-policy-warning</td></tr>
-<tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>planned</td><td>—</td></tr>
-<tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>planned</td><td>01-workspace</td></tr>
+<tr><td>Security hardening</td><td><a href="html/feature-security-hardening.html">features/05-security-hardening.md</a></td><td>Epic 1: Security hardening</td><td>built</td><td>—</td></tr>
+<tr><td>Polite downloading</td><td><a href="html/feature-polite-downloading.html">features/06-polite-downloading.md</a></td><td>Epic 2: Polite downloading</td><td>built</td><td>04-source-policy-warning</td></tr>
+<tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>built</td><td>—</td></tr>
+<tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>built</td><td>01-workspace</td></tr>
 <tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>built, except WMS (#41)</td><td>—</td></tr>
 <tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>planned</td><td>03-export-options</td></tr>
 <tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>planned</td><td>02-area-tools</td></tr>
@@ -811,6 +811,20 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <li>FR-offline-web-ui-28 now also requires an accessible name on the progress bar.
 </li>
 <li>The PM checked the web UI with Playwright and axe-core: 0 critical violations (#30).
+</li>
+</ul>
+</li>
+<li>2026-11-21: Epic 5 merged into <code>develop</code> (#111) <strong>without WMS (#41)</strong>. #41 waits on a maintainer question about the CRS of the FEMA source, and the PM shipped the rest because it stands alone. Decisions at its gates:
+<ul>
+<li>Source precedence is the snapshot, then the synced <code>atak-maps/</code>, then the user's own files. The user's own file always wins (batch fix, FR-source-sync-5).
+</li>
+<li><code>sources sync</code> changes only <code>&lt;user source directory&gt;/atak-maps/</code> (cross-check amendment, #105).
+</li>
+<li>OpenRailwayMap (#101) and CyclOSM (batch fix) are <code>restricted</code>, because their terms ban bulk use. Waymarked Trails only discourages bulk use, so it stays conditional.
+</li>
+<li>Commas also split <code>serverParts</code>. This is a superset of ATAK's whitespace split (#42).
+</li>
+<li>Pending repair: <code>/api/estimate</code> does not resolve old map source names yet.
 </li>
 </ul>
 </li>
