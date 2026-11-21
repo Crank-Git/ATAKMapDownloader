@@ -13,7 +13,7 @@ ATAK Map Downloader parses map sources from MOBAC XML files, computes tile coord
 **Features:**
 - Source catalog: the binary embeds the 53 source files of ATAK-Maps v2.3.1. A user source directory adds map sources or replaces them by name
 - Tile calculations: Web Mercator projection, coordinate transformations
-- CLI: `list-sources`, `estimate`, `tile-info`, `validate-source`, `download`
+- CLI: `list-sources`, `sources sync`, `estimate`, `tile-info`, `validate-source`, `download`
 - Web interface: interactive map, area selection, real-time download progress
 - Download engine: concurrent downloads, retries, MBTiles output
 
@@ -101,6 +101,9 @@ Then open http://localhost:5000 in your browser.
 # List available map sources
 ./atak-dl list-sources
 
+# Download the latest ATAK-Maps release into the user source directory
+./atak-dl sources sync
+
 # Estimate download for an area
 ./atak-dl estimate --source="Google Satellite" --bbox=40.68,-74.05,40.88,-73.91
 
@@ -120,6 +123,7 @@ Then open http://localhost:5000 in your browser.
 |---------|------|---------|-------------|
 | (global) | `--mapsources-dir` | `<user config dir>/atak-dl/mapsources` | User source directory. The project loads it after the snapshot, and it reads its subdirectories too. A missing directory is not an error. |
 | (global) | `--no-snapshot` | `false` | Load only the user source directory, without the embedded snapshot. |
+| `sources sync` | `--tag` | latest release | ATAK-Maps release tag to download, for example `v2.3.1`. |
 | `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, `serve` prints a warning, because the server has no authentication. |
 | `serve` | `--geocoder-url` | `https://nominatim.openstreetmap.org` | Base URL of the Nominatim geocoder for place search. The server sends at most 1 geocode request per second, waits at most 5 s for a slot, and caches each result for 24 hours. A URL that is not an absolute `http` or `https` URL fails. |
 | `serve` | `--no-geocode` | `false` | Turn off place search. `POST /api/geocode` returns 404 `not_found`, `GET /api/config` returns `{"geocode": false}`, and the web UI hides the search box. |
@@ -176,6 +180,13 @@ The project loads the snapshot first. Then it loads the user source directory, w
 - macOS: `~/Library/Application Support/atak-dl/mapsources`
 - Windows: `%AppData%\atak-dl\mapsources`
 
+`atak-dl sources sync` downloads the latest ATAK-Maps release from GitHub. With `--tag`, it downloads that release. The command writes the files to `<user source directory>/atak-maps/`:
+
+- each `.xml` file under `maps/` in the release, in the upstream layout, for example `atak-maps/maps/base/osm/osm.xml`
+- `VERSION`, with the tag and the commit of the release
+
+The command replaces only `atak-maps/`, so your own source files beside it stay. It also removes the hidden `.atak-maps-new-*` and `.atak-maps-old-*` directories that an interrupted sync can leave. It prints `<tag>: N added, N changed, N removed`. If a request fails, or the archive has a path with `..` or no `maps/` directory, the command keeps the existing source files and exits with code 1. A GitHub rate-limit response gives a message with the time to try again.
+
 A map source in the user source directory replaces the snapshot map source with the same name. `list-sources` shows the origin of each map source: `snapshot` or `user`. With `--no-snapshot`, the project loads only the user source directory.
 
 ATAK-Maps v2.0.0 renamed every map source. `internal/snapshot/aliases.json` maps each v0.1 name to its v2 name. These old names stay until v0.6.0 at the earliest:
@@ -200,6 +211,7 @@ ATAKMapDownloader/
 ├── cmd/atak-dl/          # CLI entry and commands
 ├── internal/
 │   ├── snapshot/         # Embedded ATAK-Maps source files
+│   ├── sourcesync/       # sources sync from ATAK-Maps releases
 │   ├── xmlparser/        # XML map source parser
 │   ├── tilecalc/        # Tile coordinate calculations
 │   ├── download/        # Download engine

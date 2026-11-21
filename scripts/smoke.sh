@@ -1,8 +1,8 @@
 #!/bin/sh
 # smoke.sh builds atak-dl, starts serve on a free port, and checks seven responses and the bind warning.
-# It also checks the terms exit code, the output file exit code, the tile cap and --no-geocode.
+# It also checks the terms exit code, the output file exit code, the tile cap, --no-geocode and the sources sync command.
 # FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
-# FR-robust-downloads-6, -26 and -27, and FR-source-sync-16 and -29 define the checks.
+# FR-robust-downloads-6, -26 and -27, and FR-source-sync-10, -11, -16 and -29 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -185,5 +185,13 @@ if json.load(sys.stdin).get("error", {}).get("code") != "too_many_tiles":
     sys.exit("smoke: POST /api/jobs above serve --max-tiles did not return too_many_tiles")
 '
 echo "smoke: POST /api/jobs above serve --max-tiles returned too_many_tiles"
+
+# The binary has the sources sync command with --tag (FR-source-sync-10 and -11).
+# The check reads only the help text, because a smoke test never calls the real GitHub.
+if ! ./atak-dl sources sync --help | grep -q -- "--tag"; then
+	echo "smoke: atak-dl sources sync --help does not show --tag" >&2
+	exit 1
+fi
+echo "smoke: atak-dl sources sync --help shows --tag"
 
 echo "smoke: pass"
