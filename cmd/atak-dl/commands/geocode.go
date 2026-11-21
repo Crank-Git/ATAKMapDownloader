@@ -44,8 +44,10 @@ type geocodeResponse struct {
 }
 
 // configResponse is the GET /api/config response. The web UI reads it to hide the search box.
+// MaxTiles is the tile cap of a job, so the web UI can mark an area list above it before Start.
 type configResponse struct {
-	Geocode bool `json:"geocode"`
+	Geocode  bool `json:"geocode"`
+	MaxTiles int  `json:"max_tiles"`
 }
 
 // geocodeCache holds geocode results by normalized query. It is safe for concurrent use.
@@ -140,7 +142,7 @@ func (h *WebHandler) apiConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
 		return
 	}
-	writeJSON(w, configResponse{Geocode: !h.geocodeOff})
+	writeJSON(w, configResponse{Geocode: !h.geocodeOff, MaxTiles: h.maxTiles})
 }
 
 // apiGeocode answers a place search from the cache, or else from Nominatim within its usage policy.

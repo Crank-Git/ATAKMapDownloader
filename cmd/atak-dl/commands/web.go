@@ -177,6 +177,8 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 		h.apiEstimate(w, r)
 	case "/api/areas/parse":
 		h.apiAreasParse(w, r)
+	case "/api/areas/tiles":
+		h.apiAreaTiles(w, r)
 	case "/api/tile-info":
 		h.apiTileInfo(w, r)
 	case "/api/validate-source":
