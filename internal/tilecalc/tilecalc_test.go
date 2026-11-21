@@ -123,3 +123,23 @@ func TestTileCalculator_ValidateZoomRange(t *testing.T) {
 		t.Error("expected error for min > max")
 	}
 }
+
+func TestTileSizeKBFollowsTheTileType(t *testing.T) {
+	tests := []struct {
+		tileType string
+		want     float64
+	}{
+		{"jpg", 18},
+		{"JPG", 18},
+		{"jpeg", 18},
+		{"png", 25},
+		{"PNG", 25},
+		{"webp", 20},
+		{"", 20},
+	}
+	for _, tt := range tests {
+		if got := TileSizeKB(tt.tileType); got != tt.want {
+			t.Errorf("TileSizeKB(%q) = %v, want %v", tt.tileType, got, tt.want)
+		}
+	}
+}

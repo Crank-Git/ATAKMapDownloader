@@ -80,7 +80,7 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	totalSizeKB := 0.0
 	for _, z := range valid {
 		tb := calc.CalculateTileBounds(bounds, z)
-		est := calc.EstimateDownloadSize(tb, 15)
+		est := calc.EstimateDownloadSize(tb, tilecalc.TileSizeKB(source.TileType))
 		clat, _ := bounds.Center()
 		res := calc.CalculateResolutionAtLatitude(clat, z)
 		tiles := est["tile_count"].(int)
