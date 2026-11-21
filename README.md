@@ -174,6 +174,12 @@ If you press Ctrl-C, the engine stops its requests within 500 ms and commits the
 
 The binary embeds a snapshot of the source files of [ATAK-Maps](https://github.com/joshuafuller/ATAK-Maps) v2.3.1, by Joshua Fuller (MIT License). The files are MOBAC XML, in `internal/snapshot/maps/`. `internal/snapshot/NOTICE.md` credits ATAK-Maps, and `internal/snapshot/VERSION` holds the tag and the commit.
 
+A source file can set these elements for the tile URL:
+
+- `serverParts`: a list of server parts, separated by white space or commas. A tile always uses the part `(x + y) mod N`, so it always goes to the same host.
+- `invertYCoordinate`: with the exact value `true`, the project sends the TMS row `(2^z - 1) - y` as `{$y}`.
+- `tileUpdate`: a missing element gives `None`.
+
 The project loads the snapshot first. Then it loads the user source directory, which `--mapsources-dir` names. The default user source directory is `<user config dir>/atak-dl/mapsources`, for example:
 
 - Linux: `~/.config/atak-dl/mapsources`
@@ -201,7 +207,8 @@ A source file that does not load is a skipped source file. `atak-dl list-sources
 - `parse_error`: the file is not valid XML, or its root element is not `customMapSource`.
 - `missing_name`: the `<name>` element is empty or missing.
 - `missing_url`: the `<url>` element is empty or missing.
-- `unsupported_crs` and `unknown_placeholder`: reserved for WMS source files and URL placeholders.
+- `unsupported_crs`: reserved for WMS source files.
+- `unknown_placeholder`: the `<url>` element holds a URL placeholder other than `{$z}`, `{$x}`, `{$y}`, `{$q}` and `{$serverpart}`. These are the URL placeholders of the [ATAK-Maps XML reference](https://github.com/joshuafuller/ATAK-Maps/blob/v2.3.1/docs/xml-reference.md#url-placeholders). The letter case must match.
 - `duplicate_name`: a file in the same directory has the same name. The first file in lexical path order loads.
 
 ## Project Structure

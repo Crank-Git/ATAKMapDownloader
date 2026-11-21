@@ -1,6 +1,7 @@
 package xmlparser
 
 import (
+	"errors"
 	"io/fs"
 	"slices"
 	"strings"
@@ -93,8 +94,8 @@ func TestParseChecksThePlaceholdersOfTheURL(t *testing.T) {
 				}
 				return
 			}
-			se, ok := err.(*SkipError)
-			if !ok || se.Reason != SkipUnknownPlaceholder || !strings.Contains(se.Detail, tt.wantErr) {
+			var se *SkipError
+			if !errors.As(err, &se) || se.Reason != SkipUnknownPlaceholder || !strings.Contains(se.Detail, tt.wantErr) {
 				t.Errorf("parse error = %v, want %s with %s in the detail", err, SkipUnknownPlaceholder, tt.wantErr)
 			}
 		})
