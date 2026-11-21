@@ -14,8 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
+	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 )
 
 // sseEvent is one event that the test client reads from an SSE stream.
@@ -28,6 +30,7 @@ type sseEvent struct {
 type jobServer struct {
 	handler *WebHandler
 	url     string
+	tiles   *testtiles.Server
 }
 
 // newJobServer starts a server whose one map source "Test Tiles" points at a tile server with table.
@@ -44,9 +47,13 @@ func newJobServer(t *testing.T, table testtiles.Table) *jobServer {
 </customMapSource>`, tiles.URLTemplate())
 	h := newTestHandler(t, map[string]string{"tiles.xml": xml})
 	h.outputDir = t.TempDir()
+	// A 1000-tile job at the default rate of 4 per second takes minutes, so the test tile server gets a high rate.
+	h.policyFor = func(*xmlparser.MapSource) policy.Entry {
+		return policy.Entry{HostPattern: "127.0.0.1", PolicyClass: policy.Open, RequestsPerSecond: 10000}
+	}
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return &jobServer{handler: h, url: srv.URL}
+	return &jobServer{handler: h, url: srv.URL, tiles: tiles}
 }
 
 // boundsOf returns [w,s,e,n] bounds that hold exactly the tiles of tb.
@@ -442,11 +449,32 @@ func TestJobAPIErrorResponses(t *testing.T) {
 		{"post rejects a negative min_zoom", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"min_zoom":-1,"max_zoom":4}`, http.StatusBadRequest, "zoom_out_of_range"},
 		{"post rejects a concurrency of 0", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"max_zoom":1,"concurrency":0}`, http.StatusBadRequest, "invalid_concurrency"},
 		{"post rejects a concurrency of 33", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"max_zoom":1,"concurrency":33}`, http.StatusBadRequest, "invalid_concurrency"},
+		{"post rejects a rate_limit of 0", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"max_zoom":1,"rate_limit":0}`, http.StatusBadRequest, "invalid_rate_limit"},
+		{"post rejects a negative rate_limit", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"max_zoom":1,"rate_limit":-2}`, http.StatusBadRequest, "invalid_rate_limit"},
 		{"post rejects max_zoom above the source max_zoom", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"min_zoom":0,"max_zoom":19}`, http.StatusBadRequest, "zoom_out_of_range"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			checkError(t, s.request(t, tt.method, tt.path, tt.body), tt.status, tt.code)
 		})
+	}
+}
+
+func TestAJobSendsTheUserAgentOnEveryTileRequest(t *testing.T) {
+	area := tilecalc.TileBounds{MinX: 300, MaxX: 302, MinY: 400, MaxY: 402, Zoom: 10}
+	s := newJobServer(t, nil)
+
+	rec := s.startJob(t, jobBody(area))
+	if got := s.finalRecord(t, rec.ID); got.State != jobComplete {
+		t.Fatalf("final record = %+v, want state complete", got)
+	}
+	log := s.tiles.Log()
+	if len(log) != 9 {
+		t.Errorf("tile server got %d requests, want 9", len(log))
+	}
+	for _, r := range log {
+		if r.UserAgent != testUserAgent {
+			t.Errorf("tile request has User-Agent %q, want %q", r.UserAgent, testUserAgent)
+		}
 	}
 }

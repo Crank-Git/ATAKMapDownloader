@@ -30,6 +30,8 @@ type jobRequest struct {
 	IgnoreErrors     *bool     `json:"ignore_errors"`
 	VerifyTLS        *bool     `json:"verify_tls"`
 	AcceptTerms      *bool     `json:"accept_terms"`
+	// RateLimit lowers the request rate in requests per second. The engine ignores a value above the policy rate.
+	RateLimit *float64 `json:"rate_limit"`
 }
 
 // engineConfig returns the engine configuration for the request.
@@ -46,6 +48,9 @@ func (req jobRequest) engineConfig() download.Config {
 	}
 	if req.VerifyTLS != nil {
 		cfg.VerifyTLS = *req.VerifyTLS
+	}
+	if req.RateLimit != nil {
+		cfg.RateLimit = *req.RateLimit
 	}
 	return cfg
 }
@@ -312,6 +317,11 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xm
 		writeError(w, http.StatusBadRequest, code, message)
 		return nil, nil, false
 	}
+	// Zero rate_limit keeps the policy rate in the engine, so the API rejects it with the negative values.
+	if req.RateLimit != nil && *req.RateLimit <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid_rate_limit", fmt.Sprintf("rate_limit %g is not above 0", *req.RateLimit))
+		return nil, nil, false
+	}
 	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
 		writeError(w, http.StatusForbidden, "terms_not_accepted", fmt.Sprintf(
 			"%s (%s); send \"accept_terms\": true to accept the terms", entry.Reason, entry.ReferenceURL))
@@ -373,7 +383,10 @@ func (h *WebHandler) newJob(req jobRequest, bounds *tilecalc.GeographicBounds, c
 
 // runJob runs the engine for j, frees the job lock and sends the result to the event goroutine.
 func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds) {
-	engine := download.NewEngine(req.engineConfig())
+	cfg := req.engineConfig()
+	cfg.UserAgent = h.userAgent
+	cfg.Policy = h.policyFor(source)
+	engine := download.NewEngine(cfg)
 	outputPath := filepath.Join(h.outputDir, j.snapshot().OutputFile)
 	_, err := engine.DownloadTiles(ctx, source, bounds, zoomLevelsBetween(req.MinZoom, req.MaxZoom), outputPath,
 		func(p *download.Progress) bool {

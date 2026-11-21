@@ -23,6 +23,12 @@ func main() {
 	}
 }
 
+// userAgent returns the User-Agent of every tile request and every geocode request (FR-polite-downloading-14).
+// The project URL lets a server operator find the project.
+func userAgent(version string) string {
+	return "atak-map-downloader/" + version + " (+https://github.com/Crank-Git/ATAKMapDownloader)"
+}
+
 // newRootCmd returns the atak-dl root command with every subcommand.
 // The --version flag prints version, commit and date.
 func newRootCmd(version, commit, date string) *cobra.Command {
@@ -38,8 +44,8 @@ func newRootCmd(version, commit, date string) *cobra.Command {
 	root.AddCommand(commands.NewEstimateCmd())
 	root.AddCommand(commands.NewTileInfoCmd())
 	root.AddCommand(commands.NewValidateSourceCmd())
-	root.AddCommand(commands.NewDownloadCmd())
-	root.AddCommand(commands.NewServeCmd())
+	root.AddCommand(commands.NewDownloadCmd(userAgent(version)))
+	root.AddCommand(commands.NewServeCmd(userAgent(version)))
 
 	return root
 }

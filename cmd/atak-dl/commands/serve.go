@@ -14,18 +14,21 @@ import (
 )
 
 // NewServeCmd returns the serve command, which starts the web interface.
-func NewServeCmd() *cobra.Command {
+// Every tile request and every geocode request of the server sends userAgent.
+func NewServeCmd(userAgent string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the web interface",
-		RunE:  runServe,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runServe(cmd, userAgent)
+		},
 	}
 	cmd.Flags().String("addr", "localhost:5000", "Address to listen on")
 	cmd.Flags().String("mapsources-dir", "mapsources", "Directory containing XML map source files")
 	return cmd
 }
 
-func runServe(cmd *cobra.Command, _ []string) error {
+func runServe(cmd *cobra.Command, userAgent string) error {
 	dir, _ := cmd.Flags().GetString("mapsources-dir")
 	addr, _ := cmd.Flags().GetString("addr")
 
@@ -47,7 +50,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
 
 	calc := tilecalc.NewTileCalculator()
-	handler := newServerHandler(NewWebHandler(parser, calc, dir))
+	handler := newServerHandler(NewWebHandler(parser, calc, dir, userAgent))
 
 	if !loopback {
 		// TODO(#58): Replace this warning with the token.
