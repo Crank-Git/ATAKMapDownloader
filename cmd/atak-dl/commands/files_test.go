@@ -208,12 +208,18 @@ func TestACompletedJobOutputFileDownloadsWithTheListedSize(t *testing.T) {
 		t.Errorf("listed file = %+v, want a finished png file of Test Tiles at zoom 10", listed)
 	}
 
-	resp := s.request(t, http.MethodGet, "/api/files/"+rec.OutputFile, "")
+	checkDownload(t, s, listed)
+}
+
+// checkDownload fails the test when GET /api/files/{name} does not return the bytes of the listed output file as an attachment.
+func checkDownload(t *testing.T, s *jobServer, listed outputFileItem) {
+	t.Helper()
+	resp := s.request(t, http.MethodGet, "/api/files/"+listed.Name, "")
 	defer closeBody(resp)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/files/%s status = %d, want 200", rec.OutputFile, resp.StatusCode)
+		t.Fatalf("GET /api/files/%s status = %d, want 200", listed.Name, resp.StatusCode)
 	}
-	if got, want := resp.Header.Get("Content-Disposition"), `attachment; filename="`+rec.OutputFile+`"`; got != want {
+	if got, want := resp.Header.Get("Content-Disposition"), `attachment; filename="`+listed.Name+`"`; got != want {
 		t.Errorf("Content-Disposition = %q, want %q", got, want)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "application/octet-stream" {
@@ -226,7 +232,7 @@ func TestACompletedJobOutputFileDownloadsWithTheListedSize(t *testing.T) {
 	if int64(len(body)) != listed.Size {
 		t.Errorf("downloaded %d bytes, want the listed size %d", len(body), listed.Size)
 	}
-	stored, err := os.ReadFile(filepath.Join(s.handler.outputDir, rec.OutputFile))
+	stored, err := os.ReadFile(filepath.Join(s.handler.outputDir, listed.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
