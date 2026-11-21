@@ -1,7 +1,7 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, and checks six responses and the bind warning.
+# smoke.sh builds atak-dl, starts serve on a free port, and checks ten responses and the bind warning.
 # It also checks the terms exit code, the output file exit code, the tile cap and --no-geocode.
-# FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
+# FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
 # and FR-robust-downloads-6, -26 and -27 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
@@ -42,6 +42,14 @@ if not isinstance(body, list) or not body:
 print("smoke: GET /api/sources returned %d sources" % len(body))
 '
 
+# The page loads Leaflet from the binary, so the web UI works with no internet (FR-offline-web-ui-1).
+status=$(curl -s -o /dev/null -w '%{http_code}' "$base/static/vendor/leaflet/leaflet.js")
+if [ "$status" != "200" ]; then
+	echo "smoke: GET /static/vendor/leaflet/leaflet.js returned $status, want 200" >&2
+	exit 1
+fi
+echo "smoke: GET /static/vendor/leaflet/leaflet.js returned 200"
+
 # No job runs yet, so the job API returns the job_not_found error shape.
 curl -s "$base/api/jobs/000000000000" | python3 -c '
 import json, sys
@@ -49,6 +57,32 @@ body = json.load(sys.stdin)
 if body.get("error", {}).get("code") != "job_not_found":
     sys.exit("smoke: GET /api/jobs/{id} did not return job_not_found")
 print("smoke: GET /api/jobs/{id} returned job_not_found")
+'
+
+# GET /api/files returns a JSON array, also when the output directory does not exist yet (FR-offline-web-ui-7).
+curl -sf "$base/api/files" | python3 -c '
+import json, sys
+if not isinstance(json.load(sys.stdin), list):
+    sys.exit("smoke: GET /api/files did not return a JSON array")
+print("smoke: GET /api/files returned a JSON array")
+'
+
+# An encoded parent path returns 404 file_not_found and not the file (FR-offline-web-ui-10).
+curl -s -w '\n%{http_code}' "$base/api/files/..%2Fgo.mod" | python3 -c '
+import json, sys
+body, status = sys.stdin.read().rsplit("\n", 1)
+if status != "404" or json.loads(body).get("error", {}).get("code") != "file_not_found":
+    sys.exit("smoke: GET /api/files/..%2Fgo.mod returned " + status + ", want 404 file_not_found")
+print("smoke: GET /api/files/..%2Fgo.mod returned 404 file_not_found")
+'
+
+# The tile route of a name that is not an output file returns 404 file_not_found (FR-offline-web-ui-13).
+curl -s -w '\n%{http_code}' "$base/api/files/missing.mbtiles/tiles/0/0/0" | python3 -c '
+import json, sys
+body, status = sys.stdin.read().rsplit("\n", 1)
+if status != "404" or json.loads(body).get("error", {}).get("code") != "file_not_found":
+    sys.exit("smoke: GET /api/files/missing.mbtiles/tiles/0/0/0 returned " + status + ", want 404 file_not_found")
+print("smoke: GET /api/files/missing.mbtiles/tiles/0/0/0 returned 404 file_not_found")
 '
 
 # A browser adds Sec-Fetch-Site: cross-site to a request from another web page.

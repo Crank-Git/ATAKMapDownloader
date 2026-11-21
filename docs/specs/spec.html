@@ -321,7 +321,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><strong>Progress channel: SSE.</strong> Built (#76, #78). SSE replaced <code>gorilla/websocket</code>, which has had no release since v1.5.3 in June 2024 (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions). Progress goes from the server to the browser only, and browser commands are <code>POST</code> and <code>DELETE</code> requests. See <a href="../adr/0006-sse-job-api.md">ADR 0006</a>.
 </li>
-<li><strong>Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman (planned), embedded with <code>embed.FS</code>.</strong> Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
+<li><strong>Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman 2.20.8, embedded with <code>embed.FS</code>.</strong> Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
 </li>
 <li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Today there is a copied folder of 33 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
 </li>
@@ -627,7 +627,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>Risk — a late cancel is lost.</strong> The engine checks the context only while it starts tile requests (<code>internal/download/download.go:160-165</code>). A SIGINT after the last request starts ends as a normal job, and the CLI can print "Download complete". Feature 07 fixes this (FR-robust-downloads-30).
 </li>
-<li><strong>Risk — preview tiles can fail to show.</strong> The preview overlays set <code>crossOrigin: 'anonymous'</code> (<code>web/static/js/app.js:349</code>), so a tile server that sends no CORS header blocks the image. Feature 08 owns the preview rendering.
+<li><strong>Risk — preview tiles can fail to show.</strong> The preview overlays set <code>crossOrigin: 'anonymous'</code> (<code>web/static/js/app.js:621</code>), so a tile server that sends no CORS header blocks the image. Feature 08 owns the preview rendering.
 </li>
 <li><strong>Risk — ATAK format handling is inferred, not tested.</strong> The public ATAK-CIV source is archived at 4.6.0.5 (October 2024). No public source exists for ATAK 5.x, iTAK, WinTAK or TAK Aware. Each output format can fail on a newer client. Mitigation: conformance tests, plus an optional device check before v0.5.0.
 </li>
@@ -635,7 +635,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>Risk — the ATAK-Maps v2 rename.</strong> ATAK-Maps v2.0.0 renamed every map source (https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md). Scripts that pass <code>--source "Google - Satellite Only"</code> break after Epic 5. Mitigation: an alias table from old names to new names for one release.
 </li>
-<li><strong>Open question — Leaflet-Geoman license.</strong> The free edition is believed to be MIT, but the research spike did not confirm it. Epic 4 confirms the license before it vendors the library.
+<li><strong>Resolved — Leaflet-Geoman license.</strong> The <code>LICENSE</code> file in the npm tarball of the free edition 2.20.8 is MIT. #31 vendors it (ADR 0010).
 </li>
 <li><strong>Open question — WebP support in ATAK.</strong> Not verified. Re-encoding is a non-goal for v1.
 </li>

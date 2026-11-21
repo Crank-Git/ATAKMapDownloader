@@ -233,15 +233,21 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>level that it removes.</p>
 <ul>
-<li>FR-area-estimate-13 — The <code>estimate</code> command uses 15 KB per tile for its size estimate.
+<li>FR-area-estimate-13 — The <code>estimate</code> command uses the size per tile of the map source's
 </li>
+</ul>
+<p>tile type: <code>jpg</code> 18 KB, <code>png</code> 25 KB, and any other type 20 KB.</p>
+<ul>
 <li>FR-area-estimate-14 — The <code>estimate</code> command prints the tile count, the size and the
 </li>
 </ul>
 <p>resolution in metres per pixel for each zoom level.</p>
 <ul>
-<li>FR-area-estimate-15 — <code>POST /api/estimate</code> uses 20 KB per tile for its size estimate.
+<li>FR-area-estimate-15 — <code>POST /api/estimate</code> uses the size per tile of the tile type of the
 </li>
+</ul>
+<p>named map source.</p>
+<ul>
 <li>FR-area-estimate-16 — <code>POST /api/estimate</code> swaps the minimum and the maximum zoom level
 </li>
 </ul>
@@ -312,8 +318,8 @@ body.rv-open .layout { padding-right:21rem; }
     participant W as Web UI
     participant S as Server
     U-&gt;&gt;W: Select Estimate Download
-    W-&gt;&gt;W: Check the bounds, the map source and min less than max
-    W-&gt;&gt;S: POST /api/estimate with bounds, min_zoom, max_zoom
+    W-&gt;&gt;W: Check the bounds, the map source and min not greater than max
+    W-&gt;&gt;S: POST /api/estimate with source, bounds, min_zoom, max_zoom
     alt bounds not valid
         S--&gt;&gt;W: 400 with an error string
         W-&gt;&gt;U: Status log line Estimation error
@@ -329,12 +335,12 @@ body.rv-open .layout { padding-right:21rem; }
 </ol>
 <p><code>Select area and map source first</code> and stops.</p>
 <ol>
-<li>If the minimum zoom level is not less than the maximum, the web UI logs
+<li>If the minimum zoom level is greater than the maximum, the web UI logs
 </li>
 </ol>
 <p><code>Invalid zoom range</code> and stops.</p>
 <ol>
-<li>The web UI sends <code>POST /api/estimate</code>. The request does not name the map source.
+<li>The web UI sends <code>POST /api/estimate</code>. The request names the selected map source.
 </li>
 <li>If the server returns an error, the web UI logs <code>Estimation error: &lt;message&gt;</code>.
 </li>
@@ -349,17 +355,17 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>zoom:</p>
 <p>``` Auto-selected zoom level: 17</p>
-<p>Download Estimate for 'Google - Satellite Only' ----------------------------------- Zoom 17: 5,044 tiles, 73.9 MB, 0.9 m/px ```</p>
+<p>Download Estimate for 'Google - Satellite Only' ----------------------------------- Zoom 17: 5,044 tiles, 88.7 MB, 0.9 m/px ```</p>
 <ul>
 <li>CLI output of <code>tile-info</code>: <code>Tile coordinates</code>, <code>Tile bounds</code>, <code>Resolution</code>, then up to
 </li>
 </ul>
 <p>three sample URLs.</p>
 <ul>
-<li>The web UI estimate panel <code>#estimationResult</code> (<code>web/index.html:169</code>), filled by
+<li>The web UI estimate panel <code>#estimationResult</code> (<code>web/index.html:155</code>), filled by
 </li>
 </ul>
-<p><code>displayEstimation</code> (<code>web/static/js/app.js:409-434</code>). It shows the tile count, the size in MB or GB, the zoom range and a time at a fixed 10 tiles per second. It adds a warning above 10,000 tiles and a stronger warning above 100,000 tiles. Error state: a status log line only.</p>
+<p><code>displayEstimation</code> (<code>web/static/js/app.js:773-806</code>). It shows the tile count, the size in MB or GB, the zoom range and a time at a fixed 10 tiles per second. It adds a warning above 10,000 tiles and a stronger warning above 100,000 tiles. Error state: a status log line only.</p>
 <h3 id="area-estimate-behaviour-rules">Behaviour rules</h3>
 <ul>
 <li>The <code>estimate</code> command requires <code>--source</code>, but the tile count does not depend on the
@@ -381,16 +387,18 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li><code>POST /api/estimate</code> replaces a <code>min_zoom</code> of 0 with 1 and a <code>max_zoom</code> of 0 with 18.
 </li>
-<li>The web UI refuses a zoom range where the minimum equals the maximum, so it cannot
+<li>The web UI accepts a zoom range where the minimum equals the maximum, so it can
 </li>
 </ul>
-<p>estimate one zoom level.</p>
+<p>estimate one zoom level (FR-offline-web-ui-24).</p>
 <ul>
-<li>The web UI and the CLI give different sizes for the same request: 20 KB per tile
+<li>The web UI and the CLI use one size-per-tile table (<code>tilecalc.TileSizeKB</code>), so they
 </li>
 </ul>
-<p>against 15 KB per tile.</p>
+<p>give the same size for the same map source.</p>
 <ul>
+<li><code>POST /api/estimate</code> with no map source uses 20 KB per tile.
+</li>
 <li>The <code>tile-info</code> command prints the tile bounds as the north-west corner, then the
 </li>
 </ul>
@@ -466,11 +474,6 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>(<code>estimate.go:55-56</code>), so <code>--zoom-range a-b</code> gives <code>0-0</code>.</p>
 <ul>
-<li><strong>The size estimate ignores the map source.</strong> It uses a fixed size per tile, and the
-</li>
-</ul>
-<p>two fixed sizes disagree.</p>
-<ul>
 <li><strong>No upper limit on the tile count.</strong> <code>/api/estimate</code> accepts any zoom range and any
 </li>
 </ul>
@@ -479,17 +482,11 @@ body.rv-open .layout { padding-right:21rem; }
 <li><strong>The time shown in the web UI assumes 10 tiles per second</strong>
 </li>
 </ul>
-<p>(<code>app.js:421</code>). It does not use the concurrency setting.</p>
-<ul>
-<li><strong>The estimate panel colour does not apply.</strong> The JavaScript sets the class <code>success</code>,
-</li>
-</ul>
-<p><code>warning</code> or <code>error</code>, but <code>style.css</code> defines only <code>.estimation-success</code>, <code>.estimation-warning</code> and <code>.estimation-danger</code>.</p>
+<p>(<code>app.js:785</code>). It does not use the concurrency setting.</p>
 <p>Known defects and the planned feature that repairs each:</p>
 <div class="table-wrap"><table>
 <tr><th>Defect</th><th>Repaired by</th></tr>
 <tr><td>No tile-count cap and no output file split</td><td><code>robust-downloads</code> (07)</td></tr>
-<tr><td>Two different fixed sizes per tile</td><td><code>robust-downloads</code> (07)</td></tr>
 <tr><td>Estimate colour classes and the fixed time rate</td><td><code>offline-web-ui</code> (08)</td></tr>
 <tr><td>Rectangle bounds only, with no polygon</td><td><code>area-selection</code> (11)</td></tr>
 <tr><td>Bad <code>--zoom-range</code> silently becomes 0</td><td><code>robust-downloads</code> (07)</td></tr>

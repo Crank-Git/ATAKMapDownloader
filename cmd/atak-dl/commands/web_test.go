@@ -58,6 +58,7 @@ func TestErrorResponsesUseTheErrorShape(t *testing.T) {
 		{"estimate rejects a body that is not JSON", http.MethodPost, "/api/estimate", "{", http.StatusBadRequest, "invalid_json"},
 		{"estimate rejects three bounds values", http.MethodPost, "/api/estimate", `{"bounds":[1,2,3]}`, http.StatusBadRequest, "invalid_bounds"},
 		{"estimate rejects inverted bounds", http.MethodPost, "/api/estimate", `{"bounds":[10,10,0,0]}`, http.StatusBadRequest, "invalid_bounds"},
+		{"estimate rejects an unknown source", http.MethodPost, "/api/estimate", `{"source":"Nope","bounds":[0,0,1,1]}`, http.StatusNotFound, "unknown_source"},
 		{"tile-info rejects GET", http.MethodGet, "/api/tile-info", "", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{"tile-info rejects a body that is not JSON", http.MethodPost, "/api/tile-info", "{", http.StatusBadRequest, "invalid_json"},
 		{"validate-source rejects GET", http.MethodGet, "/api/validate-source", "", http.StatusMethodNotAllowed, "method_not_allowed"},
@@ -257,5 +258,99 @@ func TestServedAssetsHoldThePolicyWarningDialog(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+const testJPGSourceXML = `<?xml version="1.0"?>
+<customMapSource>
+    <name>JPG Source</name>
+    <minZoom>0</minZoom>
+    <maxZoom>18</maxZoom>
+    <tileType>jpg</tileType>
+    <url>https://example.com/{$z}/{$x}/{$y}.jpg</url>
+</customMapSource>`
+
+// estimateResponse holds the fields of the /api/estimate response that the tests read.
+type estimateResponse struct {
+	TotalTiles      int     `json:"total_tiles"`
+	EstimatedSizeMB float64 `json:"estimated_size_mb"`
+	ZoomRange       []int   `json:"zoom_range"`
+}
+
+func postEstimate(t *testing.T, h http.Handler, body string) estimateResponse {
+	t.Helper()
+	rec := serve(h, http.MethodPost, "/api/estimate", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	var est estimateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&est); err != nil {
+		t.Fatalf("decode estimate: %v", err)
+	}
+	return est
+}
+
+func TestEstimateEncodesATypedResponse(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	rec := serve(h, http.MethodPost, "/api/estimate", `{"bounds":[0,0,1,1],"min_zoom":1,"max_zoom":2}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	// A map encodes its keys in sorted order, and a struct keeps its field order, so total_tiles comes first.
+	if want := `{"total_tiles":`; !strings.HasPrefix(rec.Body.String(), want) {
+		t.Errorf("body = %s, want the prefix %s of the typed response", rec.Body, want)
+	}
+}
+
+func TestEstimateUsesTheSizePerTileOfTheMapSource(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "jpg.xml": testJPGSourceXML})
+	tests := []struct {
+		name   string
+		source string
+		kb     float64
+	}{
+		{"uses 18 KB per tile for a jpg map source", `"source":"JPG Source",`, 18},
+		{"uses 25 KB per tile for a png map source", `"source":"Test Source",`, 25},
+		{"uses 20 KB per tile when the request names no map source", "", 20},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			est := postEstimate(t, h, `{`+tt.source+`"bounds":[0,0,1,1],"min_zoom":1,"max_zoom":8}`)
+			if est.TotalTiles == 0 {
+				t.Fatal("total_tiles = 0, so the test checks nothing")
+			}
+			if want := float64(est.TotalTiles) * tt.kb / 1024; est.EstimatedSizeMB != want {
+				t.Errorf("estimated_size_mb = %v, want %v (%d tiles at %v KB)", est.EstimatedSizeMB, want, est.TotalTiles, tt.kb)
+			}
+		})
+	}
+}
+
+func TestEstimateAndPreviewAcceptOneZoomLevel(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	est := postEstimate(t, h, `{"source":"Test Source","bounds":[0,0,1,1],"min_zoom":7,"max_zoom":7}`)
+	if len(est.ZoomRange) != 2 || est.ZoomRange[0] != 7 || est.ZoomRange[1] != 7 {
+		t.Errorf("estimate zoom_range = %v, want [7 7]", est.ZoomRange)
+	}
+	bounds, err := tilecalc.NewGeographicBounds(0, 1, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := tilecalc.NewTileCalculator().CalculateTileBounds(bounds, 7).TileCount(); est.TotalTiles != want {
+		t.Errorf("estimate total_tiles = %d, want %d, the tile count of zoom 7 only", est.TotalTiles, want)
+	}
+
+	rec := serve(h, http.MethodPost, "/api/preview", `{"source":"Test Source","bounds":[0,0,1,1],"min_zoom":7,"max_zoom":7}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	var preview struct {
+		Zoom int `json:"zoom"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&preview); err != nil {
+		t.Fatalf("decode preview: %v", err)
+	}
+	if preview.Zoom != 7 {
+		t.Errorf("preview zoom = %d, want 7", preview.Zoom)
 	}
 }

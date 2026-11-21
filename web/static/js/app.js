@@ -1,19 +1,54 @@
 // ATAK Tile Downloader web application. It runs jobs through the job API and follows them over SSE.
+
+// The icons are inline SVG constants with no server or user text, so innerHTML is safe for them (FR-offline-web-ui-4).
+const ICON_DOWNLOAD = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
+const ICON_CANCEL = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const SPINNER = '<span class="spinner" aria-hidden="true"></span>';
+
+// The indicator shows offline after 3 failed attempts in a row (feature 08, behaviour rules).
+const OFFLINE_AFTER_FAILURES = 3;
+// With no job and no user action, only a probe request shows that the server is back.
+const PROBE_INTERVAL_MS = 4000;
+// A running job makes these settings read-only (feature 08, downloading state). setJobLocked handles the map source picker.
+const JOB_SETTINGS = ['minZoom', 'maxZoom', 'customName', 'maxConcurrent', 'failureTolerance', 'ignoreErrors', 'verifyTLS', 'ifExists'];
+const CONNECTION_LOOK = {
+    connected: ['ok', 'Connected'],
+    reconnecting: ['warn', 'Reconnecting'],
+    offline: ['err', 'Offline']
+};
+
 class ATAKDownloader {
     constructor() {
         this.map = null;
-        this.drawControl = null;
         this.selectedArea = null;
         this.mapSources = [];
         this.jobId = null;
         this.jobEvents = null;
         this.lastJobLog = null;
         this.isDarkMode = false;
-        this.loadingModal = null;
+        // themeChosen is true after the user selects a theme, so a change of the system theme no longer applies.
+        this.themeChosen = false;
+        // isDownloading is true from the start request until the shown job ends, so a second start cannot begin.
         this.isDownloading = false;
         this.previewLayer = null;
         this.searchMarker = null;
-        
+        // connectionState is connected, reconnecting or offline. Other parts of the web UI read it (FR-offline-web-ui-17).
+        this.connectionState = 'connected';
+        this.failedAttempts = 0;
+        this.probeTimer = null;
+        this.errorKey = null;
+        this.retryRequest = null;
+        // startReady is true when the job settings allow Start. The connection state can still disable Start.
+        this.startReady = false;
+        // outputFiles is the last GET /api/files list, newest first, and null until the first list loads.
+        this.outputFiles = null;
+        // localBaseMap is the tile layer of the output file that the switcher selects, drawn over the online base map.
+        this.localBaseMap = null;
+        // baseMapChosen stops the offline fallback after the user or the fallback selects a base map.
+        this.baseMapChosen = false;
+        this.onlineTileLoaded = false;
+        this.onlineTileFailed = false;
+
         this.init();
     }
     
@@ -22,97 +57,295 @@ class ATAKDownloader {
         this.initMap();
         this.loadMapSources();
         this.loadConfig();
+        this.loadOutputFiles().then(() => this.fallBackToLocalBaseMap());
         this.bindEvents();
-        this.initModal();
         this.logStatus('Application initialized');
     }
     
+    // initTheme applies the stored theme, or the system theme until the user selects one (FR-offline-web-ui-29).
     initTheme() {
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        this.isDarkMode = savedTheme === 'dark';
+        const system = window.matchMedia('(prefers-color-scheme: dark)');
+        let saved = null;
+        try {
+            saved = localStorage.getItem('theme');
+        } catch {
+            // The browser blocks storage, so the theme follows the system.
+        }
+        this.themeChosen = saved === 'dark' || saved === 'light';
+        this.isDarkMode = this.themeChosen ? saved === 'dark' : system.matches;
         this.applyTheme();
+        system.addEventListener('change', (e) => {
+            if (this.themeChosen) return;
+            this.isDarkMode = e.matches;
+            this.applyTheme();
+        });
     }
     
     toggleTheme() {
         this.isDarkMode = !this.isDarkMode;
+        this.themeChosen = true;
         this.applyTheme();
-        localStorage.setItem('theme', this.isDarkMode ? 'dark' : 'light');
-    }
-    
-    applyTheme() {
-        const html = document.documentElement;
-        const themeToggle = document.getElementById('themeToggle');
-        const icon = themeToggle.querySelector('i');
-        
-        if (this.isDarkMode) {
-            html.setAttribute('data-bs-theme', 'dark');
-            icon.className = 'fas fa-sun';
-        } else {
-            html.setAttribute('data-bs-theme', 'light');
-            icon.className = 'fas fa-moon';
+        try {
+            localStorage.setItem('theme', this.isDarkMode ? 'dark' : 'light');
+        } catch (error) {
+            this.logStatus('The browser did not store the theme, so it applies to this page only: ' + error.message, 'warning');
         }
     }
     
+    // The CSS shows the moon or the sun icon from data-theme. aria-pressed tells a screen reader the state of the toggle.
+    applyTheme() {
+        document.documentElement.setAttribute('data-theme', this.isDarkMode ? 'dark' : 'light');
+        document.getElementById('themeToggle').setAttribute('aria-pressed', String(this.isDarkMode));
+    }
+
     initMap() {
         this.map = L.map('map').setView([39.8283, -98.5795], 4);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        const online = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 19
         }).addTo(this.map);
-        
+        // A failed OpenStreetMap tile before any OpenStreetMap tile loads means that the browser has no internet at load time (Flow 1).
+        online.once('tileload', () => { this.onlineTileLoaded = true; });
+        online.once('tileerror', () => {
+            if (this.onlineTileLoaded) return;
+            this.onlineTileFailed = true;
+            this.fallBackToLocalBaseMap();
+        });
+
+        // A Leaflet control keeps the switcher on the map and stops its clicks from reaching the map.
+        const switcher = document.getElementById('baseMap');
+        L.DomEvent.disableClickPropagation(switcher);
+        L.DomEvent.disableScrollPropagation(switcher);
+        const control = L.control({ position: 'topright' });
+        control.onAdd = () => switcher;
+        control.addTo(this.map);
+        switcher.hidden = false;
+
         this.initDrawControls();
         this.logStatus('Map initialized');
     }
     
+    // Geoman draws, edits and removes the rectangle (FR-offline-web-ui-6).
     initDrawControls() {
-        const drawnItems = new L.FeatureGroup();
-        this.map.addLayer(drawnItems);
-        
-        this.drawControl = new L.Control.Draw({
-            position: 'topright',
-            draw: {
-                polygon: false,
-                polyline: false,
-                circle: false,
-                marker: false,
-                circlemarker: false,
-                rectangle: {
-                    shapeOptions: {
-                        color: '#3498db',
-                        weight: 2,
-                        fillOpacity: 0.2
-                    }
-                }
-            },
-            edit: {
-                featureGroup: drawnItems,
-                remove: true
-            }
+        this.map.pm.setGlobalOptions({
+            pathOptions: { color: '#3498db', weight: 2, fillOpacity: 0.2 }
         });
-        
-        this.map.addControl(this.drawControl);
-        
-        this.map.on(L.Draw.Event.CREATED, (e) => {
+        this.map.pm.addControls({
+            position: 'topright',
+            drawMarker: false,
+            drawCircleMarker: false,
+            drawPolyline: false,
+            drawRectangle: true,
+            drawPolygon: false,
+            drawCircle: false,
+            drawText: false,
+            editMode: true,
+            dragMode: true,
+            cutPolygon: false,
+            removalMode: true,
+            rotateMode: false
+        });
+        // Geoman puts each title on the button container, so the link inside gets it as its accessible name.
+        this.map.getContainer().querySelectorAll('.button-container[title] > .leaflet-buttons-control-button').forEach(button => {
+            button.setAttribute('aria-label', button.parentElement.title);
+        });
+
+        this.map.on('pm:create', (e) => {
+            if (e.shape !== 'Rectangle') return;
             const layer = e.layer;
-            drawnItems.addLayer(layer);
-            
-            if (e.layerType === 'rectangle') {
+            this.selectedArea = layer.getBounds();
+            this.updateSelectionInfo();
+            this.enableEstimation();
+            // Edit mode and drag mode move the rectangle, so the selected area follows each change.
+            const follow = () => {
                 this.selectedArea = layer.getBounds();
                 this.updateSelectionInfo();
-                this.enableEstimation();
-            }
+            };
+            layer.on('pm:edit', follow);
+            layer.on('pm:dragend', follow);
         });
-        
-        this.map.on(L.Draw.Event.DELETED, () => {
+
+        this.map.on('pm:remove', (e) => {
+            if (e.shape !== 'Rectangle') return;
             this.selectedArea = null;
             this.updateSelectionInfo();
             this.disableEstimation();
         });
     }
-    
+
+    // recordSuccess marks the server as reachable. Any response counts, an error status too.
+    recordSuccess() {
+        this.failedAttempts = 0;
+        if (this.probeTimer) {
+            clearInterval(this.probeTimer);
+            this.probeTimer = null;
+        }
+        this.setConnection('connected');
+    }
+
+    // recordFailure counts one request or event stream attempt that did not reach the server.
+    recordFailure() {
+        this.failedAttempts++;
+        this.setConnection(this.failedAttempts >= OFFLINE_AFTER_FAILURES ? 'offline' : 'reconnecting');
+        if (!this.probeTimer) {
+            this.probeTimer = setInterval(() => this.probe(), PROBE_INTERVAL_MS);
+        }
+    }
+
+    async probe() {
+        try {
+            await fetch('/api/config');
+            this.recordSuccess();
+        } catch {
+            this.recordFailure();
+        }
+    }
+
+    setConnection(state) {
+        this.connectionState = state;
+        const chip = document.getElementById('connStatus');
+        chip.className = 'chip ' + CONNECTION_LOOK[state][0];
+        chip.textContent = CONNECTION_LOOK[state][1];
+        // The offline state disables Start, and a reconnect enables it again when it was ready (feature 08, offline state).
+        this.setStartEnabled(this.startReady);
+    }
+
+    // setStartEnabled is the one place that sets the disabled state of Start.
+    // ready tells whether the job settings allow Start. Start stays disabled while the indicator reads offline or a job runs.
+    setStartEnabled(ready) {
+        this.startReady = ready;
+        document.getElementById('downloadBtn').disabled = !ready || this.connectionState === 'offline' || this.isDownloading;
+    }
+
+    // setJobLocked makes Estimate, Start and the job settings read-only while locked is true.
+    setJobLocked(locked) {
+        this.isDownloading = locked;
+        document.getElementById('estimateBtn').disabled = locked || !this.selectedArea;
+        // An empty source list keeps the map source picker disabled after the job too.
+        document.getElementById('mapSourceSelect').disabled = locked || this.mapSources.length === 0;
+        JOB_SETTINGS.forEach(id => { document.getElementById(id).disabled = locked; });
+        this.setStartEnabled(this.startReady);
+    }
+
+    // setBaseMap draws the tiles of the output file name over the online base map. An empty name shows the online base map only.
+    setBaseMap(name) {
+        if (this.localBaseMap) {
+            this.map.removeLayer(this.localBaseMap);
+            this.localBaseMap = null;
+        }
+        const file = name && this.outputFiles && this.outputFiles.find(f => f.name === name);
+        if (!file) return;
+        const options = { maxZoom: 19 };
+        // Above the highest zoom level of the file, Leaflet scales its tiles up instead of requesting missing ones.
+        if (file.max_zoom > 0) options.maxNativeZoom = file.max_zoom;
+        // Bounds is [west, south, east, north], and Leaflet requests no tile outside it.
+        if (file.bounds) options.bounds = L.latLngBounds([file.bounds[1], file.bounds[0]], [file.bounds[3], file.bounds[2]]);
+        this.localBaseMap = L.tileLayer('/api/files/' + encodeURIComponent(name) + '/tiles/{z}/{x}/{y}', options).addTo(this.map);
+    }
+
+    // renderBaseMaps puts one switcher entry per output file after the online base map (FR-offline-web-ui-15).
+    // GET /api/files lists only files with a metadata table, so a data package gets no entry.
+    renderBaseMaps(files) {
+        const select = document.getElementById('baseMapSelect');
+        const selected = select.value;
+        select.replaceChildren(select.options[0]);
+        files.forEach(file => {
+            const option = document.createElement('option');
+            option.value = file.name;
+            option.textContent = file.name;
+            select.appendChild(option);
+        });
+        // A refresh can remove the selected file, and then the switcher goes back to the online base map.
+        if (!files.some(f => f.name === selected)) {
+            select.value = '';
+            this.setBaseMap('');
+        }
+    }
+
+    // fallBackToLocalBaseMap selects the most recent output file when the web UI loads with no internet (FR-offline-web-ui-16).
+    // Two signals mean no internet: navigator.onLine and a failed first OpenStreetMap tile.
+    // The offline indicator is not a signal, because the local tiles come from the same server that it reports on.
+    // It selects a base map once, and never after the user selects one.
+    fallBackToLocalBaseMap() {
+        const offline = navigator.onLine === false || this.onlineTileFailed;
+        if (this.baseMapChosen || !offline || this.outputFiles === null) return;
+        this.baseMapChosen = true;
+        const newest = this.outputFiles[0];
+        if (!newest) {
+            this.showError('baseMap', 'Offline: no local base map', () => {
+                this.baseMapChosen = false;
+                this.loadOutputFiles().then(() => this.fallBackToLocalBaseMap());
+            });
+            return;
+        }
+        document.getElementById('baseMapSelect').value = newest.name;
+        this.setBaseMap(newest.name);
+        this.logStatus('Offline: the base map is the output file ' + newest.name, 'warning');
+    }
+
+    // requestJSON sends a request and returns the JSON body of a 2xx response.
+    // For an error status, it throws an Error with the server's error.message.
+    // If the request does not reach the server, it throws "Server unreachable".
+    async requestJSON(path, options) {
+        let response;
+        try {
+            response = await fetch(path, options);
+        } catch {
+            this.recordFailure();
+            throw new Error('Server unreachable');
+        }
+        this.recordSuccess();
+        // A proxy can send an error page that is not JSON, so a parse failure keeps the status as the message.
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error((body && body.error && body.error.message) || 'The server returned status ' + response.status);
+        }
+        return body;
+    }
+
+    postJSON(path, body) {
+        return this.requestJSON(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+    }
+
+    // showError shows the error banner for the request named by key (FR-offline-web-ui-19).
+    // Retry calls retry, which sends the failed request again (FR-offline-web-ui-20).
+    showError(key, message, retry) {
+        this.errorKey = key;
+        this.retryRequest = retry;
+        document.getElementById('errorMessage').textContent = message;
+        document.getElementById('errorBanner').hidden = false;
+    }
+
+    // hideError hides the banner only when it shows the error of key, so a success elsewhere keeps an unrelated error visible.
+    hideError(key) {
+        if (this.errorKey !== key) return;
+        this.errorKey = null;
+        this.retryRequest = null;
+        document.getElementById('errorBanner').hidden = true;
+    }
+
+    retry() {
+        const retry = this.retryRequest;
+        this.hideError(this.errorKey);
+        if (retry) retry();
+    }
+
+    // setBusy shows a spinner in a button while its request runs (FR-offline-web-ui-18).
+    setBusy(button, busy) {
+        button.disabled = busy;
+        const spinner = button.querySelector('.spinner');
+        if (busy && !spinner) button.insertAdjacentHTML('afterbegin', SPINNER);
+        if (!busy && spinner) spinner.remove();
+    }
+
     // followJob opens the SSE stream of the job and updates the UI from its events.
     followJob(id) {
         this.jobEvents = new EventSource('/api/jobs/' + encodeURIComponent(id) + '/events');
+        this.jobEvents.onopen = () => this.recordSuccess();
         this.jobEvents.addEventListener('state', (e) => this.onJobState(JSON.parse(e.data)));
         this.jobEvents.addEventListener('progress', (e) => this.updateDownloadProgress(JSON.parse(e.data)));
         this.jobEvents.addEventListener('log', (e) => {
@@ -125,7 +358,9 @@ class ATAKDownloader {
             if (this.jobEvents && this.jobEvents.readyState === EventSource.CLOSED) {
                 this.logStatus('Lost the job event stream', 'error');
                 this.closeJobEvents();
-                this.resetDownloadUI();
+                this.resetDownloadUI(id);
+            } else {
+                this.recordFailure();
             }
         };
     }
@@ -138,17 +373,30 @@ class ATAKDownloader {
         }
     }
 
+    // onJobComplete is the one refresh of the output file list after a job ends (FR-offline-web-ui-12).
+    // A cancelled or failed job keeps its output file too, so every final state calls it.
+    onJobComplete() {
+        this.loadOutputFiles();
+    }
+
     onJobState(record) {
+        if (record.state !== 'running') {
+            this.onJobComplete();
+        }
         switch (record.state) {
             case 'running':
-                this.isDownloading = true;
+                this.setJobLocked(true);
                 this.showCancelButton(true);
+                // The refresh marks the output file of the job in_progress, so its Download button is disabled.
+                this.loadOutputFiles();
+                // A client that connects late gets the counts from the state event before the next progress event.
+                this.updateDownloadProgress(record);
                 break;
             case 'complete':
                 this.closeJobEvents();
                 this.logStatus('Download complete. Saved to ' + record.output_file, 'success');
                 this.showDownloadComplete(record);
-                this.resetDownloadUI();
+                this.resetDownloadUI(record.id);
                 break;
             case 'failed':
                 this.closeJobEvents();
@@ -157,30 +405,32 @@ class ATAKDownloader {
                     this.logStatus('Download failed: ' + record.error, 'error');
                 }
                 this.hideDownloadResults();
-                this.resetDownloadUI();
+                this.resetDownloadUI(record.id);
                 break;
             case 'cancelled':
                 this.closeJobEvents();
                 this.logStatus('Download cancelled', 'warning');
-                this.resetDownloadUI();
+                this.resetDownloadUI(record.id);
                 break;
         }
     }
 
     async loadMapSources() {
+        const select = document.getElementById('mapSourceSelect');
+        const loading = document.getElementById('sourceLoading');
+        select.disabled = true;
+        loading.hidden = false;
         try {
-            const response = await fetch('/api/sources');
-            const sources = await response.json();
-            
-            if (response.ok) {
-                this.mapSources = sources;
-                this.populateSourceSelect();
-                this.logStatus('Loaded ' + sources.length + ' map sources');
-            } else {
-                throw new Error((sources.error && sources.error.message) || 'Failed to load sources');
-            }
+            this.mapSources = await this.requestJSON('/api/sources');
+            this.populateSourceSelect();
+            this.hideError('sources');
+            this.logStatus('Loaded ' + this.mapSources.length + ' map sources');
         } catch (error) {
             this.logStatus('Error loading sources: ' + error.message, 'error');
+            this.showError('sources', 'Map sources did not load: ' + error.message, () => this.loadMapSources());
+        } finally {
+            select.disabled = this.mapSources.length === 0 || this.isDownloading;
+            loading.hidden = true;
         }
     }
     
@@ -201,8 +451,9 @@ class ATAKDownloader {
     
     bindEvents() {
         document.getElementById('themeToggle').addEventListener('click', () => this.toggleTheme());
+        document.getElementById('errorRetry').addEventListener('click', () => this.retry());
         document.getElementById('drawRectangle').addEventListener('click', () => {
-            new L.Draw.Rectangle(this.map).enable();
+            this.map.pm.enableDraw('Rectangle');
         });
         document.getElementById('clearSelection').addEventListener('click', () => this.clearSelection());
         document.getElementById('estimateBtn').addEventListener('click', () => this.estimateDownload());
@@ -214,6 +465,11 @@ class ATAKDownloader {
             if (e.key === 'Enter') this.searchAddress();
         });
         document.getElementById('mapSourceSelect').addEventListener('change', (e) => this.onSourceChange(e.target.value));
+        document.getElementById('baseMapSelect').addEventListener('change', (e) => {
+            this.baseMapChosen = true;
+            this.hideError('baseMap');
+            this.setBaseMap(e.target.value);
+        });
         document.getElementById('minZoom').addEventListener('change', () => this.validateZoomLevels());
         document.getElementById('maxZoom').addEventListener('change', () => this.validateZoomLevels());
     }
@@ -236,16 +492,20 @@ class ATAKDownloader {
         if (this.selectedArea) {
             const bounds = this.selectedArea;
             const area = this.calculateArea(bounds);
-            infoDiv.innerHTML = `
-                <strong>Selected Area:</strong><br>
-                North: ${bounds.getNorth().toFixed(6)}°<br>
-                South: ${bounds.getSouth().toFixed(6)}°<br>
-                East: ${bounds.getEast().toFixed(6)}°<br>
-                West: ${bounds.getWest().toFixed(6)}°<br>
-                <small>Area: ~${area.toFixed(2)} km²</small>
-            `;
+            const title = document.createElement('strong');
+            title.textContent = 'Selected Area:';
+            const size = document.createElement('small');
+            size.textContent = 'Area: ~' + area.toFixed(2) + ' km²';
+            infoDiv.replaceChildren(title);
+            [
+                'North: ' + bounds.getNorth().toFixed(6) + '°',
+                'South: ' + bounds.getSouth().toFixed(6) + '°',
+                'East: ' + bounds.getEast().toFixed(6) + '°',
+                'West: ' + bounds.getWest().toFixed(6) + '°'
+            ].forEach(line => infoDiv.append(document.createElement('br'), line));
+            infoDiv.append(document.createElement('br'), size);
         } else {
-            infoDiv.innerHTML = 'Click "Draw Rectangle" to select an area on the map';
+            infoDiv.textContent = 'Click "Draw Rectangle" to select an area on the map';
         }
     }
     
@@ -258,50 +518,61 @@ class ATAKDownloader {
     }
     
     enableEstimation() {
-        document.getElementById('estimateBtn').disabled = false;
+        document.getElementById('estimateBtn').disabled = this.isDownloading;
         document.getElementById('previewBtn').disabled = false;
     }
     
     disableEstimation() {
         document.getElementById('estimateBtn').disabled = true;
         document.getElementById('previewBtn').disabled = true;
-        document.getElementById('downloadBtn').disabled = true;
+        this.setStartEnabled(false);
         document.getElementById('estimationResult').innerHTML = '';
+        document.getElementById('estimationResult').className = '';
         this.clearPreview();
     }
     
     async estimateDownload() {
+        if (this.isDownloading) return;
         if (!this.selectedArea || !document.getElementById('mapSourceSelect').value) {
             this.logStatus('Select area and map source first', 'error');
             return;
         }
         const minZoom = parseInt(document.getElementById('minZoom').value);
         const maxZoom = parseInt(document.getElementById('maxZoom').value);
-        if (minZoom >= maxZoom) {
+        // One zoom level is a valid range (FR-offline-web-ui-24).
+        if (minZoom > maxZoom) {
             this.logStatus('Invalid zoom range', 'error');
             return;
         }
+        const button = document.getElementById('estimateBtn');
+        const resultDiv = document.getElementById('estimationResult');
+        this.setBusy(button, true);
+        this.setStartEnabled(false);
+        resultDiv.className = 'card';
+        resultDiv.innerHTML = SPINNER;
+        resultDiv.append(' Estimating the job size');
         try {
             const bounds = this.selectedArea;
-            const response = await fetch('/api/estimate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-                    min_zoom: minZoom,
-                    max_zoom: maxZoom
-                })
+            // The server picks the size per tile from the tile type of the map source (FR-offline-web-ui-23).
+            const result = await this.postJSON('/api/estimate', {
+                source: document.getElementById('mapSourceSelect').value,
+                bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+                min_zoom: minZoom,
+                max_zoom: maxZoom
             });
-            const result = await response.json();
-            if (response.ok) {
-                this.displayEstimation(result);
-                document.getElementById('downloadBtn').disabled = false;
-                this.logStatus('Download estimation completed');
-            } else {
-                throw new Error((result.error && result.error.message) || 'Estimation failed');
-            }
+            this.displayEstimation(result);
+            this.hideError('estimate');
+            this.setStartEnabled(true);
+            this.logStatus('Download estimation completed');
         } catch (error) {
+            resultDiv.className = '';
+            resultDiv.textContent = '';
             this.logStatus('Estimation error: ' + error.message, 'error');
+            this.showError('estimate', 'Estimate failed: ' + error.message, () => this.estimateDownload());
+        } finally {
+            this.setBusy(button, false);
+            // A job can start while the estimate runs, and then Estimate stays read-only.
+            button.disabled = this.isDownloading;
         }
     }
     
@@ -312,33 +583,30 @@ class ATAKDownloader {
         }
         const minZoom = parseInt(document.getElementById('minZoom').value);
         const maxZoom = parseInt(document.getElementById('maxZoom').value);
-        if (minZoom >= maxZoom) {
+        if (minZoom > maxZoom) {
             this.logStatus('Invalid zoom range', 'error');
             return;
         }
+        const button = document.getElementById('previewBtn');
+        this.setBusy(button, true);
         try {
             this.clearPreview();
             this.logStatus('Loading preview tiles...', 'info');
             const bounds = this.selectedArea;
-            const response = await fetch('/api/preview', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    source: document.getElementById('mapSourceSelect').value,
-                    bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-                    min_zoom: minZoom,
-                    max_zoom: maxZoom
-                })
+            const result = await this.postJSON('/api/preview', {
+                source: document.getElementById('mapSourceSelect').value,
+                bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+                min_zoom: minZoom,
+                max_zoom: maxZoom
             });
-            const result = await response.json();
-            if (response.ok) {
-                this.displayPreview(result);
-                this.logStatus('Preview loaded: ' + result.total_tiles + ' tiles at zoom ' + result.zoom);
-            } else {
-                throw new Error((result.error && result.error.message) || 'Preview failed');
-            }
+            this.displayPreview(result);
+            this.hideError('preview');
+            this.logStatus('Preview loaded: ' + result.total_tiles + ' tiles at zoom ' + result.zoom);
         } catch (error) {
             this.logStatus('Preview error: ' + error.message, 'error');
+            this.showError('preview', 'Preview failed: ' + error.message, () => this.previewTiles());
+        } finally {
+            this.setBusy(button, false);
         }
     }
     
@@ -349,7 +617,8 @@ class ATAKDownloader {
                 [tile.bounds[1], tile.bounds[0]],
                 [tile.bounds[3], tile.bounds[2]]
             );
-            const imageOverlay = L.imageOverlay(tile.url, bounds, { opacity: 0.8, crossOrigin: 'anonymous' });
+            // pmIgnore keeps the preview out of the Geoman edit and removal modes.
+            const imageOverlay = L.imageOverlay(tile.url, bounds, { opacity: 0.8, crossOrigin: 'anonymous', pmIgnore: true });
             this.previewLayer.addLayer(imageOverlay);
         });
         const estimationResult = document.getElementById('estimationResult');
@@ -357,14 +626,21 @@ class ATAKDownloader {
         if (previewInfo) previewInfo.remove();
         previewInfo = document.createElement('div');
         previewInfo.id = 'previewInfo';
-        previewInfo.className = 'alert alert-info mt-2';
-        previewInfo.innerHTML = `
-            <strong>Preview:</strong> ${previewData.total_tiles} tiles from "${previewData.source}"<br>
-            <small>Zoom Level ${previewData.zoom}</small><br>
-            <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="app.clearPreview()">
-                <i class="fas fa-times"></i> Clear Preview
-            </button>
-        `;
+        previewInfo.className = 'banner info';
+        const text = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = 'Preview:';
+        const zoom = document.createElement('p');
+        zoom.className = 'hint';
+        zoom.textContent = 'Zoom Level ' + previewData.zoom;
+        const clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'btn btn-sm';
+        clear.innerHTML = ICON_CANCEL + ' Clear Preview';
+        clear.addEventListener('click', () => this.clearPreview());
+        // The map source name comes from the server, so append() inserts it as text.
+        text.append(title, ' ' + previewData.total_tiles + ' tiles from "' + previewData.source + '"', zoom, clear);
+        previewInfo.appendChild(text);
         estimationResult.parentNode.insertBefore(previewInfo, estimationResult.nextSibling);
     }
     
@@ -378,12 +654,73 @@ class ATAKDownloader {
         this.logStatus('Preview cleared');
     }
     
+    // loadOutputFiles reads GET /api/files and shows the list. The server sorts it newest first.
+    async loadOutputFiles() {
+        try {
+            this.renderOutputFiles(await this.requestJSON('/api/files'));
+            this.hideError('files');
+        } catch (error) {
+            this.logStatus('Error loading output files: ' + error.message, 'error');
+            this.showError('files', 'Output files did not load: ' + error.message, () => this.loadOutputFiles());
+        }
+    }
+
+    // renderOutputFiles replaces the list with one row per file. Server strings go in through textContent only.
+    renderOutputFiles(files) {
+        this.outputFiles = files;
+        this.renderBaseMaps(files);
+        const list = document.getElementById('outputFileList');
+        list.replaceChildren();
+        document.getElementById('outputFileEmpty').hidden = files.length > 0;
+        files.forEach(file => {
+            const row = document.createElement('li');
+            const info = document.createElement('div');
+            info.className = 'file-info';
+            const name = document.createElement('div');
+            name.className = 'file-name';
+            name.textContent = file.name;
+            const details = document.createElement('div');
+            details.className = 'hint';
+            details.textContent = [
+                this.formatSize(file.size),
+                file.source,
+                file.format,
+                'Zoom ' + file.min_zoom + '-' + file.max_zoom,
+                new Date(file.modified).toLocaleString()
+            ].filter(Boolean).join(' · ');
+            info.append(name, details);
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-sm';
+            // ICON_DOWNLOAD is a constant with no server text, so innerHTML is safe for it.
+            button.innerHTML = ICON_DOWNLOAD;
+            button.append(' Download');
+            // A running job still writes the file, so a download would get a part of it.
+            button.disabled = file.in_progress;
+            if (file.in_progress) {
+                button.title = 'A job is writing this file';
+            }
+            // The server sends Content-Disposition: attachment, so the browser saves the file and stays on the page.
+            button.addEventListener('click', () => {
+                window.location.href = '/api/files/' + encodeURIComponent(file.name);
+            });
+            row.append(info, button);
+            list.appendChild(row);
+        });
+    }
+
+    formatSize(bytes) {
+        if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        return Math.ceil(bytes / 1024) + ' KB';
+    }
+
     // serve --no-geocode removes place search, so the web UI hides the search box (FR-polite-downloading-26).
     async loadConfig() {
         try {
-            const response = await fetch('/api/config');
-            const config = await response.json();
-            if (response.ok && config.geocode === false) {
+            const config = await this.requestJSON('/api/config');
+            if (config.geocode === false) {
                 document.getElementById('addressSearchGroup').hidden = true;
             }
         } catch (error) {
@@ -409,9 +746,16 @@ class ATAKDownloader {
                 const first = result.results[0];
                 this.map.setView([first.lat, first.lon], 12);
                 if (this.searchMarker) this.map.removeLayer(this.searchMarker);
-                this.searchMarker = L.marker([first.lat, first.lon])
+                // Leaflet inserts a string popup as HTML, so the place name from Nominatim goes in a DOM node as text.
+                const popup = document.createElement('div');
+                const name = document.createElement('strong');
+                name.textContent = first.display_name;
+                const position = document.createElement('small');
+                position.textContent = 'Lat: ' + first.lat.toFixed(6) + ', Lon: ' + first.lon.toFixed(6);
+                popup.append(name, document.createElement('br'), position);
+                this.searchMarker = L.marker([first.lat, first.lon], { pmIgnore: true })
                     .addTo(this.map)
-                    .bindPopup('<strong>' + first.display_name + '</strong><br><small>Lat: ' + first.lat.toFixed(6) + ', Lon: ' + first.lon.toFixed(6) + '</small>')
+                    .bindPopup(popup)
                     .openPopup();
                 this.logStatus('Found: ' + first.display_name, 'success');
             } else if (response.status === 502) {
@@ -428,29 +772,37 @@ class ATAKDownloader {
     
     displayEstimation(result) {
         const resultDiv = document.getElementById('estimationResult');
-        let className = 'success';
+        let className = 'ok';
         let warningText = '';
         if (result.total_tiles > 10000) {
-            className = 'warning';
+            className = 'warn';
             warningText = '⚠️ Large download - may take significant time';
         }
         if (result.total_tiles > 100000) {
-            className = 'error';
+            className = 'err';
             warningText = '⚠️ Very large download! Consider reducing zoom range';
         }
         const estimatedSeconds = result.total_tiles / 10;
         const estimatedTime = this.formatTime(estimatedSeconds);
         const formattedSize = result.estimated_size_mb >= 1024 ? 
             (result.estimated_size_mb / 1024).toFixed(2) + ' GB' : result.estimated_size_mb.toFixed(2) + ' MB';
-        resultDiv.className = className;
-        resultDiv.innerHTML = `
-            <strong>Download Estimation:</strong><br>
-            Total Tiles: ${result.total_tiles.toLocaleString()}<br>
-            Estimated Size: ${formattedSize}<br>
-            Zoom Range: ${result.zoom_range[0]} - ${result.zoom_range[1]}<br>
-            Est. Time: ~${estimatedTime}<br>
-            ${warningText ? '<small class="text-warning">' + warningText + '</small>' : ''}
-        `;
+        resultDiv.className = 'card ' + className;
+        resultDiv.textContent = '';
+        const title = document.createElement('strong');
+        title.textContent = 'Download Estimation:';
+        resultDiv.append(title);
+        [
+            'Total Tiles: ' + result.total_tiles.toLocaleString(),
+            'Estimated Size: ' + formattedSize,
+            'Zoom Range: ' + result.zoom_range[0] + ' - ' + result.zoom_range[1],
+            'Est. Time: ~' + estimatedTime
+        ].forEach(line => resultDiv.append(document.createElement('br'), line));
+        if (warningText) {
+            const warning = document.createElement('small');
+            warning.className = 'warn-text';
+            warning.textContent = warningText;
+            resultDiv.append(document.createElement('br'), warning);
+        }
     }
     
     formatTime(seconds) {
@@ -461,6 +813,10 @@ class ATAKDownloader {
     }
     
     async startDownload() {
+        if (this.isDownloading) {
+            this.logStatus('A job is running. Cancel it or wait for it to end', 'error');
+            return;
+        }
         const sourceName = document.getElementById('mapSourceSelect').value;
         // An empty select value matches no source, so this one check covers the case with no source selected.
         const source = this.mapSources.find(s => s.name === sourceName);
@@ -479,7 +835,9 @@ class ATAKDownloader {
             concurrency: concurrency,
             failure_tolerance: parseFloat(document.getElementById('failureTolerance').value) || 0.3,
             ignore_errors: document.getElementById('ignoreErrors').checked,
-            verify_tls: document.getElementById('verifyTLS').checked
+            verify_tls: document.getElementById('verifyTLS').checked,
+            // The server rejects an existing output file with 409 output_exists unless the user picks resume or overwrite (FR-offline-web-ui-22).
+            if_exists: document.getElementById('ifExists').value
         };
         // A restricted map source needs the policy warning dialog first (FR-polite-downloading-20, 21).
         if (source.policy_class === 'restricted') {
@@ -491,8 +849,16 @@ class ATAKDownloader {
             document.getElementById('policyTitle').textContent = source.name;
             document.getElementById('policyReason').textContent = source.policy_reason;
             document.getElementById('policyRate').textContent = source.requests_per_second + ' request/s to ' + source.policy_host;
-            link.hidden = !source.policy_reference_url;
-            link.href = source.policy_reference_url;
+            // A source file can hold a javascript: URL, so the link takes only an http: or https: URL.
+            let href = '';
+            try {
+                const url = new URL(source.policy_reference_url);
+                if (url.protocol === 'http:' || url.protocol === 'https:') href = url.href;
+            } catch {
+                // The reference URL is empty or does not parse, so the dialog shows no link.
+            }
+            link.hidden = !href;
+            link.href = href;
             accept.checked = false;
             start.disabled = true;
             accept.onchange = () => { start.disabled = !accept.checked; };
@@ -510,18 +876,12 @@ class ATAKDownloader {
         }
 
         this.hideDownloadResults();
-        document.getElementById('downloadBtn').disabled = true;
-        document.getElementById('downloadBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
+        // The lock comes before the request, so no second start or estimate begins while the request runs.
+        this.setJobLocked(true);
+        document.getElementById('downloadBtn').innerHTML = SPINNER + ' Downloading...';
         try {
-            const response = await fetch('/api/jobs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(request)
-            });
-            const result = await response.json();
-            if (!response.ok) {
-                throw new Error((result.error && result.error.message) || 'The server did not start the job');
-            }
+            const result = await this.postJSON('/api/jobs', request);
+            this.hideError('job');
             this.jobId = result.id;
             this.lastJobLog = null;
             this.logStatus('Download started with ' + concurrency + ' concurrent connections', 'info');
@@ -529,39 +889,43 @@ class ATAKDownloader {
             this.followJob(result.id);
         } catch (error) {
             this.logStatus('Download error: ' + error.message, 'error');
-            this.resetDownloadUI();
+            // A 409 output_exists message names if_exists, so the user can pick Resume or Overwrite and then Retry.
+            this.showError('job', 'The job did not start: ' + error.message, () => this.startDownload());
+            // This request got no job id, so the reset applies only when the panel shows no job.
+            this.resetDownloadUI(null);
         }
     }
 
+    // updateDownloadProgress shows the counts, the rate and the ETA of a job (FR-offline-web-ui-21).
+    // data is a progress event or a job record. A job record has no rate and no ETA.
     updateDownloadProgress(data) {
-        const progressDiv = document.getElementById('downloadProgress');
-        const progress = data.total > 0 ? Math.min(100, data.downloaded / data.total * 100) : 0;
-        let etaText = data.eta_seconds > 0 ? ' - ETA: ' + this.formatTime(data.eta_seconds) : '';
-        let rateText = data.rate && data.rate > 0 ? ' (' + data.rate.toFixed(1) + ' tiles/s)' : '';
-        let failedText = '';
-        if (data.failed > 0) {
-            const failureRate = ((data.failed / (data.downloaded + data.failed)) * 100).toFixed(1);
-            failedText = '<br><small class="text-warning">⚠️ Failed tiles: ' + data.failed + ' (' + failureRate + '% failure rate)</small>';
-        }
-        let statusText = '<small>Downloaded ' + data.downloaded + '/' + data.total + ' tiles (' + progress.toFixed(1) + '%)' + rateText + etaText + '</small>';
-        
-        progressDiv.innerHTML = `
-            <div class="progress mb-2">
-                <div class="progress-bar ${progress >= 100 ? 'bg-success' : ''}" role="progressbar" style="width: ${progress}%">
-                    ${progress.toFixed(1)}%
-                </div>
-            </div>
-            ${statusText}
-            ${failedText}
-        `;
+        const processed = data.downloaded + data.skipped + data.failed;
+        const percent = data.total > 0 ? Math.min(100, processed / data.total * 100) : 0;
+        const bar = document.getElementById('jobBar');
+        bar.classList.toggle('done', percent >= 100);
+        bar.setAttribute('aria-valuenow', percent.toFixed(1));
+        document.getElementById('jobBarFill').style.width = percent + '%';
+        document.getElementById('jobSummary').textContent =
+            processed.toLocaleString() + ' / ' + data.total.toLocaleString() + ' processed · ' + percent.toFixed(1) + '%';
+        document.getElementById('jobDownloaded').textContent = data.downloaded.toLocaleString();
+        document.getElementById('jobSkipped').textContent = data.skipped.toLocaleString();
+        const failed = document.getElementById('jobFailed');
+        failed.textContent = data.failed.toLocaleString();
+        failed.className = data.failed > 0 ? 'warn-text' : '';
+        document.getElementById('jobRate').textContent = (data.rate || 0).toFixed(1) + ' tiles/s';
+        document.getElementById('jobEta').textContent = data.eta_seconds > 0 ? this.formatTime(data.eta_seconds) : '-';
+        document.getElementById('downloadProgress').hidden = false;
     }
-    
-    resetDownloadUI() {
-        document.getElementById('downloadBtn').disabled = false;
-        document.getElementById('downloadBtn').innerHTML = '<i class="fas fa-download"></i> Start Download';
-        document.getElementById('downloadProgress').innerHTML = '';
+
+    // resetDownloadUI ends the display of the job jobId. It does nothing when the panel shows a different job.
+    resetDownloadUI(jobId) {
+        if (jobId !== this.jobId) return;
+        this.jobId = null;
+        this.setJobLocked(false);
+        this.setStartEnabled(Boolean(this.selectedArea && document.getElementById('mapSourceSelect').value));
+        document.getElementById('downloadBtn').innerHTML = ICON_DOWNLOAD + ' Start Download';
+        document.getElementById('downloadProgress').hidden = true;
         this.showCancelButton(false);
-        this.isDownloading = false;
     }
     
     onSourceChange(sourceName) {
@@ -582,15 +946,15 @@ class ATAKDownloader {
     validateZoomLevels() {
         const minZoom = parseInt(document.getElementById('minZoom').value);
         const maxZoom = parseInt(document.getElementById('maxZoom').value);
-        if (minZoom >= maxZoom) {
-            document.getElementById('maxZoom').value = minZoom + 1;
+        if (minZoom > maxZoom) {
+            document.getElementById('maxZoom').value = minZoom;
         }
     }
     
     logStatus(message, type) {
         const statusLog = document.getElementById('statusLog');
         const timestamp = new Date().toLocaleTimeString();
-        const className = type === 'error' ? 'text-danger' : type === 'success' ? 'text-success' : type === 'warning' ? 'text-warning' : '';
+        const className = type === 'error' ? 'log-error' : type === 'success' ? 'log-success' : type === 'warning' ? 'log-warning' : '';
         const logEntry = document.createElement('div');
         logEntry.className = className;
         logEntry.textContent = '[' + timestamp + '] ' + message;
@@ -600,7 +964,8 @@ class ATAKDownloader {
     }
     
     showDownloadComplete(record) {
-        document.getElementById('downloadResultMessage').textContent = 'Downloaded ' + record.downloaded + ' of ' + record.total + ' tiles.';
+        document.getElementById('downloadResultMessage').textContent = 'Downloaded ' + record.downloaded + ', skipped ' + record.skipped +
+            ' and failed ' + record.failed + ' of ' + record.total + ' tiles.';
         document.getElementById('downloadResultFile').textContent = record.output_file;
         document.getElementById('downloadResults').style.display = 'block';
         document.getElementById('downloadResults').scrollIntoView({ behavior: 'smooth' });
@@ -610,13 +975,6 @@ class ATAKDownloader {
         document.getElementById('downloadResults').style.display = 'none';
     }
     
-    initModal() {
-        const modalElement = document.getElementById('loadingModal');
-        if (modalElement) {
-            this.loadingModal = new bootstrap.Modal(modalElement, { backdrop: 'static', keyboard: false });
-        }
-    }
-    
     // cancelDownload asks the server to cancel the job. The final state event resets the UI.
     async cancelDownload() {
         if (!this.isDownloading || !this.jobId) {
@@ -624,24 +982,22 @@ class ATAKDownloader {
         }
         this.logStatus('Cancelling download...', 'warning');
         document.getElementById('cancelBtn').disabled = true;
-        document.getElementById('cancelBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
+        document.getElementById('cancelBtn').innerHTML = SPINNER + ' Cancelling...';
         try {
-            const response = await fetch('/api/jobs/' + encodeURIComponent(this.jobId), { method: 'DELETE' });
-            if (!response.ok) {
-                const result = await response.json();
-                throw new Error((result.error && result.error.message) || 'The server did not cancel the job');
-            }
+            await this.requestJSON('/api/jobs/' + encodeURIComponent(this.jobId), { method: 'DELETE' });
+            this.hideError('cancel');
         } catch (error) {
             this.logStatus('Cancel error: ' + error.message, 'error');
+            this.showError('cancel', 'The job did not cancel: ' + error.message, () => this.cancelDownload());
             this.showCancelButton(true);
         }
     }
     
     showCancelButton(show) {
         const cancelBtn = document.getElementById('cancelBtn');
-        cancelBtn.style.display = show ? 'block' : 'none';
+        cancelBtn.style.display = show ? 'inline-flex' : 'none';
         cancelBtn.disabled = false;
-        cancelBtn.innerHTML = '<i class="fas fa-times"></i> Cancel';
+        cancelBtn.innerHTML = ICON_CANCEL + ' Cancel';
     }
 }
 
