@@ -102,6 +102,7 @@ type sseMessage struct {
 // subscriber is one open SSE stream of a job.
 type subscriber struct {
 	// events carries the events from the event goroutine. The event goroutine closes it after the final state.
+	// Progress events leave finalSlots free in its buffer, so no send to it blocks.
 	events chan sseMessage
 	// gone closes when the stream handler returns, so the event goroutine never blocks on a closed stream.
 	gone chan struct{}
@@ -182,14 +183,20 @@ func (j *job) applyProgress(p progressEvent) {
 	j.record.Downloaded, j.record.Failed = p.Downloaded, p.Failed
 }
 
-// offer sends m to s and drops m when the buffer of s is full.
+// finalSlots is the number of events that finish sends to one subscriber: the error log event and the final state event.
+const finalSlots = 2
+
+// offer sends m to s. It drops m when the buffer of s has no free slot outside the finalSlots.
 // The next progress event carries the counts again, so a dropped one loses no count.
+// It removes s from subs when the stream of s ended.
 func offer(subs map[*subscriber]struct{}, s *subscriber, m sseMessage) {
 	select {
-	case s.events <- m:
 	case <-s.gone:
 		delete(subs, s)
 	default:
+		if len(s.events) < cap(s.events)-finalSlots {
+			s.events <- m
+		}
 	}
 }
 
@@ -212,22 +219,15 @@ func (j *job) finish(subs map[*subscriber]struct{}, res jobResult) {
 	final := j.record
 	j.mu.Unlock()
 
+	// The free slots hold these events, so a subscriber that stops reading does not block the job.
 	for s := range subs {
 		if res.state == jobFailed {
-			deliver(s, sseMessage{"log", logEvent{Level: "error", Message: final.Error}})
+			s.events <- sseMessage{"log", logEvent{Level: "error", Message: final.Error}}
 		}
-		deliver(s, sseMessage{"state", final})
+		s.events <- sseMessage{"state", final}
 		close(s.events)
 	}
 	close(j.done)
-}
-
-// deliver sends m to s and waits until s takes it or its stream ends.
-func deliver(s *subscriber, m sseMessage) {
-	select {
-	case s.events <- m:
-	case <-s.gone:
-	}
 }
 
 // newJobID returns 12 lowercase hex characters from crypto/rand.
@@ -416,7 +416,8 @@ func (h *WebHandler) getJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // cancelJob cancels the job and returns 202 with its record (FR-security-hardening-11).
-// The record still shows the running state, and the final state event shows the cancel.
+// A running job can still show the running state, because the engine stops after the cancel.
+// Its final state event shows the cancelled state. A job that ended keeps its final state.
 func (h *WebHandler) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if j := h.findJob(w, r.PathValue("id")); j != nil {
 		j.cancel()
@@ -443,6 +444,8 @@ func (h *WebHandler) streamJob(w http.ResponseWriter, r *http.Request) {
 	case <-j.done:
 		// The job ended, so its event goroutine is gone and the record is final.
 		_ = writeEvent(w, rc, sseMessage{"state", j.snapshot()}) // A failed write means that the client left.
+		return
+	case <-r.Context().Done():
 		return
 	}
 	for {
