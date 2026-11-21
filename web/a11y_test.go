@@ -72,6 +72,21 @@ func TestIndexMarksTheLiveRegionsAndTheProgressBar(t *testing.T) {
 	}
 }
 
+func TestEveryProgressBarInIndexHasAnAccessibleName(t *testing.T) {
+	// axe reports aria-progressbar-name when a progress bar has no name, so a screen reader reads only the value.
+	index := string(IndexHTML())
+	bars := regexp.MustCompile(`<[a-z]+\b[^>]*\brole="progressbar"[^>]*>`).FindAllString(index, -1)
+	if len(bars) == 0 {
+		t.Fatal("index.html has no progress bar, so the pattern is stale")
+	}
+	name := regexp.MustCompile(`\b(?:aria-label|aria-labelledby)="[^"]*\S[^"]*"`)
+	for _, bar := range bars {
+		if !name.MatchString(bar) {
+			t.Errorf("the progress bar %s has no aria-label or aria-labelledby (FR-offline-web-ui-28)", bar)
+		}
+	}
+}
+
 func TestAppJSNamesTheGeomanToolbarButtons(t *testing.T) {
 	// Geoman puts the title on the button container and none on the link, so the link has no accessible name.
 	geoman, err := staticFS.ReadFile("static/vendor/leaflet-geoman/leaflet-geoman.min.js")
