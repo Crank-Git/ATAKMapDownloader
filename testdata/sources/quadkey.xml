@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customMapSource>
+    <name>Test Quadkey</name>
+    <minZoom>1</minZoom>
+    <maxZoom>18</maxZoom>
+    <tileType>png</tileType>
+    <tileUpdate>None</tileUpdate>
+    <url>http://tiles.test/q/{$q}.png</url>
+    <backgroundColor>#000000</backgroundColor>
+</customMapSource>

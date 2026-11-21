@@ -11,6 +11,7 @@ paths:
 - No try/catch-style recover that only logs and continues.
 - No defensive nil checks against states the types already exclude.
 - No abstraction with a single caller. Inline it until a second caller exists. The `output.Writer` interface is the planned exception (three output formats).
+  Exception: a function extracted to meet the lint complexity limits in `.golangci.yml` is allowed with a single caller.
 - No configuration for a value that nothing varies.
 - No dead code and no commented-out code.
 - HTTP handlers encode typed response structs, not `map[string]interface{}`.

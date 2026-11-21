@@ -1,0 +1,27 @@
+# golangci-lint v2 configuration.
+# FR-foundation-6 names the linters. FR-foundation-7 sets the thresholds.
+# Run it with: go tool golangci-lint run
+version: "2"
+
+linters:
+  # The standard set runs, and FR-foundation-6 adds eight linters to it.
+  default: standard
+  enable:
+    - cyclop
+    - errorlint
+    - funlen
+    - gocognit
+    - gocyclo
+    - gosec
+    - revive
+    - unused
+  settings:
+    cyclop:
+      max-complexity: 15
+    gocyclo:
+      min-complexity: 15
+    gocognit:
+      min-complexity: 20
+    funlen:
+      lines: 80
+      statements: 50

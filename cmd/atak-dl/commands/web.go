@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,10 +37,10 @@ type WebHandler struct {
 func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir string) *WebHandler {
 	return &WebHandler{
 		parser:  parser,
-		calc:   calc,
+		calc:    calc,
 		mapsDir: mapsDir,
 		upgrader: websocket.Upgrader{
-			CheckOrigin:     func(r *http.Request) bool { return true },
+			CheckOrigin:     func(_ *http.Request) bool { return true },
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 		},
@@ -74,9 +73,9 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *WebHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
+func (h *WebHandler) serveIndex(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(web.IndexHTML())
+	_, _ = w.Write(web.IndexHTML()) // A failed write means that the client closed the connection.
 }
 
 func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +94,7 @@ func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // The file is read-only, so a close error loses nothing.
 	stat, err := f.Stat()
 	if err != nil {
 		http.NotFound(w, r)
@@ -111,7 +110,7 @@ func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	} else if strings.HasSuffix(localPath, ".js") {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	}
-	io.Copy(w, f)
+	_, _ = io.Copy(w, f) // A failed copy means that the client closed the connection.
 }
 
 func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +132,7 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *WebHandler) apiSources(w http.ResponseWriter, r *http.Request) {
+func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
 	sources := h.parser.DiscoverSources(false)
 	var list []map[string]interface{}
 	for _, name := range h.parser.ListSources() {
@@ -146,7 +145,7 @@ func (h *WebHandler) apiSources(w http.ResponseWriter, r *http.Request) {
 			"format":   s.TileType,
 		})
 	}
-	json.NewEncoder(w).Encode(list)
+	writeJSON(w, list)
 }
 
 func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +189,7 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		zoomBreakdown[z] = tb.TileCount()
 	}
 	estMB := float64(totalTiles*20) / 1024
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"total_tiles":       totalTiles,
 		"estimated_size_mb": estMB,
 		"zoom_breakdown":    zoomBreakdown,
@@ -219,7 +218,7 @@ func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
 	tileX, tileY := h.calc.LatLonToTile(req.Lat, req.Lon, req.Zoom)
 	topLat, leftLon := h.calc.TileToLatLon(tileX, tileY, req.Zoom)
 	botLat, rightLon := h.calc.TileToLatLon(tileX+1, tileY+1, req.Zoom)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"tile_x":     tileX,
 		"tile_y":     tileY,
 		"zoom":       req.Zoom,
@@ -246,7 +245,7 @@ func (h *WebHandler) apiValidateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	errors := h.parser.ValidateSource(source)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"valid":       len(errors) == 0,
 		"source_name": req.SourceName,
 		"url":         source.URL,
@@ -262,10 +261,10 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Source   string    `json:"source"`
-		Bounds   []float64 `json:"bounds"`
-		MinZoom  int       `json:"min_zoom"`
-		MaxZoom  int       `json:"max_zoom"`
+		Source  string    `json:"source"`
+		Bounds  []float64 `json:"bounds"`
+		MinZoom int       `json:"min_zoom"`
+		MaxZoom int       `json:"max_zoom"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"Invalid request"}`, http.StatusBadRequest)
@@ -318,7 +317,7 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"tiles":       tiles,
 		"zoom":        previewZoom,
 		"source":      req.Source,
@@ -352,14 +351,14 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"Geocoding failed: `+err.Error()+`"}`, http.StatusInternalServerError)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // The body is fully read, so a close error loses nothing.
 	var results []struct {
-		DisplayName string `json:"display_name"`
-		Lat         string `json:"lat"`
-		Lon         string `json:"lon"`
+		DisplayName string   `json:"display_name"`
+		Lat         string   `json:"lat"`
+		Lon         string   `json:"lon"`
 		Boundingbox []string `json:"boundingbox"`
-		Type        string `json:"type"`
-		Class       string `json:"class"`
+		Type        string   `json:"type"`
+		Class       string   `json:"class"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
 		http.Error(w, `{"error":"Geocoding failed"}`, http.StatusInternalServerError)
@@ -368,8 +367,9 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 	var locations []map[string]interface{}
 	for _, r := range results {
 		var lat, lon float64
-		fmt.Sscanf(r.Lat, "%f", &lat)
-		fmt.Sscanf(r.Lon, "%f", &lon)
+		// A value that does not parse stays 0. #17 adds the input validation.
+		_, _ = fmt.Sscanf(r.Lat, "%f", &lat)
+		_, _ = fmt.Sscanf(r.Lon, "%f", &lon)
 		locations = append(locations, map[string]interface{}{
 			"display_name": r.DisplayName,
 			"lat":          lat,
@@ -379,8 +379,8 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 			"class":        r.Class,
 		})
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"query":  req.Query,
+	writeJSON(w, map[string]interface{}{
+		"query":   req.Query,
 		"results": locations,
 		"count":   len(locations),
 	})
@@ -391,9 +391,9 @@ func (h *WebHandler) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // The connection ends here, so a close error changes nothing.
 
-	conn.WriteJSON(map[string]interface{}{"type": "status", "message": "Connected to ATAK Downloader"})
+	sendJSON(conn, map[string]interface{}{"type": "status", "message": "Connected to ATAK Downloader"})
 
 	for {
 		var msg struct {
@@ -418,12 +418,12 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	sourceName, _ := data["source"].(string)
 	boundsRaw, _ := data["bounds"].([]interface{})
 	if sourceName == "" || len(boundsRaw) != 4 {
-		conn.WriteJSON(map[string]interface{}{"type": "download_error", "message": "Missing required parameters"})
+		sendJSON(conn, map[string]interface{}{"type": "download_error", "message": "Missing required parameters"})
 		return
 	}
 	source := h.parser.GetSource(sourceName)
 	if source == nil {
-		conn.WriteJSON(map[string]interface{}{"type": "download_error", "message": "Source not found"})
+		sendJSON(conn, map[string]interface{}{"type": "download_error", "message": "Source not found"})
 		return
 	}
 	west := toFloat(boundsRaw[0])
@@ -440,46 +440,21 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	}
 	bounds, err := tilecalc.NewGeographicBounds(south, north, west, east)
 	if err != nil {
-		conn.WriteJSON(map[string]interface{}{"type": "download_error", "message": err.Error()})
+		sendJSON(conn, map[string]interface{}{"type": "download_error", "message": err.Error()})
 		return
 	}
 	adv, _ := data["advanced_settings"].(map[string]interface{})
-	maxConcurrent := int(toFloat(adv["max_concurrent"]))
-	if maxConcurrent == 0 {
-		maxConcurrent = 5
-	}
-	delay := toFloat(adv["delay_between_batches"])
-	if delay == 0 {
-		delay = 0.2
-	}
-	failureTol := toFloat(adv["failure_tolerance"])
-	if failureTol == 0 {
-		failureTol = 0.3
-	}
-	ignoreErrors, _ := adv["ignore_errors"].(bool)
-	verifySSL, _ := adv["verify_ssl"].(bool)
+	cfg := downloadConfig(adv)
 
 	customName, _ := data["custom_name"].(string)
 	outputFilename := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
 	outputPath := filepath.Join(download.DownloadsDir(), outputFilename)
-	os.MkdirAll(download.DownloadsDir(), 0755)
-
-	var zoomLevels []int
-	for z := minZoom; z <= maxZoom; z++ {
-		zoomLevels = append(zoomLevels, z)
-	}
-
-	cfg := download.DefaultConfig()
-	cfg.MaxConcurrent = maxConcurrent
-	cfg.DelayBetweenBatches = time.Duration(delay * float64(time.Second))
-	cfg.MaxFailureRate = failureTol
-	cfg.IgnoreErrors = ignoreErrors
-	cfg.VerifySSL = verifySSL
+	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
 
 	h.dlState.Lock()
 	if h.dlState.downloading {
 		h.dlState.Unlock()
-		conn.WriteJSON(map[string]interface{}{"type": "download_error", "message": "Download already in progress"})
+		sendJSON(conn, map[string]interface{}{"type": "download_error", "message": "Download already in progress"})
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -487,16 +462,17 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	h.dlState.downloading = true
 	h.dlState.Unlock()
 
-	conn.WriteJSON(map[string]interface{}{
+	sendJSON(conn, map[string]interface{}{
 		"type":        "download_started",
 		"message":     fmt.Sprintf("Starting download of %s", sourceName),
 		"output_file": outputFilename,
 	})
 
 	engine := download.NewEngine(cfg)
-	success, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
-		conn.WriteJSON(map[string]interface{}{
-			"type": "download_progress",
+	// reportResult reads the result from success and ctx. #15 sends the error text to the client.
+	success, _ := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
+		sendJSON(conn, map[string]interface{}{
+			"type":       "download_progress",
 			"progress":   p.ProgressPercent(),
 			"downloaded": p.Downloaded,
 			"total":      p.TotalTiles,
@@ -513,25 +489,31 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	h.dlState.cancel = nil
 	h.dlState.Unlock()
 
+	reportResult(ctx, conn, success, outputFilename, outputPath)
+}
+
+// reportResult sends the last websocket message of a job.
+func reportResult(ctx context.Context, conn *websocket.Conn, success bool, outputFilename, outputPath string) {
 	if ctx.Err() != nil {
-		os.Remove(outputPath)
-		conn.WriteJSON(map[string]interface{}{"type": "download_cancelled", "message": "Download cancelled by user."})
+		// The engine removes the file on cancel, so this removal usually finds no file.
+		_ = os.Remove(outputPath)
+		sendJSON(conn, map[string]interface{}{"type": "download_cancelled", "message": "Download cancelled by user."})
 		return
 	}
 	if success {
-		conn.WriteJSON(map[string]interface{}{
-			"type": "download_progress",
+		sendJSON(conn, map[string]interface{}{
+			"type":     "download_progress",
 			"progress": 100, "message": "Download completed successfully!",
 		})
-		conn.WriteJSON(map[string]interface{}{
-			"type":    "download_complete",
-			"message": "Download complete! Saved to " + outputFilename,
+		sendJSON(conn, map[string]interface{}{
+			"type":     "download_complete",
+			"message":  "Download complete! Saved to " + outputFilename,
 			"filename": outputFilename,
-			"path":    outputPath,
+			"path":     outputPath,
 		})
 	} else {
-		conn.WriteJSON(map[string]interface{}{
-			"type": "download_error",
+		sendJSON(conn, map[string]interface{}{
+			"type":    "download_error",
 			"message": "Download failed - too many tile errors. Try reducing concurrent downloads or enabling Ignore Errors.",
 		})
 	}
@@ -542,10 +524,10 @@ func (h *WebHandler) handleCancelDownload(conn *websocket.Conn) {
 	if h.dlState.downloading && h.dlState.cancel != nil {
 		h.dlState.cancel()
 		h.dlState.Unlock()
-		conn.WriteJSON(map[string]interface{}{"type": "download_cancelled", "message": "Cancellation requested."})
+		sendJSON(conn, map[string]interface{}{"type": "download_cancelled", "message": "Cancellation requested."})
 	} else {
 		h.dlState.Unlock()
-		conn.WriteJSON(map[string]interface{}{"type": "download_cancelled", "message": "No active download."})
+		sendJSON(conn, map[string]interface{}{"type": "download_cancelled", "message": "No active download."})
 	}
 }
 
@@ -554,10 +536,49 @@ func (h *WebHandler) handleGetStatus(conn *websocket.Conn) {
 	downloading := h.dlState.downloading
 	h.dlState.Unlock()
 	if downloading {
-		conn.WriteJSON(map[string]interface{}{"type": "status", "message": "Download in progress"})
+		sendJSON(conn, map[string]interface{}{"type": "status", "message": "Download in progress"})
 	} else {
-		conn.WriteJSON(map[string]interface{}{"type": "status", "message": "No active download"})
+		sendJSON(conn, map[string]interface{}{"type": "status", "message": "No active download"})
 	}
+}
+
+// downloadConfig returns the engine config for the advanced_settings of a start_download message.
+// A setting that is missing or 0 gets the web UI default.
+func downloadConfig(adv map[string]interface{}) download.Config {
+	maxConcurrent := int(toFloat(adv["max_concurrent"]))
+	if maxConcurrent == 0 {
+		maxConcurrent = 5
+	}
+	delay := toFloat(adv["delay_between_batches"])
+	if delay == 0 {
+		delay = 0.2
+	}
+	failureTol := toFloat(adv["failure_tolerance"])
+	if failureTol == 0 {
+		failureTol = 0.3
+	}
+	ignoreErrors, _ := adv["ignore_errors"].(bool)
+	verifySSL, _ := adv["verify_ssl"].(bool)
+
+	cfg := download.DefaultConfig()
+	cfg.MaxConcurrent = maxConcurrent
+	cfg.DelayBetweenBatches = time.Duration(delay * float64(time.Second))
+	cfg.MaxFailureRate = failureTol
+	cfg.IgnoreErrors = ignoreErrors
+	cfg.VerifySSL = verifySSL
+	return cfg
+}
+
+// writeJSON encodes v as the response body.
+// A failed write means that the client closed the connection, so the error is not used.
+func writeJSON(w http.ResponseWriter, v interface{}) {
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// sendJSON sends v as one websocket message.
+// A failed write means that the client left, so the error is not used. #15 replaces the websocket.
+func sendJSON(conn *websocket.Conn, v interface{}) {
+	_ = conn.WriteJSON(v)
 }
 
 func toFloat(v interface{}) float64 {
@@ -568,14 +589,9 @@ func toFloat(v interface{}) float64 {
 		return float64(x)
 	case string:
 		var f float64
-		fmt.Sscanf(x, "%f", &f)
+		// A value that does not parse stays 0. #17 adds the input validation.
+		_, _ = fmt.Sscanf(x, "%f", &f)
 		return f
 	}
 	return 0
-}
-
-var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9 _-]`)
-
-func safeFilename(s string) string {
-	return strings.TrimSpace(safeNameRe.ReplaceAllString(s, ""))
 }

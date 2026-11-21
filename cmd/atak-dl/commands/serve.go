@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// NewServeCmd returns the serve command, which starts the web interface.
 func NewServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -32,8 +33,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "Warning: No map sources found in %s\n", dir)
 	}
 
-	// Ensure downloads dir exists
-	os.MkdirAll(download.DownloadsDir(), 0755)
+	// mbtiles.Create makes the directory again and reports that error.
+	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
 
 	calc := tilecalc.NewTileCalculator()
 	handler := NewWebHandler(parser, calc, dir)
@@ -42,5 +43,5 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("Open http://%s in your browser\n", addr)
 	fmt.Printf("Mapsources: %s (%d sources)\n", dir, len(sources))
 
-	return http.ListenAndServe(addr, handler)
+	return http.ListenAndServe(addr, handler) //nolint:gosec // #17 adds the server timeouts.
 }

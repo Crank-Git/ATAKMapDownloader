@@ -570,8 +570,11 @@ CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</co
 <ul>
 <li><strong>No limit on the tile count or the zoom range.</strong>
 </li>
-<li><strong><code>os.MkdirAll</code> errors are ignored</strong> (<code>commands/download.go:79</code>).
+<li><strong><code>serve</code> ignores the <code>os.MkdirAll</code> error for the downloads directory</strong> (<code>commands/serve.go</code>).
 </li>
+</ul>
+<p><code>mbtiles.Create</code> creates the directory again and returns the error, so a <code>download</code> run reports it.</p>
+<ul>
 <li><strong>The CLI prints <code>Error: context canceled</code> and the usage text after a cancel</strong>, because
 </li>
 </ul>
