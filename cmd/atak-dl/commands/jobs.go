@@ -13,9 +13,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/crank-git/atak-map-downloader/internal/datapackage"
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/jobs"
 	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
@@ -49,6 +51,8 @@ type jobRequest struct {
 	IncludeSource bool `json:"include_source"`
 	// PackageName is the package name. checkJobRequest accepts it only when datapackage.ValidName does.
 	PackageName string `json:"package_name"`
+	// Label is the label of the submitter, 1 to 80 characters (FR-team-server-13). A nil Label means no label.
+	Label *string `json:"label,omitempty"`
 }
 
 // packageOptions returns the data package settings of the request, or nil when the job writes no data package.
@@ -81,10 +85,12 @@ func (req jobRequest) engineConfig() download.Config {
 	return cfg
 }
 
-// jobState is the state of a job. Feature 12 adds "queued".
+// jobState is the state of a job.
 type jobState string
 
 const (
+	// jobQueued is the state of a job from POST /api/jobs until a worker starts it (FR-team-server-1).
+	jobQueued    jobState = "queued"
 	jobRunning   jobState = "running"
 	jobComplete  jobState = "complete"
 	jobFailed    jobState = "failed"
@@ -106,7 +112,19 @@ type jobRecord struct {
 	Skipped   int64     `json:"skipped"`
 	Failed    int64     `json:"failed"`
 	CreatedAt time.Time `json:"created_at"`
-	Error     string    `json:"error"`
+	// StartedAt is the time when a worker started the job, or nil before the start.
+	StartedAt *time.Time `json:"started_at"`
+	// FinishedAt is the time of the final state, or nil before it.
+	FinishedAt *time.Time `json:"finished_at"`
+	Error      string     `json:"error"`
+	// Reason is server_restarted for a job that was running when the server stopped (FR-team-server-9).
+	Reason string `json:"reason,omitempty"`
+	// Label is the label of the job request (FR-team-server-13).
+	Label string `json:"label,omitempty"`
+	// AreaName is the name of the first area. The Jobs page shows it when the job has no label (FR-team-server-26).
+	AreaName string `json:"area_name,omitempty"`
+	// Position is the queue position of a queued job, 1 for the next job. A read computes it, so it is 0 in every other state.
+	Position int `json:"position,omitempty"`
 }
 
 // progressEvent is the data of a progress event.
@@ -149,8 +167,21 @@ type jobResult struct {
 // job is the in-memory state of one job.
 // Its event goroutine is the only sender of its events (FR-security-hardening-13).
 type job struct {
-	id     string
+	id string
+	// ctx exists from the creation of the job, so a DELETE after a worker took the job still stops it before the engine runs.
+	ctx    context.Context
 	cancel context.CancelFunc
+
+	// req, source and areas are the checked request, because the worker runs the job after POST /api/jobs returned.
+	req    jobRequest
+	source *xmlparser.MapSource
+	areas  []tilecalc.JobArea
+	// queue gives the position of a queued job.
+	queue *jobs.Queue
+	// store keeps each state of the job in jobs.jsonl.
+	store *jobs.Store
+	// started closes when a worker starts the job, so the event goroutine sends the running state.
+	started chan struct{}
 
 	// progress carries the engine progress to the event goroutine.
 	progress chan progressEvent
@@ -171,11 +202,15 @@ type job struct {
 // progressInterval gives at most 4 progress events per second per job (FR-security-hardening-14).
 const progressInterval = time.Second / 4
 
-// snapshot returns a copy of the job record.
+// snapshot returns a copy of the job record, with the queue position of a queued job.
 func (j *job) snapshot() jobRecord {
 	j.mu.Lock()
-	defer j.mu.Unlock()
-	return j.record
+	rec := j.record
+	j.mu.Unlock()
+	if rec.State == jobQueued {
+		rec.Position = j.queue.Position(j.id)
+	}
+	return rec
 }
 
 // sendEvents sends the events of the job to its subscribers until the job ends.
@@ -185,8 +220,16 @@ func (j *job) sendEvents() {
 	subs := map[*subscriber]struct{}{}
 	var latest progressEvent
 	pending := false
+	started := j.started
 	for {
 		select {
+		case <-started:
+			// A nil channel blocks, so the running state goes out once.
+			started = nil
+			rec := j.snapshot()
+			for s := range subs {
+				offer(subs, s, sseMessage{"state", rec})
+			}
 		case p := <-j.progress:
 			latest, pending = p, true
 		case <-ticker.C:
@@ -250,13 +293,16 @@ func (j *job) finish(subs map[*subscriber]struct{}, res jobResult) {
 			drained = true
 		}
 	}
+	now := time.Now().UTC()
 	j.mu.Lock()
 	j.record.State = res.state
 	if res.state == jobFailed {
 		j.record.Error = res.err.Error()
 	}
+	j.record.FinishedAt = &now
 	final := j.record
 	j.mu.Unlock()
+	j.save(final)
 
 	// The free slots hold these events, so a subscriber that stops reading does not block the job.
 	for s := range subs {
@@ -281,24 +327,28 @@ func newJobID() string {
 // The routes without a method catch the requests that no route with a method matches,
 // so every error response has the error shape.
 func (h *WebHandler) routeJobs(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/jobs", h.listJobs)
 	mux.HandleFunc("POST /api/jobs", h.createJob)
 	mux.HandleFunc("GET /api/jobs/{id}", h.getJob)
 	mux.HandleFunc("GET /api/jobs/{id}/events", h.streamJob)
 	mux.HandleFunc("DELETE /api/jobs/{id}", h.cancelJob)
+	mux.HandleFunc("POST /api/jobs/{id}/resume", h.resumeJob)
 	notAllowed := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
 	}
 	mux.HandleFunc("/api/jobs", notAllowed)
 	mux.HandleFunc("/api/jobs/{id}", notAllowed)
 	mux.HandleFunc("/api/jobs/{id}/events", notAllowed)
+	mux.HandleFunc("/api/jobs/{id}/resume", notAllowed)
 	mux.HandleFunc("/api/jobs/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "Route not found")
 	})
 }
 
-// createJob starts a job and returns 202 with its record (FR-security-hardening-8).
-// It returns 409 job_running when a job runs (FR-security-hardening-12).
+// createJob adds a job to the queue and returns 202 with its record (FR-security-hardening-8, FR-team-server-1).
+// When a queued or running job writes the same output file name, the new job gets the suffix -2, -3 and so on.
 // It returns 409 output_exists when the if_exists rule does not accept the existing output file (FR-robust-downloads-14).
+// It returns 429 queue_full when the queue is full (FR-team-server-6).
 func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	var req jobRequest
 	if !decodeJSON(w, r, &req) {
@@ -308,57 +358,97 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
-	h.dlState.Lock()
-	if h.dlState.downloading {
-		h.dlState.Unlock()
-		writeError(w, http.StatusConflict, "job_running", "A job is already running")
-		return
-	}
-	// The job lock is held, so no other job writes the output file between the check and the start.
-	outputFile := jobOutputFile(req.Source, areas, req.Name, req.OutputFormat)
+	// The lock covers the name choice and the enqueue, so two submits never choose one name.
+	h.jobMu.Lock()
+	defer h.jobMu.Unlock()
+	var outputFile string
+	outputFile, req.PackageName = h.uniqueOutput(jobOutputFile(req.Source, areas, req.Name, req.OutputFormat), req)
 	if !h.checkOutput(w, req, source, outputFile) {
-		h.dlState.Unlock()
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	j := h.newJob(req, areas, outputFile, cancel)
+	j := h.newJob(newJobID(), req, source, areas, outputFile)
 	j.warning = warning
-	h.dlState.downloading = true
-	h.dlState.job = j
-	h.dlState.Unlock()
+	h.writeEnqueue(w, j)
+}
 
+// writeEnqueue calls enqueue for j and writes 202 with the record, or 429 queue_full. The caller holds h.jobMu.
+func (h *WebHandler) writeEnqueue(w http.ResponseWriter, j *job) {
+	rec, err := h.enqueue(j)
+	if err != nil {
+		writeError(w, http.StatusTooManyRequests, "queue_full", fmt.Sprintf("The queue holds %d jobs", jobs.MaxQueued))
+		return
+	}
+	writeAccepted(w, rec)
+}
+
+// enqueue puts j in the job map and in the queue, stores its queued state, starts its event goroutine and returns its record.
+// It replaces a job with the same id, so a resume keeps the id. The caller holds h.jobMu.
+// A worker reads the job map under h.jobMu before it stores the running state, so the queued line comes first in jobs.jsonl.
+// It returns jobs.ErrQueueFull when the queue is full. The job map then keeps the job that it had.
+func (h *WebHandler) enqueue(j *job) (jobRecord, error) {
+	// The snapshot comes before Add, so the record shows the queued state even when a worker starts the job at once.
+	rec := j.snapshot()
+	old, had := h.jobs[j.id]
+	// A worker can take the job as soon as Add returns, so the map holds the job first.
+	h.jobs[j.id] = j
+	pos, err := h.queue.Add(j.id)
+	if err != nil {
+		if had {
+			h.jobs[j.id] = old
+		} else {
+			delete(h.jobs, j.id)
+		}
+		return jobRecord{}, err
+	}
+	j.save(rec)
 	go j.sendEvents()
-	go h.runJob(ctx, j, req, source, areas)
-	writeAccepted(w, j.snapshot())
+	rec.Position = pos
+	return rec, nil
 }
 
 // checkOutput applies the if_exists rule of req to its output file, the file outputFile in the output directory.
 // It writes the error response and returns false when the rule does not accept the file or the check fails.
-// The API has no force field, so a resume accepts a v0.1 output file with no map source name.
+// It accepts the rule overwrite with no check, because the delete of the file waits for the start of the job.
 func (h *WebHandler) checkOutput(w http.ResponseWriter, req jobRequest, source *xmlparser.MapSource, outputFile string) bool {
+	// A queued job can name the output file of a running job, so a delete now can remove a file in use.
+	if req.IfExists == ifExistsOverwrite {
+		return true
+	}
+	err := h.prepareJobOutput(req, source, outputFile)
+	var conflict *outputConflict
+	switch {
+	case errors.As(err, &conflict):
+		writeError(w, http.StatusConflict, "output_exists", outputErrorMessage(err))
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+	}
+	return err == nil
+}
+
+// prepareJobOutput applies the if_exists rule of req to the output file outputFile and to its data package.
+// It returns the errors of prepareDataPackage and prepareOutput.
+// The API has no force field, so a resume accepts a v0.1 output file with no map source name.
+func (h *WebHandler) prepareJobOutput(req jobRequest, source *xmlparser.MapSource, outputFile string) error {
 	rule := req.IfExists
 	if rule == "" {
 		rule = ifExistsFail
 	}
 	path := filepath.Join(h.outputDir, outputFile)
-	var err error
 	if pkg := req.packageOptions(); pkg != nil {
-		err = prepareDataPackage(pkg.zipPath(path), rule)
+		if err := prepareDataPackage(pkg.zipPath(path), rule); err != nil {
+			return err
+		}
 	}
-	if err == nil {
-		err = prepareOutput(path, rule, source.Name, req.OutputFormat, true)
+	return prepareOutput(path, rule, source.Name, req.OutputFormat, true)
+}
+
+// outputErrorMessage returns the job API message for an error of prepareJobOutput.
+// The message of errOutputExists names CLI flags, so the API names its own if_exists field.
+func outputErrorMessage(err error) string {
+	if errors.Is(err, errOutputExists) {
+		return `Output file exists; send "if_exists": "resume" or "overwrite"`
 	}
-	var conflict *outputConflict
-	switch {
-	case errors.Is(err, errOutputExists):
-		writeError(w, http.StatusConflict, "output_exists", `Output file exists; send "if_exists": "resume" or "overwrite"`)
-	case errors.As(err, &conflict):
-		writeError(w, http.StatusConflict, "output_exists", conflict.Error())
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
-	}
-	return err == nil
+	return err.Error()
 }
 
 // checkJobRequest returns the map source and the areas of req.
@@ -397,6 +487,10 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 	if !checkOutputOptions(w, req, source) {
 		return nil, nil, "", false
 	}
+	if req.Label != nil && (*req.Label == "" || utf8.RuneCountInString(*req.Label) > maxLabel) {
+		writeError(w, http.StatusBadRequest, "invalid_label", fmt.Sprintf("label is not 1 to %d characters", maxLabel))
+		return nil, nil, "", false
+	}
 	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
 		writeError(w, http.StatusForbidden, "terms_not_accepted", fmt.Sprintf(
 			"%s (%s); send \"accept_terms\": true to accept the terms", entry.Reason, entry.ReferenceURL))
@@ -432,6 +526,9 @@ func checkOutputOptions(w http.ResponseWriter, req *jobRequest, source *xmlparse
 	}
 }
 
+// maxLabel is the highest character count of a job label (FR-team-server-13).
+const maxLabel = 80
+
 // maxConcurrency is the highest concurrency that a job accepts (FR-security-hardening-20).
 const maxConcurrency = 32
 
@@ -465,15 +562,23 @@ func checkJobLimits(source *xmlparser.MapSource, areas []tilecalc.JobArea, concu
 	return "", ""
 }
 
-// newJob returns a running job for req, which writes the output file outputFile.
+// newJob returns a queued job with the id id for req, which writes the output file outputFile.
 // The record holds the rectangle and the zoom range over all areas.
-func (h *WebHandler) newJob(req jobRequest, areas []tilecalc.JobArea, outputFile string, cancel context.CancelFunc) *job {
-	id := newJobID()
+func (h *WebHandler) newJob(id string, req jobRequest, source *xmlparser.MapSource, areas []tilecalc.JobArea, outputFile string) *job {
 	b := tilecalc.JobBound(areas)
 	minZoom, maxZoom := tilecalc.JobZoomRange(areas)
+	// The job outlives the request, so its context does not come from the request.
+	ctx, cancel := context.WithCancel(context.Background())
 	return &job{
-		id:     id,
-		cancel: cancel,
+		id:      id,
+		ctx:     ctx,
+		cancel:  cancel,
+		req:     req,
+		source:  source,
+		areas:   areas,
+		queue:   h.queue,
+		store:   h.store,
+		started: make(chan struct{}),
 		// The buffer lets the engine continue while the event goroutine sends to subscribers.
 		progress:  make(chan progressEvent, 64),
 		result:    make(chan jobResult, 1),
@@ -485,22 +590,68 @@ func (h *WebHandler) newJob(req jobRequest, areas []tilecalc.JobArea, outputFile
 			Bounds:     []float64{b.Min[0], b.Min[1], b.Max[0], b.Max[1]},
 			MinZoom:    minZoom,
 			MaxZoom:    maxZoom,
-			State:      jobRunning,
+			State:      jobQueued,
 			OutputFile: outputFile,
 			Total:      tilecalc.CountJobTiles(areas).Unique,
 			CreatedAt:  time.Now().UTC(),
+			Label:      label(req),
+			AreaName:   firstAreaName(areas),
 		},
 	}
 }
 
-// runJob runs the engine for j, frees the job lock and sends the result to the event goroutine.
-func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source *xmlparser.MapSource, areas []tilecalc.JobArea) {
+// firstAreaName returns the name of the first area, or an empty string.
+// A restored job whose stored areas no longer resolve has no areas, so the list can be empty.
+func firstAreaName(areas []tilecalc.JobArea) string {
+	if len(areas) == 0 {
+		return ""
+	}
+	return areas[0].Name
+}
+
+// label returns the label of req, or an empty string when req has no label.
+func label(req jobRequest) string {
+	if req.Label == nil {
+		return ""
+	}
+	return *req.Label
+}
+
+// startJob is the run func of the queue. It runs the job id on the worker that took it, and returns when the job ends.
+// A job that a DELETE cancelled before the start ends cancelled with no tile request.
+func (h *WebHandler) startJob(id string) {
+	h.jobMu.Lock()
+	j := h.jobs[id]
+	h.jobMu.Unlock()
+	if j.ctx.Err() != nil {
+		j.result <- jobResult{state: jobCancelled}
+		return
+	}
+	now := time.Now().UTC()
+	j.mu.Lock()
+	j.record.State = jobRunning
+	j.record.StartedAt = &now
+	rec := j.record
+	j.mu.Unlock()
+	j.save(rec)
+	close(j.started)
+	// A file can appear while the job is queued, so the if_exists rule applies again at the start.
+	if err := h.prepareJobOutput(j.req, j.source, rec.OutputFile); err != nil {
+		j.result <- jobResult{state: jobFailed, err: errors.New(outputErrorMessage(err))}
+		return
+	}
+	j.result <- h.runJob(j)
+}
+
+// runJob runs the engine for j and returns the result.
+func (h *WebHandler) runJob(j *job) jobResult {
+	ctx, req, source := j.ctx, j.req, j.source
 	cfg := req.engineConfig()
 	cfg.UserAgent = h.userAgent
 	cfg.Policy = sourcePolicy(source)
 	engine := download.NewEngine(cfg)
 	outputPath := filepath.Join(h.outputDir, j.snapshot().OutputFile)
-	_, err := engine.DownloadTiles(ctx, source, areas, outputPath,
+	_, err := engine.DownloadTiles(ctx, source, j.areas, outputPath,
 		func(p download.Progress) bool {
 			j.progress <- progressEvent{
 				Downloaded: p.Downloaded,
@@ -533,20 +684,15 @@ func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source 
 			j.mu.Unlock()
 		}
 	}
-
-	// The lock frees first, so a client that reads the final state can start the next job at once.
-	h.dlState.Lock()
-	h.dlState.downloading = false
-	h.dlState.Unlock()
-	j.result <- res
+	return res
 }
 
-// findJob returns the current job when its id is id. It writes 404 job_not_found and returns nil when it is not.
+// findJob returns the job with the id id. It writes 404 job_not_found and returns nil when no job has that id.
 func (h *WebHandler) findJob(w http.ResponseWriter, id string) *job {
-	h.dlState.Lock()
-	j := h.dlState.job
-	h.dlState.Unlock()
-	if j == nil || j.id != id {
+	h.jobMu.Lock()
+	j := h.jobs[id]
+	h.jobMu.Unlock()
+	if j == nil {
 		writeError(w, http.StatusNotFound, "job_not_found", "Job not found")
 		return nil
 	}
@@ -560,14 +706,69 @@ func (h *WebHandler) getJob(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// afterCancelLookup runs in cancelJob between the job lookup and the queue removal.
+// A test replaces it to put a resume at that point.
+var afterCancelLookup = func() {}
+
 // cancelJob cancels the job and returns 202 with its record (FR-security-hardening-11).
-// A running job can still show the running state, because the engine stops after the cancel.
+// A queued job leaves the queue and ends cancelled (FR-team-server-4).
+// The record can still show the queued or the running state, because the job stops after the response.
 // Its final state event shows the cancelled state. A job that ended keeps its final state.
 func (h *WebHandler) cancelJob(w http.ResponseWriter, r *http.Request) {
-	if j := h.findJob(w, r.PathValue("id")); j != nil {
-		j.cancel()
-		writeAccepted(w, j.snapshot())
+	// A resume replaces the job in the job map, so the lock keeps j and the queue entry of j together.
+	h.jobMu.Lock()
+	j := h.jobs[r.PathValue("id")]
+	if j == nil {
+		h.jobMu.Unlock()
+		writeError(w, http.StatusNotFound, "job_not_found", "Job not found")
+		return
 	}
+	afterCancelLookup()
+	// No worker takes a removed job, so this send is the only result of the job.
+	if h.queue.Remove(j.id) {
+		j.result <- jobResult{state: jobCancelled}
+	}
+	h.jobMu.Unlock()
+	j.cancel()
+	writeAccepted(w, j.snapshot())
+}
+
+// resumeJob adds a failed or cancelled job to the queue again with the if_exists rule resume (FR-team-server-5).
+// It returns 202 with the record. The job keeps its id, its request and its output file.
+// The engine skips the tiles that the output file holds, so the job requests only the missing tiles.
+// It returns 404 job_not_found for an unknown id, 409 invalid_state for a job in another state, and 429 queue_full.
+// It returns 409 output_in_use when a queued or running job writes the output file or the data package of the job.
+func (h *WebHandler) resumeJob(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	// The lock covers the state check and the replace, so two resumes of one job never queue it twice.
+	h.jobMu.Lock()
+	defer h.jobMu.Unlock()
+	old := h.jobs[id]
+	if old == nil {
+		writeError(w, http.StatusNotFound, "job_not_found", "Job not found")
+		return
+	}
+	prev := old.snapshot()
+	if prev.State != jobFailed && prev.State != jobCancelled {
+		writeError(w, http.StatusConflict, "invalid_state", fmt.Sprintf("job state is %s; only a failed or cancelled job resumes", prev.State))
+		return
+	}
+	// A job of jobs.jsonl can name a map source that the server no longer has.
+	if old.source == nil {
+		writeError(w, http.StatusConflict, "invalid_state", fmt.Sprintf("job source %q is not found; the job cannot resume", prev.Source))
+		return
+	}
+	// A job that a member submitted while this job was not active can hold its output file name.
+	if holdsOutput(h.heldNames(), prev.OutputFile, old.req) {
+		writeError(w, http.StatusConflict, "output_in_use", fmt.Sprintf("a queued or running job writes the output file %s", prev.OutputFile))
+		return
+	}
+	req := old.req
+	req.IfExists = ifExistsResume
+	j := h.newJob(id, req, old.source, old.areas, prev.OutputFile)
+	j.warning = old.warning
+	j.record.CreatedAt = prev.CreatedAt
+	h.writeEnqueue(w, j)
 }
 
 // streamJob sends the events of the job as SSE (FR-security-hardening-10).

@@ -22,6 +22,8 @@ const FORMAT_NAMES = { mbtiles: 'MBTiles', osmdroid: 'OSMDroid', gpkg: 'GeoPacka
 const DATA_PACKAGE = 'data_package';
 // The rule of datapackage.ValidName lets the web UI reject a package name before the server does.
 const PACKAGE_NAME = /^[A-Za-z0-9 _-]{1,64}$/;
+// A job in one of these states has no final state yet, so its stream stays open (FR-team-server-1).
+const ACTIVE_STATES = ['queued', 'running'];
 // The server accepts at most 20 areas in one job (FR-area-selection-5).
 const MAX_AREAS = 20;
 const KIND_LABEL = { bounds: 'Rectangle', polygon: 'Polygon', route_buffer: 'Route' };
@@ -252,12 +254,16 @@ class ATAKDownloader {
     }
 
     async probe() {
+        let response;
         try {
-            await fetch('/api/config');
-            this.recordSuccess();
+            response = await fetch('/api/config');
         } catch {
             this.recordFailure();
+            return;
         }
+        this.recordSuccess();
+        // The page leaves on a 401, so the error needs no handler.
+        this.checkSignedIn(response).catch(() => {});
     }
 
     setConnection(state) {
@@ -434,6 +440,15 @@ class ATAKDownloader {
         this.logStatus('Offline: the base map is the output file ' + newest.name, 'warning');
     }
 
+    // checkSignedIn goes to the sign-in page and throws when response has the status 401 (FR-team-server-23).
+    // A 401 means that the token cookie is gone, so no request of this page can succeed.
+    async checkSignedIn(response) {
+        if (response.status === 401) {
+            window.location.assign('/signin');
+            throw new Error('Sign in again');
+        }
+    }
+
     // requestJSON sends a request and returns the JSON body of a 2xx response.
     // For an error status, it throws an Error with the server's error.message, and its code property holds error.code.
     // If the request does not reach the server, it throws "Server unreachable".
@@ -446,6 +461,7 @@ class ATAKDownloader {
             throw new Error('Server unreachable');
         }
         this.recordSuccess();
+        await this.checkSignedIn(response);
         // A proxy can send an error page that is not JSON, so a parse failure keeps the status as the message.
         const body = await response.json().catch(() => null);
         if (!response.ok) {
@@ -536,10 +552,16 @@ class ATAKDownloader {
     }
 
     onJobState(record) {
-        if (record.state !== 'running') {
+        if (!ACTIVE_STATES.includes(record.state)) {
             this.onJobComplete();
         }
         switch (record.state) {
+            case 'queued':
+                // The job waits for a free worker. Cancel removes it from the queue (FR-team-server-4).
+                this.setJobLocked(true);
+                this.showCancelButton(true);
+                this.logStatus('Job queued at position ' + record.position);
+                break;
             case 'running':
                 this.setJobLocked(true);
                 this.showCancelButton(true);
@@ -594,6 +616,7 @@ class ATAKDownloader {
     async loadSkippedSources() {
         try {
             const response = await fetch('/api/sources/skipped');
+            await this.checkSignedIn(response);
             const skipped = await response.json();
             if (!response.ok) {
                 throw new Error((skipped.error && skipped.error.message) || 'Failed to load the skipped list');
@@ -1196,6 +1219,7 @@ class ATAKDownloader {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: query })
             });
+            await this.checkSignedIn(response);
             const result = await response.json();
             if (response.ok && result.results && result.results.length > 0) {
                 const first = result.results[0];

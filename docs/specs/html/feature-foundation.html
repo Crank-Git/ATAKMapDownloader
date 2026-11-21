@@ -300,7 +300,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>The release workflow has the permissions <code>contents: write</code>, <code>packages: write</code>, <code>id-token: write</code> and <code>attestations: write</code>.
 </li>
-<li>The Docker image runs as a non-root user. It exposes port 5000 and starts <code>atak-dl serve --addr 0.0.0.0:5000</code>.
+<li>The Docker image runs as a non-root user. It exposes port 5000 and starts <code>atak-dl serve --addr 0.0.0.0:5000 --data-dir /data</code>.
 </li>
 </ul>
 <h3 id="foundation-data-touched">Data touched</h3>

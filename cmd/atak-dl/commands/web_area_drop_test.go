@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -30,6 +31,8 @@ type areaDropResult struct {
 			Padding []float64 `json:"padding"`
 		} `json:"options"`
 	} `json:"fitBounds"`
+	// Assigned holds each URL that app.js gives to window.location.assign.
+	Assigned []string `json:"assigned"`
 }
 
 // dropAreaFile runs app.js in Node against a test server, drops the area fixture name, and returns the area list.
@@ -38,20 +41,26 @@ func dropAreaFile(t *testing.T, name string) areaDropResult {
 	return runAreaDrop(t, areaFixture(name))
 }
 
-// runAreaDrop runs area_drop.js with areaArg, which is an area file path or "draw".
+// runAreaDrop runs area_drop.js with areaArg against a server on loopback. areaArg is an area file path or "draw".
 func runAreaDrop(t *testing.T, areaArg string) areaDropResult {
+	t.Helper()
+	return runAppScript(t, newServerHandler(newTestHandler(t, nil)), areaArg)
+}
+
+// runAppScript runs area_drop.js with arg against a test server with the handler server.
+func runAppScript(t *testing.T, server http.Handler, arg string) areaDropResult {
 	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed, so app.js cannot run")
 	}
-	srv := httptest.NewServer(newServerHandler(newTestHandler(t, nil)))
+	srv := httptest.NewServer(server)
 	defer srv.Close()
 
 	var stdout, stderr bytes.Buffer
 	// #nosec G204 -- the arguments are test fixture paths and the test server URL.
 	cmd := exec.CommandContext(t.Context(), node, filepath.Join("testdata", "area_drop.js"),
-		filepath.Join("..", "..", "..", "web", "static", "js", "app.js"), srv.URL, areaArg)
+		filepath.Join("..", "..", "..", "web", "static", "js", "app.js"), srv.URL, arg)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("node area_drop.js: %v\n%s", err, stderr.String())
@@ -155,6 +164,28 @@ func TestWebUIMapStaysAtItsViewWithNoImportedArea(t *testing.T) {
 			}
 			if len(got.FitBounds) != 0 {
 				t.Errorf("map.fitBounds was called %d times, want 0", len(got.FitBounds))
+			}
+		})
+	}
+}
+
+// TestWebUIGoesToTheSignInPageOnA401FromAnyAPICall runs app.js in Node against a server that needs a token.
+// The script sends no token, so each API call gets 401 unauthorized (FR-team-server-23).
+func TestWebUIGoesToTheSignInPageOnA401FromAnyAPICall(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+	}{
+		{"goes to the sign-in page after a 401 from POST /api/areas/parse", areaFixture("camps.kml")},
+		{"goes to the sign-in page after a 401 from the connection probe", "probe"},
+		{"goes to the sign-in page after a 401 from GET /api/sources/skipped", "skipped"},
+		{"goes to the sign-in page after a 401 from POST /api/geocode", "geocode"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runAppScript(t, newAuthServer(t, nil), tt.arg)
+			if !slices.Equal(got.Assigned, []string{"/signin"}) {
+				t.Errorf("window.location.assign calls = %q, want [/signin]", got.Assigned)
 			}
 		})
 	}

@@ -247,11 +247,7 @@ func TestFileListMarksTheOutputFileOfARunningJobInProgress(t *testing.T) {
 	stream, r := s.openEvents(t, rec.ID)
 	defer closeBody(stream)
 	// A progress event shows that the engine opened the output file.
-	for _, want := range []string{"state", "progress"} {
-		if e, _ := readEvent(t, r); e.name != want {
-			t.Fatalf("event = %q, want %s", e.name, want)
-		}
-	}
+	readToProgress(t, r)
 
 	inProgress := func() map[string]bool {
 		got := map[string]bool{}
@@ -291,5 +287,28 @@ func TestFileListNamesTheOutputFormatOfEachFile(t *testing.T) {
 				t.Errorf("GET /api/files = %+v, want %s with output_format %s", items, rec.OutputFile, format)
 			}
 		})
+	}
+}
+
+func TestFileRoutesAcceptOnlyTheOutputFileExtensions(t *testing.T) {
+	h := filesHandler(t)
+	writeOutputFile(t, filepath.Join(h.outputDir, "real.mbtiles"), fileMetadata)
+	// An MBTiles file with another extension is not an output file of a job.
+	writeOutputFile(t, filepath.Join(h.outputDir, "copy.db"), fileMetadata)
+	line := `{"record":{"id":"0123456789ab"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(h.outputDir, "jobs.jsonl"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := fileNames(listFiles(t, h)); !slices.Equal(got, []string{"real.mbtiles"}) {
+		t.Errorf("file names = %v, want only real.mbtiles", got)
+	}
+	for _, name := range []string{"jobs.jsonl", "copy.db"} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			checkError(t, serve(h, http.MethodGet, "/api/files/"+name, "").Result(), http.StatusNotFound, "file_not_found")
+			checkError(t, serve(h, http.MethodGet, "/api/files/"+name+"/tiles/10/0/0", "").Result(), http.StatusNotFound, "file_not_found")
+		})
+	}
+	if rec := serve(h, http.MethodGet, "/api/files/real.mbtiles", ""); rec.Code != http.StatusOK {
+		t.Errorf("GET /api/files/real.mbtiles status = %d, want 200", rec.Code)
 	}
 }

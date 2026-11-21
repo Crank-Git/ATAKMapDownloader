@@ -9,9 +9,15 @@ mockups: [mockups/05-jobs.html]
 
 ## Purpose
 
-Today the server holds one job in memory, and it rejects a second job with "Download already in progress" (`cmd/atak-dl/commands/web.go:479-484`). A job is lost when the server restarts. The server has no authentication, so binding it to a LAN address exposes it to every device on the network.
+Before this feature, the server held one job in memory, and it rejected a second job with "Download already in progress". A restart lost the job. The server had no authentication, so a LAN address exposed it to every device on the network.
 
-The user wants the project to serve small teams from one LAN machine or a container. This feature adds a job queue, a persistent job store, a jobs page and a shared token for every address that is not loopback.
+The user wants the project to serve small teams from one LAN machine or a container. This feature adds these parts:
+
+- A queue of jobs and a fixed count of workers (`serve --workers`).
+- A job store, `jobs.jsonl` in the data directory, that keeps every job after a restart.
+- A Jobs page that lists the jobs, and cancels and resumes them.
+- A shared token for every address that is not loopback, with a sign-in page.
+- The health route `GET /healthz` for a container health check.
 
 ## User stories
 
@@ -161,7 +167,11 @@ flowchart TD
 
 ## Data touched
 
-- JOB becomes persistent in `jobs.jsonl` and gains `queued` state, `label`, `started_at`, `finished_at` and `reason`.
+- JOB becomes persistent in `jobs.jsonl`. It gains these fields:
+  - The `queued` state.
+  - `label`, `area_name`, `started_at`, `finished_at` and `reason`.
+  - `position`, which a read computes for a queued job.
+- Each line of `jobs.jsonl` holds the job record and the stored request, so a queued job runs after a restart. The stored request has no token.
 - New file `<data dir>/jobs.jsonl`.
 
 ## Interfaces
@@ -176,6 +186,8 @@ flowchart TD
 | GET | `/healthz` | — | 200 `{status, version}` | — |
 
 - CLI: `serve --workers <n>` (1 to 8), `--data-dir <dir>` and `--token <token>`.
+- `GET /api/config` adds `version`, `addr`, `data_dir` and `workers`. The server footer of the Jobs page shows them (#59).
+- The job record adds `area_name`, the name of the first area. The Jobs page shows it when the job has no label (#59).
 - `crypto/subtle.ConstantTimeCompare`: https://pkg.go.dev/crypto/subtle.
 - GoReleaser `dockers_v2` image from Epic 0: https://goreleaser.com/customization/docker/.
 

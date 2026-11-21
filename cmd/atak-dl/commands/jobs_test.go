@@ -48,6 +48,12 @@ func newNamedJobServer(t *testing.T, table testtiles.Table, name string) *jobSer
 // newTypedJobServer starts a server whose one map source name has the tile type tileType and points at a tile server with table.
 func newTypedJobServer(t *testing.T, table testtiles.Table, name, tileType string) *jobServer {
 	t.Helper()
+	return newDataDirJobServer(t, table, name, tileType, t.TempDir())
+}
+
+// newDataDirJobServer starts a server like newTypedJobServer, with dataDir as the data directory.
+func newDataDirJobServer(t *testing.T, table testtiles.Table, name, tileType, dataDir string) *jobServer {
+	t.Helper()
 	tiles := testtiles.New(t, table)
 	xml := fmt.Sprintf(`<?xml version="1.0"?>
 <customMapSource>
@@ -57,15 +63,15 @@ func newTypedJobServer(t *testing.T, table testtiles.Table, name, tileType strin
     <tileType>%s</tileType>
     <url>%s</url>
 </customMapSource>`, name, tileType, tiles.URLTemplate())
-	h := newTestHandler(t, map[string]string{"tiles.xml": xml})
-	h.outputDir = t.TempDir()
 	// A 1000-tile job at the default rate of 4 per second takes minutes, so the test tile server gets a high rate.
+	// A job of jobs.jsonl can start in newDataDirHandler, so the policy changes before it.
 	original := sourcePolicy
 	sourcePolicy = func(*xmlparser.MapSource) policy.Entry {
 		return policy.Entry{HostPatterns: []string{"127.0.0.1"}, PolicyClass: policy.Open, RequestsPerSecond: 10000}
 	}
 	// The cleanup runs after srv.Close, so no job reads the policy during the restore.
 	t.Cleanup(func() { sourcePolicy = original })
+	h := newDataDirHandler(t, map[string]string{"tiles.xml": xml}, dataDir)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return &jobServer{handler: h, url: srv.URL, tiles: tiles}
@@ -236,8 +242,8 @@ func TestJobAPIStreamsEveryEventOfA1000TileJob(t *testing.T) {
 	if !regexp.MustCompile(`^[0-9a-f]{12}$`).MatchString(rec.ID) {
 		t.Errorf("id = %q, want 12 lowercase hex characters", rec.ID)
 	}
-	if rec.State != jobRunning || rec.Total != 1000 {
-		t.Errorf("record = %+v, want state running and total 1000", rec)
+	if rec.State != jobQueued || rec.Total != 1000 {
+		t.Errorf("record = %+v, want state queued and total 1000", rec)
 	}
 
 	start := time.Now()
@@ -270,11 +276,17 @@ func TestJobAPIStreamsEveryEventOfA1000TileJob(t *testing.T) {
 }
 
 // checkProgress fails the test when an event is not a progress event for total tiles,
-// or when the downloaded count decreases. It returns the number of events.
+// or when the downloaded count decreases. It returns the number of progress events.
+// It accepts the running state event of a job that the stream found queued.
 func checkProgress(t *testing.T, events []sseEvent, total int) int {
 	t.Helper()
 	var lastDownloaded int64
+	count := 0
 	for _, e := range events {
+		if isRunningState(t, e) {
+			continue
+		}
+		count++
 		if e.name != "progress" {
 			t.Fatalf("event %q between the first and the last event, want progress", e.name)
 		}
@@ -287,7 +299,33 @@ func checkProgress(t *testing.T, events []sseEvent, total int) int {
 		}
 		lastDownloaded = p.Downloaded
 	}
-	return len(events)
+	return count
+}
+
+// isRunningState reports whether e is a state event with the running state.
+func isRunningState(t *testing.T, e sseEvent) bool {
+	t.Helper()
+	return e.name == "state" && decodeRecord(t, strings.NewReader(e.data)).State == jobRunning
+}
+
+// readToProgress reads the first event, a state event, and then the events up to the first progress event.
+// A job that the stream found queued sends a running state event before its first progress event.
+func readToProgress(t *testing.T, r *bufio.Reader) {
+	t.Helper()
+	if e, _ := readEvent(t, r); e.name != "state" {
+		t.Fatalf("first event = %q, want state", e.name)
+	}
+	for {
+		e, ok := readEvent(t, r)
+		switch {
+		case !ok:
+			t.Fatal("the stream ended before a progress event")
+		case e.name == "progress":
+			return
+		case !isRunningState(t, e):
+			t.Fatalf("event %+v before the first progress event, want progress or the running state", e)
+		}
+	}
 }
 
 // getRecord returns the record of GET /api/jobs/{id}.
@@ -309,12 +347,7 @@ func TestJobEventsSendTheStateFirstAfterAReconnect(t *testing.T) {
 	rec := s.startJob(t, jobBody(slowArea))
 
 	resp, r := s.openEvents(t, rec.ID)
-	if e, _ := readEvent(t, r); e.name != "state" {
-		t.Fatalf("first event = %q, want state", e.name)
-	}
-	if e, _ := readEvent(t, r); e.name != "progress" {
-		t.Fatalf("second event = %q, want progress", e.name)
-	}
+	readToProgress(t, r)
 	closeBody(resp)
 
 	resp, r = s.openEvents(t, rec.ID)
@@ -333,32 +366,13 @@ func TestJobEventsSendTheStateFirstAfterAReconnect(t *testing.T) {
 	}
 }
 
-func TestJobAPIRejectsASecondJobWhileOneRuns(t *testing.T) {
-	s := newJobServer(t, slowTable(slowArea, 100*time.Millisecond))
-	rec := s.startJob(t, jobBody(slowArea))
-
-	resp := s.request(t, http.MethodPost, "/api/jobs", jobBody(slowArea))
-	checkError(t, resp, http.StatusConflict, "job_running")
-
-	closeBody(s.request(t, http.MethodDelete, "/api/jobs/"+rec.ID, ""))
-	s.finalRecord(t, rec.ID)
-	// The job lock is free again after the job ends. The first job kept its output file, so the next one overwrites it.
-	next := s.startJob(t, strings.TrimSuffix(jobBody(slowArea), "}")+`,"if_exists":"overwrite"}`)
-	closeBody(s.request(t, http.MethodDelete, "/api/jobs/"+next.ID, ""))
-	s.finalRecord(t, next.ID)
-}
-
 func TestDeleteCancelsARunningJob(t *testing.T) {
 	s := newJobServer(t, slowTable(slowArea, 100*time.Millisecond))
 	rec := s.startJob(t, jobBody(slowArea))
 	stream, r := s.openEvents(t, rec.ID)
 	defer closeBody(stream)
 	// A progress event shows that the engine runs, so the cancel stops a job in progress.
-	for _, want := range []string{"state", "progress"} {
-		if e, _ := readEvent(t, r); e.name != want {
-			t.Fatalf("event = %q, want %s", e.name, want)
-		}
-	}
+	readToProgress(t, r)
 
 	start := time.Now()
 	resp := s.request(t, http.MethodDelete, "/api/jobs/"+rec.ID, "")
@@ -499,7 +513,7 @@ func TestJobAPIErrorResponses(t *testing.T) {
 		{"get rejects an unknown job", http.MethodGet, "/api/jobs/000000000000", "", http.StatusNotFound, "job_not_found"},
 		{"events rejects an unknown job", http.MethodGet, "/api/jobs/000000000000/events", "", http.StatusNotFound, "job_not_found"},
 		{"delete rejects an unknown job", http.MethodDelete, "/api/jobs/000000000000", "", http.StatusNotFound, "job_not_found"},
-		{"jobs rejects GET", http.MethodGet, "/api/jobs", "", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"jobs rejects PUT", http.MethodPut, "/api/jobs", "", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{"job rejects POST", http.MethodPost, "/api/jobs/000000000000", "", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{"jobs rejects an unknown route", http.MethodGet, "/api/jobs/a/b", "", http.StatusNotFound, "not_found"},
 		{"post rejects a body that is not JSON", http.MethodPost, "/api/jobs", "{", http.StatusBadRequest, "invalid_json"},

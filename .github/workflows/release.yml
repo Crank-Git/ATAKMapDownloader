@@ -17,7 +17,64 @@ permissions:
   attestations: write
 
 jobs:
+  # The goreleaser job pushes the image, so it waits until a snapshot of the same image answers GET /healthz.
+  container-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      # A snapshot loads one image for each platform into the local daemon, with the platform after the tag, and pushes nothing.
+      # The snapshot skips the signatures and the SBOMs, because this job has no OIDC token and no Syft.
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: v2.20.3
+          args: release --snapshot --clean --skip=sign,sbom
+
+      # The checks run the two volume choices of docs/server.md: a bind mount with the host user, and a named volume.
+      - name: Run the image and check GET /healthz
+        env:
+          IMAGE: ghcr.io/crank-git/atak-map-downloader:${{ github.ref_name }}-amd64
+        run: |
+          set -eu
+          mkdir data
+          docker run -d --name bind --user "$(id -u):$(id -g)" -v "$PWD/data:/data" -e ATAKDL_TOKEN=abc -p 5000:5000 "$IMAGE"
+          docker run -d --name named -v atak-dl-data:/data -e ATAKDL_TOKEN=abc -p 5001:5000 "$IMAGE"
+          for port in 5000 5001; do
+            status=000
+            # 50 attempts at 0.2 s give the server 10 s to start.
+            for _ in $(seq 50); do
+              status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/healthz" || true)
+              if [ "$status" = "200" ]; then
+                break
+              fi
+              sleep 0.2
+            done
+            if [ "$status" != "200" ]; then
+              docker logs bind
+              docker logs named
+              echo "GET /healthz on port $port returned $status, want 200" >&2
+              exit 1
+            fi
+            curl -sf "http://127.0.0.1:$port/healthz"
+            echo
+          done
+          # The server makes jobs.jsonl at start, so the file shows that the host user can write the bind mount.
+          test -f data/jobs.jsonl
+
   goreleaser:
+    needs: container-smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

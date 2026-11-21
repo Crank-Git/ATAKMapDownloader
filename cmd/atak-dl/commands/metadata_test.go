@@ -67,6 +67,7 @@ func TestDownloadWarnsOnlyForAWebPTileType(t *testing.T) {
 			}
 			root := &cobra.Command{Use: "atak-dl"}
 			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.PersistentFlags().String("data-dir", "", "")
 			root.AddCommand(NewDownloadCmd(testUserAgent))
 			var stderr bytes.Buffer
 			root.SetErr(&stderr)

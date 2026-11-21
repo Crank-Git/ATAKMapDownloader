@@ -7,29 +7,34 @@ import (
 	"os"
 	"time"
 
-	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/spf13/cobra"
 )
 
 // NewServeCmd returns the serve command, which starts the web interface.
 // Every tile request and every geocode request of the server sends userAgent.
-func NewServeCmd(userAgent string) *cobra.Command {
+// GET /healthz reports version.
+func NewServeCmd(userAgent, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the web interface",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runServe(cmd, userAgent)
+			return runServe(cmd, userAgent, version)
 		},
 	}
 	cmd.Flags().String("addr", "localhost:5000", "Address to listen on")
 	cmd.Flags().String("geocoder-url", defaultGeocoderURL, "Base URL of the Nominatim geocoder for place search")
 	cmd.Flags().Bool("no-geocode", false, "Turn off place search and hide the search box in the web UI")
 	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job API job above this tile count")
+	cmd.Flags().Int("workers", 1, fmt.Sprintf("Number of jobs that run at the same time, 1 to %d", maxWorkers))
+	cmd.Flags().String("token", "", "Token of a server that is not on loopback. The default is ATAKDL_TOKEN, else a generated token")
 	return cmd
 }
 
-func runServe(cmd *cobra.Command, userAgent string) error {
+// maxWorkers is the highest value of serve --workers (feature 12, interfaces).
+const maxWorkers = 8
+
+func runServe(cmd *cobra.Command, userAgent, version string) error {
 	addr, _ := cmd.Flags().GetString("addr")
 
 	host, _, err := net.SplitHostPort(addr)
@@ -47,25 +52,32 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 		fmt.Fprintf(os.Stderr, "Warning: No map sources found in %s\n", dir)
 	}
 
-	// mbtiles.Open makes the directory again and reports that error.
-	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
-
 	calc := tilecalc.NewTileCalculator()
 	wh := NewWebHandler(parser, calc, dir, userAgent)
+	wh.version = version
+	// The store opens before the workers start, so a restored queued job runs (FR-team-server-10).
+	if err := serveDataDir(cmd, wh); err != nil {
+		return err
+	}
 	if err := applyGeocodeFlags(cmd, wh); err != nil {
 		return err
 	}
 	if wh.maxTiles, err = cmd.Flags().GetInt("max-tiles"); err != nil {
 		return fmt.Errorf("read --max-tiles: %w", err)
 	}
-	handler := newServerHandler(wh)
-
+	workers, err := serveWorkers(cmd)
+	if err != nil {
+		return err
+	}
+	wh.addr, wh.workers = addr, workers
 	if !loopback {
-		// TODO(#58): Replace this warning with the token.
-		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: the server has no authentication and is reachable from other machines on %s\n", addr); err != nil {
-			return fmt.Errorf("print the authentication warning: %w", err)
+		if wh.auth, err = serverAuth(cmd); err != nil {
+			return err
 		}
 	}
+	handler := newServerHandler(wh)
+	wh.queue.Start(cmd.Context(), workers)
+
 	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "ATAK Map Downloader - Web Interface\nOpen http://%s in your browser\nMapsources: %s (%d sources)\n",
 		addr, dir, len(sources)); err != nil {
 		return fmt.Errorf("print the start message: %w", err)
@@ -84,6 +96,52 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 		}
 		return nil
 	}
+}
+
+// serveWorkers returns the value of --workers (FR-team-server-2).
+// It returns an error when the value is outside the range 1 to maxWorkers.
+func serveWorkers(cmd *cobra.Command) (int, error) {
+	workers, err := cmd.Flags().GetInt("workers")
+	if err != nil {
+		return 0, fmt.Errorf("read --workers: %w", err)
+	}
+	if workers < 1 || workers > maxWorkers {
+		return 0, fmt.Errorf("--workers %d is outside the range 1-%d", workers, maxWorkers)
+	}
+	return workers, nil
+}
+
+// serveDataDir gives wh the data directory of cmd (FR-team-server-14).
+// It returns the errors of dataDir and useDataDir.
+func serveDataDir(cmd *cobra.Command, wh *WebHandler) error {
+	dir, err := dataDir(cmd)
+	if err != nil {
+		return err
+	}
+	return wh.useDataDir(dir)
+}
+
+// serverAuth returns the token auth of a server that is not on loopback (FR-team-server-18, FR-team-server-19).
+// The token comes from --token, else from ATAKDL_TOKEN.
+// With neither, serverAuth generates a token and prints it once to stderr.
+// It never prints a token from the flag or the environment, because the operator already has it.
+func serverAuth(cmd *cobra.Command) (*tokenAuth, error) {
+	token, err := cmd.Flags().GetString("token")
+	if err != nil {
+		return nil, fmt.Errorf("read --token: %w", err)
+	}
+	if token == "" {
+		token = os.Getenv("ATAKDL_TOKEN")
+	}
+	if token == "" {
+		if token, err = newToken(); err != nil {
+			return nil, fmt.Errorf("generate the token: %w", err)
+		}
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "token: %s (generated: set --token or ATAKDL_TOKEN to keep one token after a restart)\n", token); err != nil {
+			return nil, fmt.Errorf("print the token: %w", err)
+		}
+	}
+	return newTokenAuth(token), nil
 }
 
 // newServer returns the HTTP server for handler on addr, with the timeouts of FR-security-hardening-18.

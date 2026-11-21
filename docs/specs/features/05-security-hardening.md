@@ -40,7 +40,7 @@ This feature closes these gaps. It also replaces the websocket with a small job 
 - FR-security-hardening-9 — `GET /api/jobs/{id}` returns the job record.
 - FR-security-hardening-10 — `GET /api/jobs/{id}/events` streams job events as SSE.
 - FR-security-hardening-11 — `DELETE /api/jobs/{id}` cancels a queued or running job and returns 202.
-- FR-security-hardening-12 — If a job is already running, `POST /api/jobs` returns 409 with error code `job_running`. Feature 12 replaces this rule with a queue.
+- FR-security-hardening-12 — When a job runs, `POST /api/jobs` adds the next job to the queue of feature 12 (FR-team-server-1). Feature 12 removed the error code `job_running`.
 - FR-security-hardening-13 — One goroutine per job sends events. Engine goroutines send progress through a channel to that goroutine.
 - FR-security-hardening-14 — The server sends at most 4 `progress` events per second per job.
 - FR-security-hardening-15 — A client that reconnects to `/events` receives a `state` event with the current job record first.
@@ -76,11 +76,11 @@ sequenceDiagram
     S-->>B: 403 cross_origin
   else invalid input
     S-->>B: 400 error JSON
-  else a job is running
-    S-->>B: 409 job_running
+  else the queue is full
+    S-->>B: 429 queue_full
   else accepted
-    S->>E: start job
-    S-->>B: 202 job record
+    S-->>B: 202 job record, state queued
+    S->>E: start job when a worker is free
     B->>S: GET /api/jobs/{id}/events
     loop until a final state
       E->>S: progress via channel
@@ -93,8 +93,8 @@ sequenceDiagram
 1. The web UI sends `POST /api/jobs`.
 2. The server checks the origin. If the request is cross-origin, the server returns 403.
 3. The server validates the input. If the input is invalid, the server returns 400.
-4. If a job is running, the server returns 409.
-5. The server starts the job and returns 202 with the job record.
+4. If the queue is full, the server returns 429.
+5. The server adds the job to the queue and returns 202 with the job record. A free worker starts the job.
 6. The web UI opens `GET /api/jobs/{id}/events`.
 7. The server sends `progress` events, at most 4 per second.
 8. The server sends a final `state` event and closes the stream.
@@ -133,7 +133,7 @@ Feature 08 redesigns the screens.
 - `id` is 12 lowercase hex characters from `crypto/rand`.
 - Job states in this feature: `running`, `complete`, `failed` and `cancelled`. Feature 12 adds `queued`.
 - The `delay_between_batches` setting is removed. The engine never read it (`internal/download/download.go:28`). Feature 06 replaces it with rate limits.
-- Error codes: `cross_origin`, `invalid_json`, `invalid_bounds`, `zoom_out_of_range`, `invalid_concurrency`, `unknown_source`, `job_running`, `job_not_found`, `invalid_if_exists`, `body_too_large`, `internal`, `invalid_query`, `not_found`, `method_not_allowed`. Later epics add `terms_not_accepted` and `invalid_rate_limit` (feature 06), `output_exists` and `too_many_tiles` (feature 07), and `invalid_area` and `invalid_area_file` (feature 11).
+- Error codes: `cross_origin`, `invalid_json`, `invalid_bounds`, `zoom_out_of_range`, `invalid_concurrency`, `unknown_source`, `job_not_found`, `invalid_if_exists`, `body_too_large`, `internal`, `invalid_query`, `not_found`, `method_not_allowed`. Later epics add `terms_not_accepted` and `invalid_rate_limit` (feature 06), `output_exists` and `too_many_tiles` (feature 07), `invalid_area` and `invalid_area_file` (feature 11), and `unauthorized`, `too_many_attempts`, `queue_full`, `invalid_state`, `invalid_label` and `output_in_use` (feature 12). Feature 12 removed `job_running`.
 - `invalid_query` is for an empty `/api/geocode` query, `not_found` is for a route that does not exist, and `method_not_allowed` comes with status 405. The PM accepted these three codes at the #74 gate.
 
 ## Data touched
@@ -145,7 +145,7 @@ Feature 08 redesigns the screens.
 
 | Method | Path | Request | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/jobs` | `{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?, if_exists?}` | 202 job record | 400, 403, 404 `unknown_source`, 409 `job_running` or `output_exists`, 413 |
+| POST | `/api/jobs` | `{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?, if_exists?}` | 202 job record | 400, 403, 404 `unknown_source`, 409 `output_exists`, 413, 429 `queue_full` |
 | GET | `/api/jobs/{id}` | — | 200 job record | 404 `job_not_found` |
 | GET | `/api/jobs/{id}/events` | — | 200 `text/event-stream` | 404 |
 | DELETE | `/api/jobs/{id}` | — | 202 job record | 403, 404 |

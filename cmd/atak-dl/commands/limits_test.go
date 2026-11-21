@@ -35,6 +35,7 @@ func runDownloadOf(ctx context.Context, t *testing.T, srv *testtiles.Server, tb 
 	t.Helper()
 	root := &cobra.Command{Use: "atak-dl"}
 	root.PersistentFlags().String("mapsources-dir", "", "")
+	root.PersistentFlags().String("data-dir", "", "")
 	root.AddCommand(NewDownloadCmd(testUserAgent))
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
@@ -224,7 +225,7 @@ func TestJobAPIRefusesAJobAboveTheTileCap(t *testing.T) {
 }
 
 func TestTheTileCapDefaultIs500000(t *testing.T) {
-	for _, cmd := range []*cobra.Command{NewDownloadCmd(testUserAgent), NewServeCmd(testUserAgent)} {
+	for _, cmd := range []*cobra.Command{NewDownloadCmd(testUserAgent), NewServeCmd(testUserAgent, "dev")} {
 		flag := cmd.Flags().Lookup("max-tiles")
 		if flag == nil || flag.DefValue != "500000" {
 			t.Errorf("%s --max-tiles = %v, want a flag with the default 500000", cmd.Name(), flag)

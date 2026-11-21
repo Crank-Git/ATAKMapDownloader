@@ -47,7 +47,7 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().Int("min-zoom", 1, "Minimum zoom level")
 	cmd.Flags().Int("max-zoom", 15, "Maximum zoom level")
 	cmd.Flags().String("format", output.MBTiles, "Output format: "+strings.Join(output.Formats, ", "))
-	cmd.Flags().String("output", "", "Output file path (default: downloads/<name> with the extension of --format)")
+	cmd.Flags().String("output", "", "Output file path (default: <data dir>/<name> with the extension of --format)")
 	cmd.Flags().String("name", "", "Custom filename (without extension)")
 	cmd.Flags().Int("concurrent", 5, "Concurrent downloads")
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
@@ -396,7 +396,7 @@ func outputFlag(cmd *cobra.Command, pkg *packageOptions) (string, error) {
 }
 
 // defaultOutput returns output when it is set, because outputFlag already prepared it.
-// With no output, it returns the path in the downloads directory with the name of jobOutputFile and the --name flag.
+// With no output, it returns the path in the data directory with the name of jobOutputFile and the --name flag (FR-team-server-15).
 // It calls unpackForResume for that path.
 func defaultOutput(cmd *cobra.Command, output string, source *xmlparser.MapSource, areas []tilecalc.JobArea, format string,
 	pkg *packageOptions) (string, error) {
@@ -407,7 +407,11 @@ func defaultOutput(cmd *cobra.Command, output string, source *xmlparser.MapSourc
 	if err != nil {
 		return "", fmt.Errorf("read --name: %w", err)
 	}
-	output = filepath.Join(download.DownloadsDir(), jobOutputFile(source.Name, areas, customName, format))
+	dir, err := dataDir(cmd)
+	if err != nil {
+		return "", err
+	}
+	output = filepath.Join(dir, jobOutputFile(source.Name, areas, customName, format))
 	return output, unpackForResume(cmd, output, pkg)
 }
 

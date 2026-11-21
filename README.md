@@ -48,7 +48,9 @@ docker run -p 5000:5000 ghcr.io/crank-git/atak-map-downloader:<tag>
 docker run ghcr.io/crank-git/atak-map-downloader:<tag> --version
 ```
 
-The image runs `atak-dl serve --addr 0.0.0.0:5000` by default. Arguments after the image name replace `serve --addr 0.0.0.0:5000`. The address `0.0.0.0` is not loopback, so the server prints a warning that it has no authentication.
+The image runs `atak-dl serve --addr 0.0.0.0:5000 --data-dir /data` by default, with `/data` as a volume. Arguments after the image name replace `serve --addr 0.0.0.0:5000 --data-dir /data`. The address `0.0.0.0` is not loopback, so the server requires a token. With no `--token` and no `ATAKDL_TOKEN`, the server generates a token and prints it once to stderr.
+
+To run a team server with a token and a data volume, see [docs/server.md](docs/server.md).
 
 ## Build
 
@@ -95,6 +97,8 @@ A release binary shows its release version, commit and build date. A local build
 
 Then open http://localhost:5000 in your browser.
 
+The Jobs page at http://localhost:5000/jobs lists the queued jobs and the job history, newest first. Each job row shows the map source, the label or area name, the zoom range, the state and the progress. A row offers the actions that the job state allows: Cancel, Download and Resume. Select a row to see the job record and the live event log.
+
 ### CLI Commands
 
 ```bash
@@ -126,11 +130,16 @@ Then open http://localhost:5000 in your browser.
 |---------|------|---------|-------------|
 | (global) | `--mapsources-dir` | `<user config dir>/atak-dl/mapsources` | User source directory. The project loads it after the snapshot, and it reads its subdirectories too. A missing directory is not an error. |
 | (global) | `--no-snapshot` | `false` | Load only the user source directory, without the embedded snapshot. |
+| (global) | `--data-dir` | `ATAKDL_DATA_DIR`, else `./downloads` | Directory of the output files and of `jobs.jsonl`. `download` writes there when the command has no `--output`. If `serve` cannot write to the directory, it exits with code 1 and the message `data directory is not writable: <dir>`. |
 | `sources sync` | `--tag` | latest release | ATAK-Maps release tag to download, for example `v2.3.1`. |
-| `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, `serve` prints a warning, because the server has no authentication. |
+| `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, every route needs the token, apart from `GET /healthz` and the sign-in page. |
 | `serve` | `--geocoder-url` | `https://nominatim.openstreetmap.org` | Base URL of the Nominatim geocoder for place search. The server sends at most 1 geocode request per second, waits at most 5 s for a slot, and caches each result for 24 hours. A URL that is not an absolute `http` or `https` URL fails. |
 | `serve` | `--no-geocode` | `false` | Turn off place search. `POST /api/geocode` returns 404 `not_found`, `GET /api/config` returns `{"geocode": false}`, and the web UI hides the search box. |
 | `serve` | `--max-tiles` | `500000` | Tile cap of a job. `POST /api/jobs` for a job above the cap returns 400 `too_many_tiles`, and the job sends no request. |
+| `serve` | (job store) | - | The server appends each state of each job to `<data dir>/jobs.jsonl`, with the job request and with no token. At start, a `running` job becomes `failed` with `reason` `server_restarted`, and a `queued` job runs. The server skips a corrupt line and logs its line number. `GET /api/jobs?page=N` returns `{"jobs": [...], "page": N, "pages": P}`, newest first, 50 per page, and 400 `invalid_query` for a page that is not a whole number of 1 or more. `POST /api/jobs` accepts `label`, 1 to 80 characters, and returns 400 `invalid_label` for another length. If a queued or running job writes the same output file name or data package name, the new job gets the suffix `-2`, `-3` and so on. The suffix shortens a long package name, so the name stays inside 64 characters. `POST /api/jobs/{id}/resume` returns 409 `output_in_use` when a queued or running job writes the output file of the job. |
+| `serve` | (health route) | - | `GET /healthz` returns 200 with `{"status":"ok","version":"<version>"}`. It needs no token, so a monitor can read it. Another method returns 405 `method_not_allowed`. |
+| `serve` | `--workers` | `1` | Number of jobs that run at the same time, 1 to 8. Another job waits in the queue with the state `queued`. The queue holds at most 50 jobs, and `POST /api/jobs` returns 429 `queue_full` above that. A value outside 1 to 8 fails at start. |
+| `serve` | `--token` | `ATAKDL_TOKEN`, else generated | Token of a server that is not on loopback. A client sends it as `Authorization: Bearer <token>`, or signs in at `/signin` to get the `atakdl_token` cookie. With no token set, `serve` generates a 32-character token and prints it once to stderr. A server on loopback needs no token. 10 failed token attempts in one minute from one IP address give 429 `too_many_attempts`. |
 | `download` | `--source` | - | Map source name (required) |
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon. It is required, except with `--area` or `--resume --output <file>`. |
 | `download` | `--area` | - | GeoJSON (`.geojson`, `.json`), KML (`.kml`) or KMZ (`.kmz`) file of the areas, at most 5 MiB. A polygon becomes a `polygon` area, and a line becomes a `route_buffer` area. The GeoJSON Feature properties `min_zoom`, `max_zoom`, `buffer_m` and `name` set the values of that area. A KML Placemark `name` becomes the area name. The command ignores Point features and prints a warning with their count. You cannot use it together with `--bbox`, or the command exits with code 1. |
@@ -138,7 +147,7 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--min-zoom` | 1 | Minimum zoom level. It must not be below the map source's minimum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--max-zoom` | 15 | Maximum zoom level. It must not be above the map source's maximum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--format` | `mbtiles` | Output format: `mbtiles`, `osmdroid` or `gpkg`. The extension of the default output file is `.mbtiles`, `.sqlite` or `.gpkg`. An unknown value fails with `invalid_output_format` and lists the valid values. A `gpkg` output file is a GeoPackage 1.3 raster in EPSG:3857, with one tile table named from the map source. GeoPackage holds only PNG and JPEG tiles, so `gpkg` for a map source with `webp` or `gif` tiles fails with `unsupported_tile_type`. An `osmdroid` output file is an OSMDroid tile cache in EPSG:3857 that ATAK reads, with the map source name in `provider`. Every output format accepts zoom levels up to 25, and a higher zoom level fails with `zoom_out_of_range`. `POST /api/jobs` accepts the same values in `output_format`, and returns 400 with the same error codes. |
-| `download` | `--output` | `downloads/<name>.mbtiles` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
+| `download` | `--output` | `<data dir>/<name>.mbtiles` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
 | `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, or if its output format is not the `--format` value, the command exits with code 3 and prints `output file is <format>` for a format mismatch. With no `--bbox`, the job reads its areas and zoom ranges from the `atakdl_areas` metadata row of the file. |
 | `download` | `--overwrite` | `false` | Delete the existing output file before the job starts. You cannot use it together with `--resume`. |
 | `download` | `--force` | `false` | With `--resume`, accept an output file that names no map source, for example a file from v0.1. |

@@ -78,6 +78,7 @@ func runEstimateArgs(t *testing.T, srv *testtiles.Server, args ...string) (stdou
 	t.Helper()
 	root := &cobra.Command{Use: "atak-dl"}
 	root.PersistentFlags().String("mapsources-dir", "", "")
+	root.PersistentFlags().String("data-dir", "", "")
 	root.AddCommand(NewEstimateCmd())
 	var out, errOut bytes.Buffer
 	root.SetOut(&out)
@@ -211,6 +212,7 @@ func TestAreaFileCommandsAcceptAnOldSourceName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			root := &cobra.Command{Use: "atak-dl"}
 			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.PersistentFlags().String("data-dir", "", "")
 			root.AddCommand(tt.command)
 			var out, errOut bytes.Buffer
 			root.SetOut(&out)

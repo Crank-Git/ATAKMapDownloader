@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/jobs"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/crank-git/atak-map-downloader/web"
@@ -29,6 +30,8 @@ type WebHandler struct {
 	jobRoutes *http.ServeMux
 	// userAgent is the User-Agent of every tile request and every geocode request (FR-polite-downloading-14).
 	userAgent string
+	// version is the version of the binary that GET /healthz reports (FR-team-server-29).
+	version string
 	// geocodeURL is the Nominatim search endpoint. A test points it at a fake Nominatim.
 	geocodeURL string
 	// geocodeOff removes the /api/geocode route (FR-polite-downloading-26).
@@ -40,13 +43,19 @@ type WebHandler struct {
 	// geocodeWait is the longest wait for the limiter. A test makes it short.
 	geocodeWait  time.Duration
 	geocodeCache *geocodeCache
-	// dlState is the job lock. createJob takes it, so two jobs never run at once.
-	dlState struct {
-		sync.Mutex
-		downloading bool
-		// job is the last job that the job API started. It stays after the job ends, so GET can read its result.
-		job *job
-	}
+	// auth is the token check of FR-team-server-17. It is nil on loopback.
+	auth *tokenAuth
+	// queue holds the queued jobs and starts them on its workers (FR-team-server-1, -2, -3).
+	queue *jobs.Queue
+	// jobMu guards jobs.
+	jobMu sync.Mutex
+	// jobs holds every job of the server by id. A job stays after it ends, so GET can read its result.
+	jobs map[string]*job
+	// store is the jobs.jsonl file of the data directory. useDataDir opens it.
+	store *jobs.Store
+	// addr and workers are the --addr and --workers values of serve. The footer of the Jobs page shows them.
+	addr    string
+	workers int
 }
 
 // NewWebHandler creates a new web handler.
@@ -66,7 +75,9 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 		geocodeClient:  &http.Client{Timeout: 10 * time.Second},
 		geocodeWait:    geocodeWait,
 		geocodeCache:   newGeocodeCache(),
+		jobs:           map[string]*job{},
 	}
+	h.queue = jobs.NewQueue(h.startJob)
 	h.routeJobs(h.jobRoutes)
 	return h
 }
@@ -75,13 +86,14 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 // It rejects a cross-origin POST or DELETE with status 403 and the error code cross_origin
 // (FR-security-hardening-2, FR-security-hardening-3).
 // It passes a request with no Sec-Fetch-Site header and no Origin header, because curl and other clients send neither.
+// Every request without the token of h.auth gets the response of tokenAuth.handler.
 // Every request body goes through limitBody.
-func newServerHandler(h http.Handler) http.Handler {
+func newServerHandler(h *WebHandler) http.Handler {
 	cop := http.NewCrossOriginProtection()
 	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusForbidden, "cross_origin", "Cross-origin request rejected")
 	}))
-	return cop.Handler(limitBody(h))
+	return cop.Handler(h.auth.handler(limitBody(h)))
 }
 
 // maxBodyBytes is the largest request body that the server reads (FR-security-hardening-17).
@@ -119,8 +131,16 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/":
 		h.serveIndex(w, r)
+	case r.URL.Path == "/healthz":
+		h.serveHealth(w, r)
+	case r.URL.Path == "/jobs":
+		servePage(w, web.JobsHTML())
+	case r.URL.Path == "/signin":
+		servePage(w, web.SigninHTML())
 	case r.URL.Path == "/api/jobs" || strings.HasPrefix(r.URL.Path, "/api/jobs/"):
 		h.jobRoutes.ServeHTTP(w, r)
+	case r.URL.Path == "/api/session":
+		h.apiSession(w, r)
 	case r.URL.Path == "/api/files" || strings.HasPrefix(r.URL.Path, "/api/files/"):
 		h.serveFiles(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
@@ -133,8 +153,13 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WebHandler) serveIndex(w http.ResponseWriter, _ *http.Request) {
+	servePage(w, web.IndexHTML())
+}
+
+// servePage writes the HTML page.
+func servePage(w http.ResponseWriter, page []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(web.IndexHTML()) // A failed write means that the client closed the connection.
+	_, _ = w.Write(page) // A failed write means that the client closed the connection.
 }
 
 func (h *WebHandler) serveStatic(w http.ResponseWriter, r *http.Request) {

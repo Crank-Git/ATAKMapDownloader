@@ -206,6 +206,10 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>output file</td><td>noun</td><td>The SQLite or zip file that a job writes.</td><td>tileset, database, map file, archive</td></tr>
 <tr><td>output format</td><td>noun</td><td>The schema of the output file: <code>mbtiles</code>, <code>osmdroid</code> or <code>gpkg</code> (built, feature 10).</td><td>file type</td></tr>
 <tr><td>data package</td><td>noun</td><td>An ATAK zip file with a <code>MANIFEST/manifest.xml</code> and the output file (built, feature 10).</td><td>mission package (except in ATAK quotes)</td></tr>
+<tr><td>data directory</td><td>noun</td><td>The directory of <code>serve</code> that holds the output files and the job store. It comes from <code>--data-dir</code>, else <code>ATAKDL_DATA_DIR</code>, else <code>./downloads</code> (built, feature 12).</td><td>output folder, volume</td></tr>
+<tr><td>job store</td><td>noun</td><td>The file <code>jobs.jsonl</code> in the data directory. Each line holds one state of one job, with its request (built, feature 12).</td><td>database, history, log</td></tr>
+<tr><td>queue</td><td>noun</td><td>The ordered list of the queued jobs that wait for a worker of <code>serve</code> (built, feature 12).</td><td>backlog, waiting list</td></tr>
+<tr><td>position</td><td>noun</td><td>The place of a queued job in the queue. Position 1 is the next job (built, feature 12).</td><td>rank, index</td></tr>
 <tr><td>package name</td><td>noun</td><td>The name of a data package: 1 to 64 characters of <code>A-Z</code>, <code>a-z</code>, <code>0-9</code>, space, <code>_</code> and <code>-</code>, after the spaces around it are trimmed. It gives the zip file name (feature 10).</td><td>zip name, bundle name</td></tr>
 <tr><td>retry</td><td>verb</td><td>To send a tile request again after it fails.</td><td>re-fetch</td></tr>
 <tr><td>resume</td><td>verb</td><td>To continue a job into an existing output file and skip the tiles it already holds (feature 07).</td><td>restart, continue</td></tr>
@@ -220,7 +224,7 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>CLI</td><td>noun</td><td>Command-line interface: the <code>atak-dl</code> subcommands.</td><td>terminal mode</td></tr>
 <tr><td>base map</td><td>noun</td><td>The background map that the web UI draws under the area.</td><td>basemap layer</td></tr>
 <tr><td>geocode</td><td>verb</td><td>To find coordinates for a place name through Nominatim.</td><td>search (as a verb for this)</td></tr>
-<tr><td>token</td><td>noun</td><td>The shared secret that a client sends to a server that is not bound to loopback (planned, feature 12).</td><td>password, API key</td></tr>
+<tr><td>token</td><td>noun</td><td>The shared secret that a client sends to a server that is not bound to loopback (built, feature 12).</td><td>password, API key</td></tr>
 <tr><td>TMS</td><td>noun</td><td>Tile Map Service row order: row 0 is at the south edge.</td><td>—</td></tr>
 <tr><td>XYZ</td><td>noun</td><td>Slippy-map row order: row 0 is at the north edge.</td><td>—</td></tr>
 <tr><td>WMS</td><td>noun</td><td>OGC Web Map Service. A map source that the project requests with bounds instead of a tile column and row.</td><td>—</td></tr>
@@ -344,8 +348,8 @@ internal/mbtiles/       MBTiles writer (built)
 internal/output/        output format registry, and the osmdroid and gpkg writers (built)
 internal/output/sqlitequeue/  writer core that the three output formats share (built)
 internal/datapackage/   ATAK data package zip and manifest (built)
-internal/policy/        planned: source policy table and rate limits
-internal/jobs/          planned: job queue and job store
+internal/policy/        source policy table and rate limits (built)
+internal/jobs/          queue and job store (built)
 internal/server/        planned: HTTP handlers moved out of commands/web.go
 web/                    embedded web UI
 internal/snapshot/      embedded ATAK-Maps source files, VERSION and name aliases (built)
@@ -444,9 +448,9 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>SKIPPED_SOURCE</strong> (built, feature 09). An in-memory record of a source file that did not load, with its path, reason and detail (#38).
 </li>
-<li><strong>SOURCE_POLICY</strong> (planned, feature 06). A table embedded in the binary, keyed by a host pattern such as <code>*.google.com</code>. <code>policy_class</code> is <code>open</code>, <code>conditional</code> or <code>restricted</code>. <code>requests_per_second</code> is the rate limit for that host.
+<li><strong>SOURCE_POLICY</strong> (built, feature 06). A table embedded in the binary, keyed by a host pattern such as <code>*.google.com</code>. <code>policy_class</code> is <code>open</code>, <code>conditional</code> or <code>restricted</code>. <code>requests_per_second</code> is the rate limit for that host.
 </li>
-<li><strong>JOB</strong> (built as one in-memory record, <code>cmd/atak-dl/commands/jobs.go:62-78</code>, #76). It has an <code>id</code>, and its state is <code>running</code>, <code>complete</code>, <code>failed</code> or <code>cancelled</code>. The server keeps only the last job (<code>web.go:29-35</code>). Planned (feature 12): the <code>queued</code> state and a persistent record in the data directory.
+<li><strong>JOB</strong> (built, feature 12, <code>cmd/atak-dl/commands/jobs.go:101-128</code>). It has an <code>id</code>, and its state is <code>queued</code>, <code>running</code>, <code>complete</code>, <code>failed</code> or <code>cancelled</code>. The server keeps every job in the job store of the data directory (<code>jobstore.go:71-84</code>). Each line of the job store holds the job record and the job request. A queued job has a position in the queue. After a restart, a queued job goes back in the queue, and a running job becomes <code>failed</code> with the reason <code>server_restarted</code>.
 </li>
 <li><strong>AREA</strong> (built, feature 11). Its kind is <code>bounds</code>, <code>polygon</code> or <code>route_buffer</code>, with GeoJSON geometry and a zoom range for each area. A job holds 1 to 20 areas, and the output file metadata <code>atakdl_areas</code> stores them.
 </li>
@@ -474,7 +478,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
   complete --&gt; [*]</pre></div>
 <h2 id="cross-cutting-concerns">Cross-cutting concerns</h2>
 <ul>
-<li><strong>Authentication and authorization.</strong> Today there is none, and that is acceptable only on loopback. If the host in <code>--addr</code> is not a loopback address, <code>serve</code> prints a warning to stderr that the server has no authentication (<code>serve.go:49-54</code>, #81). Planned (feature 12): if the server binds to an address that is not loopback, every request must carry the token. The token comes from <code>--token</code> or <code>ATAKDL_TOKEN</code>. If neither is set, the server generates one and prints it once at start.
+<li><strong>Authentication and authorization.</strong> A server on loopback needs no token. If the server binds to an address that is not loopback, every request must carry the token, except the health route and the sign-in page (built, feature 12, <code>cmd/atak-dl/commands/auth.go:111-145</code>). The token comes from <code>--token</code>, else from <code>ATAKDL_TOKEN</code>. If neither is set, the server generates one and prints it once to stderr at start (<code>serve.go:128-145</code>). A client sends the token in the <code>Authorization</code> header or in the <code>atakdl_token</code> cookie. An IP address with 10 failed attempts in one minute gets 429 <code>too_many_attempts</code>.
 </li>
 <li><strong>Cross-origin requests.</strong> The server sends no CORS header (#77). <code>newServerHandler</code> wraps every route with <code>http.CrossOriginProtection</code> (<code>cmd/atak-dl/commands/web.go:56-62</code>). A cross-origin browser request that is not <code>GET</code>, <code>HEAD</code> or <code>OPTIONS</code> gets 403 <code>cross_origin</code>. The websocket and <code>/ws</code> are removed (#78).
 </li>

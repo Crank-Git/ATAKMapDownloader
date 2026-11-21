@@ -3,17 +3,27 @@ package commands
 import (
 	"context"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/crank-git/atak-map-downloader/internal/jobs"
 )
 
 // stallTimeout is the time that a test waits for a goroutine that must not block.
 const stallTimeout = 3 * time.Second
 
 // newBareJob returns a running job with no engine, so the test sends its progress and its result.
-func newBareJob(id string) *job {
+// Its store is a jobs.jsonl file in a new directory.
+func newBareJob(t *testing.T, id string) *job {
+	t.Helper()
+	store, err := jobs.OpenStore(filepath.Join(t.TempDir(), "jobs.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &job{
 		id:        id,
+		store:     store,
 		cancel:    func() {},
 		progress:  make(chan progressEvent, 64),
 		result:    make(chan jobResult, 1),
@@ -24,7 +34,7 @@ func newBareJob(id string) *job {
 }
 
 func TestAStalledSubscriberDoesNotStopTheJobFromItsFinalState(t *testing.T) {
-	j := newBareJob("stalled")
+	j := newBareJob(t, "stalled")
 	go j.sendEvents()
 
 	// The stalled subscriber never reads and its stream never ends, as a client that stops reading.
@@ -65,8 +75,8 @@ func lastMessage(events chan sseMessage) sseMessage {
 func TestAStreamWithACancelledRequestReturnsWhileTheEventGoroutineIsBusy(t *testing.T) {
 	h := newTestHandler(t, nil)
 	// No event goroutine runs, so a subscribe send waits as it does for a busy event goroutine.
-	j := newBareJob("busy")
-	h.dlState.job = j
+	j := newBareJob(t, "busy")
+	h.jobs[j.id] = j
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequestWithContext(ctx, "GET", "/api/jobs/busy/events", nil)

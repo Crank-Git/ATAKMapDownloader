@@ -43,9 +43,10 @@ request changed names that pull request, for example (#76).
   error code `cross_origin`, unless its method is `GET`, `HEAD` or `OPTIONS` (#77).
 - FR-web-ui-6 — The server serves the job API on `/api/jobs` (#76). See
   `05-security-hardening.md`.
-- FR-web-ui-7 — The server runs at most one job at a time, for all clients (#76).
-- FR-web-ui-8 — If a job runs, `POST /api/jobs` returns 409 with error code
-  `job_running` (#76).
+- FR-web-ui-7 — The server runs at most `--workers` jobs at a time, for all clients
+  (FR-team-server-2).
+- FR-web-ui-8 — `POST /api/jobs` adds the job to the queue. If the queue is full, it
+  returns 429 with error code `queue_full` (FR-team-server-1, FR-team-server-6).
 - FR-web-ui-9 — Any client that knows the job id can cancel the job with
   `DELETE /api/jobs/{id}` (#76).
 - FR-web-ui-10 — The server sends at most 4 `progress` events per second per job (#76).
@@ -72,8 +73,8 @@ request changed names that pull request, for example (#76).
 - FR-web-ui-23 — The server rejects a request body larger than 1 MiB with status 413
   and error code `body_too_large` (#81). A route that carries areas has the larger limit
   of FR-security-hardening-17.
-- FR-web-ui-24 — If the host in `--addr` is not a loopback address, `serve` prints a
-  warning to stderr that the server has no authentication (#81).
+- FR-web-ui-24 — If the host in `--addr` is not a loopback address, every request needs
+  the token, apart from the health route and the sign-in page (FR-team-server-17).
 
 ## User flows
 
@@ -90,8 +91,8 @@ sequenceDiagram
     alt request not valid
         S-->>W: 400, 404 or 413 error shape
         W->>U: Status log line Download error and the message
-    else a job already runs
-        S-->>W: 409 job_running
+    else the queue is full
+        S-->>W: 429 queue_full
     else accepted
         S-->>W: 202 job record
         W->>S: GET /api/jobs/{id}/events
@@ -120,7 +121,7 @@ sequenceDiagram
 4. If the request is not valid, the server returns 400, 404 or 413 with the error shape.
    The web UI logs `Download error: <message>` and resets the job controls. The reset
    applies only when the job panel shows no job.
-5. If a job already runs, the server returns 409 with `job_running`.
+5. If the queue is full, the server returns 429 with `queue_full`.
 6. The server starts the job and returns 202 with the job record. The web UI logs
    `Output file: <name>`.
 7. The web UI opens `GET /api/jobs/{id}/events` with `EventSource` (`app.js:347`). The
@@ -276,7 +277,7 @@ Feature 08 replaces these assets. Since #31, the binary embeds Leaflet and Leafl
 
 ## Behaviour rules
 
-- The server has no authentication.
+- If the server is not on loopback, every request needs the token. See `12-team-server.md`.
 - The server sets these timeouts (`serve.go:91-99`, #81):
   - `ReadHeaderTimeout` 10 s,
   - `ReadTimeout` 30 s,
@@ -327,11 +328,11 @@ Feature 08 replaces these assets. Since #31, the binary embeds Leaflet and Leafl
 
 ## Data touched
 
-- Writes output files under `./downloads`. See `03-tile-download.md`.
-- In memory: one `dlState` per server, behind a mutex (`web.go:29-35`, #76). It holds
-  `downloading bool` and `job`, the last job that the job API started. The last job
-  stays after it ends, so `GET /api/jobs/{id}` can read its result. Nothing survives a
-  restart.
+- Writes output files in the data directory, `./downloads` by default. See `03-tile-download.md`.
+- In memory: the job map of the server, behind `jobMu` (`web.go:50-51`). It holds every
+  job of the job store, so `GET /api/jobs/{id}` can read the result of an ended job.
+- The job store `jobs.jsonl` in the data directory keeps every job after a restart. See
+  `12-team-server.md`.
 - Browser: `localStorage.theme`.
 
 ## Interfaces
@@ -358,7 +359,7 @@ Every JSON success response sets `Content-Type: application/json` (`web.go:423-4
 | POST | `/api/validate-source` | See `01-map-sources.md` | | 400 `invalid_json`; 404 `unknown_source`; 405; 413 |
 | POST | `/api/preview` | `{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}` | `{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}` | 400 `invalid_json`, `unknown_source`, `invalid_bounds`; 404 `unknown_source`; 405; 413 |
 | POST | `/api/geocode` | `{"query"}` | `{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}` | 400 `invalid_json`, `invalid_query`; 405; 413; 500 `internal` |
-| POST | `/api/jobs` | See Job API | 202 job record | 400, 404 `unknown_source`, 409 `job_running`, 413 |
+| POST | `/api/jobs` | See Job API | 202 job record | 400, 404 `unknown_source`, 413, 429 `queue_full` |
 | POST | `/api/areas/parse` | A multipart form with the field `file`, or the file itself. Query: `min_zoom`, `max_zoom`, `buffer_m` | `{"areas": [{"kind", "geometry", "min_zoom", "max_zoom", "buffer_m", "name"}], "warnings"}` | 400 `invalid_area_file`, `invalid_query`; 405; 413 `body_too_large` |
 | POST | `/api/areas/tiles` | `{"area": {"kind", "geometry", "buffer_m"}, "zoom"}` | `{"tiles": [[x, y]]}` | 400 `invalid_json`, `invalid_area`, `zoom_out_of_range`; 405; 413 `body_too_large`, or 413 `too_many_tiles` at 5,000 tiles or more |
 | GET | `/api/jobs/{id}` | — | 200 job record | 404 `job_not_found` |
@@ -417,7 +418,10 @@ progress to it through a channel.
 
 What the code handles:
 
-- A second `POST /api/jobs` while a job runs gets 409 `job_running` (#76).
+- A `POST /api/jobs` while a job runs adds the job to the queue. A full queue gets 429
+  `queue_full` (FR-team-server-6).
+- If the server is not on loopback, a request with no valid token gets 401 `unauthorized`
+  (FR-team-server-23).
 - If the browser closes the SSE stream, the job continues. A new stream gets a `state`
   event with the current job record first (#76).
 - A stream for a job that ended gets one `state` event, and then the stream ends (#76).
@@ -435,8 +439,6 @@ What the code handles:
 
 What the code does not handle:
 
-- **`--addr 0.0.0.0:5000` exposes the server to the network** with no authentication.
-  `serve` prints a warning, but it still starts (`serve.go:49-54`, #81).
 - **The finished output file cannot be fetched from the browser.** No route serves
   `./downloads`. The web UI shows only the file name.
 - **The server keeps only the last job.** `GET /api/jobs/{id}` for an earlier job returns
@@ -480,9 +482,9 @@ Known defects and the planned feature that repairs each:
 - [ ] A `POST /api/jobs` with `Sec-Fetch-Site: cross-site` returns 403 with code
       `cross_origin`.
 - [ ] `GET /api/jobs/{id}/events` for a running job sends a `state` event first.
-- [ ] A second `POST /api/jobs` while a job runs returns 409 with code `job_running`.
+- [ ] A second `POST /api/jobs` while a job runs returns 202 with the state `queued`.
 - [ ] A 2 MiB request body returns 413 with code `body_too_large`.
-- [ ] `atak-dl serve --addr 0.0.0.0:5000` prints the no-authentication warning.
+- [ ] `atak-dl serve --addr 0.0.0.0:5000` with no token prints a generated token once to stderr.
 - [ ] `POST /api/preview` with valid bounds and `max_zoom` 16 returns at most 9 tiles.
 - [ ] After a rectangle is drawn, **Estimate Download** and **Preview** are enabled.
 - [ ] After a successful estimate, **Start Download** is enabled.

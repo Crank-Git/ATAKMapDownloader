@@ -1,6 +1,7 @@
 // area_drop.js runs web/static/js/app.js in Node with a small fake DOM, drops an area file, and prints the area list and the map moves as JSON.
 // Usage: node area_drop.js <app.js> <server URL> <area file>
 // With the area file "draw", the script draws a polygon with the Polygon tool instead of a drop.
+// With "probe", "skipped" or "geocode", the script calls probe, loadSkippedSources or searchAddress instead of a drop.
 // The fetch calls of app.js go to the server URL, so the parse, estimate and tiles routes are the real ones.
 'use strict';
 
@@ -64,6 +65,9 @@ class FakeElement {
     remove() {}
     click() {}
 }
+
+// assigned records each URL that app.js gives to window.location.assign.
+const assigned = [];
 
 const elements = {};
 const document = {
@@ -146,7 +150,7 @@ const L = {
 
 const context = vm.createContext({
     document,
-    window: { location: {} },
+    window: { location: { assign: (url) => assigned.push(url) } },
     navigator: { onLine: true },
     L,
     fetch: (p, options) => fetch(new URL(p, baseURL), options),
@@ -176,6 +180,13 @@ const ATAKDownloader = vm.runInContext('ATAKDownloader', context);
         const ring = [[-121.8, 46.9], [-121.7, 46.9], [-121.7, 46.95], [-121.8, 46.9]];
         app.onDrawCreate({ shape: 'Polygon', layer: fakeLayer({ type: 'Polygon', coordinates: [ring] }) });
         await Promise.all(pending);
+    } else if (areaPath === 'probe') {
+        await app.probe();
+    } else if (areaPath === 'skipped') {
+        await app.loadSkippedSources();
+    } else if (areaPath === 'geocode') {
+        document.getElementById('addressSearch').value = 'Seattle';
+        await app.searchAddress();
     } else {
         const file = new File([fs.readFileSync(areaPath)], path.basename(areaPath));
         await app.onAreaDrop({ preventDefault() {}, dataTransfer: { files: [file] } });
@@ -190,7 +201,8 @@ const ATAKDownloader = vm.runInContext('ATAKDownloader', context);
         total: document.getElementById('areaTotal').textContent,
         empty: document.getElementById('areaEmpty').hidden,
         error: document.getElementById('errorBanner').hidden ? '' : document.getElementById('errorMessage').textContent,
-        fitBounds: fitBoundsCalls
+        fitBounds: fitBoundsCalls,
+        assigned
     }));
 })().catch(error => {
     process.stderr.write(String(error && error.stack || error));
