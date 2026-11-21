@@ -2,10 +2,12 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
@@ -25,19 +27,23 @@ func runListSources(cmd *cobra.Command, _ []string) error {
 	parser := xmlparser.New(dir)
 	sources := parser.DiscoverSources(false)
 
+	var b strings.Builder
 	if len(sources) == 0 {
-		fmt.Println("No map sources found.")
-		fmt.Printf("Make sure XML files exist in: %s\n", parser.MapsourcesDir)
-		return nil
+		fmt.Fprintln(&b, "No map sources found.")
+		fmt.Fprintf(&b, "Make sure XML files exist in: %s\n", parser.MapsourcesDir)
+	} else {
+		fmt.Fprintln(&b, "Available Map Sources")
+		fmt.Fprintln(&b, "--------------------")
+		for _, name := range parser.ListSources() {
+			s := sources[name]
+			fmt.Fprintf(&b, "  %s (%s) - Zoom %d-%d - %s - %s\n",
+				name, s.TileType, s.MinZoom, s.MaxZoom, s.TileUpdate, policy.ForSource(s).PolicyClass)
+		}
+		fmt.Fprintf(&b, "\nFound %d map sources\n", len(sources))
 	}
-
-	fmt.Println("Available Map Sources")
-	fmt.Println("--------------------")
-	for _, name := range parser.ListSources() {
-		s := sources[name]
-		fmt.Printf("  %s (%s) - Zoom %d-%d - %s\n", name, s.TileType, s.MinZoom, s.MaxZoom, s.TileUpdate)
+	if _, err := io.WriteString(cmd.OutOrStdout(), b.String()); err != nil {
+		return fmt.Errorf("write the source list: %w", err)
 	}
-	fmt.Printf("\nFound %d map sources\n", len(sources))
 	return nil
 }
 
