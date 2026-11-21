@@ -24,7 +24,7 @@ func restrictEverySource(t *testing.T) {
 	original := sourcePolicy
 	sourcePolicy = func(*xmlparser.MapSource) policy.Entry {
 		return policy.Entry{
-			HostPattern:  "*.google.com",
+			HostPatterns: []string{"*.google.com"},
 			PolicyClass:  policy.Restricted,
 			Reason:       "The test policy prohibits bulk download.",
 			ReferenceURL: "https://example.com/terms",

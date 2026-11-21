@@ -1,6 +1,9 @@
 [
   {
-    "host_pattern": "*.google.com",
+    "host_patterns": [
+      "*.google.com",
+      "*.googleapis.com"
+    ],
     "policy_class": "restricted",
     "requests_per_second": 1,
     "reason": "The Google Maps Platform policies prohibit bulk download of map tiles and offline use.",
@@ -8,15 +11,10 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.googleapis.com",
-    "policy_class": "restricted",
-    "requests_per_second": 1,
-    "reason": "The Google Maps Platform policies prohibit bulk download of map tiles and offline use.",
-    "reference_url": "https://developers.google.com/maps/documentation/tile/policies",
-    "retrieved": "2026-11-21"
-  },
-  {
-    "host_pattern": "*.virtualearth.net",
+    "host_patterns": [
+      "*.virtualearth.net",
+      "*.bing.com"
+    ],
     "policy_class": "restricted",
     "requests_per_second": 1,
     "reason": "Microsoft does not allow direct access to Bing Maps tiles from a hardcoded URL.",
@@ -24,15 +22,10 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.bing.com",
-    "policy_class": "restricted",
-    "requests_per_second": 1,
-    "reason": "Microsoft does not allow direct access to Bing Maps tiles from a hardcoded URL.",
-    "reference_url": "https://learn.microsoft.com/en-us/bingmaps/rest-services/directly-accessing-the-bing-maps-tiles",
-    "retrieved": "2026-11-21"
-  },
-  {
-    "host_pattern": "*.arcgisonline.com",
+    "host_patterns": [
+      "*.arcgisonline.com",
+      "*.arcgis.com"
+    ],
     "policy_class": "restricted",
     "requests_per_second": 1,
     "reason": "The Esri terms prohibit systematic harvest of basemap tiles outside Esri Content Packages.",
@@ -40,15 +33,10 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.arcgis.com",
-    "policy_class": "restricted",
-    "requests_per_second": 1,
-    "reason": "The Esri terms prohibit systematic harvest of basemap tiles outside Esri Content Packages.",
-    "reference_url": "https://www.esri.com/content/dam/arcgisonline/docs/tou_summary.pdf",
-    "retrieved": "2026-11-21"
-  },
-  {
-    "host_pattern": "tile.openstreetmap.org",
+    "host_patterns": [
+      "tile.openstreetmap.org",
+      "*.tile.openstreetmap.org"
+    ],
     "policy_class": "restricted",
     "requests_per_second": 1,
     "reason": "The OSM tile usage policy prohibits bulk download and offline use.",
@@ -56,15 +44,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.tile.openstreetmap.org",
-    "policy_class": "restricted",
-    "requests_per_second": 1,
-    "reason": "The OSM tile usage policy prohibits bulk download and offline use.",
-    "reference_url": "https://operations.osmfoundation.org/policies/tiles/",
-    "retrieved": "2026-11-21"
-  },
-  {
-    "host_pattern": "*.opentopomap.org",
+    "host_patterns": [
+      "*.opentopomap.org"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "OpenTopoMap allows use while mass downloads do not overload its server.",
@@ -72,7 +54,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.tile-cyclosm.openstreetmap.fr",
+    "host_patterns": [
+      "*.tile-cyclosm.openstreetmap.fr"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "Volunteers run this tile server. No published limit was found.",
@@ -80,7 +64,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.openseamap.org",
+    "host_patterns": [
+      "*.openseamap.org"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "Volunteers run this tile server. No published limit was found.",
@@ -88,7 +74,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.mtbmap.cz",
+    "host_patterns": [
+      "*.mtbmap.cz"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "Volunteers run this tile server. No published limit was found.",
@@ -96,7 +84,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.waymarkedtrails.org",
+    "host_patterns": [
+      "*.waymarkedtrails.org"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "Volunteers run this tile server. No published limit was found.",
@@ -104,7 +94,10 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.nationalmap.gov",
+    "host_patterns": [
+      "*.nationalmap.gov",
+      "*.usgs.gov"
+    ],
     "policy_class": "open",
     "requests_per_second": 8,
     "reason": "The National Map services are free and in the public domain, with no restrictions.",
@@ -112,15 +105,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.usgs.gov",
-    "policy_class": "open",
-    "requests_per_second": 8,
-    "reason": "The National Map services are free and in the public domain, with no restrictions.",
-    "reference_url": "https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map",
-    "retrieved": "2026-11-21"
-  },
-  {
-    "host_pattern": "*.usda.gov",
+    "host_patterns": [
+      "*.usda.gov"
+    ],
     "policy_class": "open",
     "requests_per_second": 8,
     "reason": "NAIP imagery is in the public domain.",
@@ -128,7 +115,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.fema.gov",
+    "host_patterns": [
+      "*.fema.gov"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "The license of this service is not verified.",
@@ -136,7 +125,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.nrcan.gc.ca",
+    "host_patterns": [
+      "*.nrcan.gc.ca"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "The license of this service is not verified.",
@@ -144,7 +135,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.maanmittauslaitos.fi",
+    "host_patterns": [
+      "*.maanmittauslaitos.fi"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "The license of this service is not verified.",
@@ -152,7 +145,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "*.geoportal.gov.pl",
+    "host_patterns": [
+      "*.geoportal.gov.pl"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "The license of this service is not verified.",
@@ -160,7 +155,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "tiles.kartat.kapsi.fi",
+    "host_patterns": [
+      "tiles.kartat.kapsi.fi"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "The license of this service is not verified.",
@@ -168,7 +165,9 @@
     "retrieved": "2026-11-21"
   },
   {
-    "host_pattern": "maps.geogratis.gc.ca",
+    "host_patterns": [
+      "maps.geogratis.gc.ca"
+    ],
     "policy_class": "conditional",
     "requests_per_second": 2,
     "reason": "The license of this service is not verified.",

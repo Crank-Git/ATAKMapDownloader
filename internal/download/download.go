@@ -48,7 +48,7 @@ type Config struct {
 	VerifyTLS bool
 	// UserAgent is the User-Agent header of every tile request (FR-polite-downloading-14).
 	UserAgent string
-	// Policy is the policy entry of the map source. The gate of its host pattern limits every request.
+	// Policy is the policy entry of the map source. The gate of the entry limits every request.
 	// A zero Policy makes the engine read the entry with policy.ForSource.
 	Policy policy.Entry
 	// RateLimit lowers the request rate of the job, in requests per second.
@@ -347,7 +347,7 @@ func (e *Engine) newJobGate(ctx context.Context, source *xmlparser.MapSource) (c
 		entry = policy.ForSource(source)
 	}
 	jobCtx, stop := context.WithCancelCause(ctx)
-	jg := &jobGate{host: e.gates.gate(entry.HostPattern, entry.RequestsPerSecond), stop: stop}
+	jg := &jobGate{host: e.gates.gate(entry.ID(), entry.RequestsPerSecond), stop: stop}
 	if r := e.cfg.RateLimit; r > 0 && r < entry.RequestsPerSecond {
 		jg.limiter = rate.NewLimiter(rate.Limit(r), 1)
 	}

@@ -159,7 +159,7 @@ func TestSourcesReturnsThePolicyOfEachSource(t *testing.T) {
 			PolicyClass:        "restricted",
 			PolicyReferenceURL: "https://developers.google.com/maps/documentation/tile/policies",
 			RequestsPerSecond:  1,
-			PolicyHost:         "*.google.com",
+			PolicyHost:         "*.google.com, *.googleapis.com",
 		},
 		"Test Source": {
 			PolicyClass:       "conditional",

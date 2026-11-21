@@ -23,8 +23,9 @@ func TestLookupMatchesTheEmbeddedTable(t *testing.T) {
 		{"matches a host in any letter case", "MT1.Google.COM", "*.google.com", Restricted, 1},
 		{"matches a Bing subdomain at any depth", "ecn.t2.tiles.virtualearth.net", "*.virtualearth.net", Restricted, 1},
 		{"matches an Esri subdomain", "server.arcgisonline.com", "*.arcgisonline.com", Restricted, 1},
+		{"matches a host of the second pattern of an entry", "maps.googleapis.com", "*.google.com", Restricted, 1},
 		{"matches the exact OSM tile host", "tile.openstreetmap.org", "tile.openstreetmap.org", Restricted, 1},
-		{"matches an OSM tile subdomain", "a.tile.openstreetmap.org", "*.tile.openstreetmap.org", Restricted, 1},
+		{"matches an OSM tile subdomain", "a.tile.openstreetmap.org", "tile.openstreetmap.org", Restricted, 1},
 		{"matches an OpenTopoMap subdomain", "a.tile.opentopomap.org", "*.opentopomap.org", Conditional, 2},
 		{"matches a CyclOSM subdomain", "a.tile-cyclosm.openstreetmap.fr", "*.tile-cyclosm.openstreetmap.fr", Conditional, 2},
 		{"matches a USGS subdomain", "basemap.nationalmap.gov", "*.nationalmap.gov", Open, 8},
@@ -37,9 +38,9 @@ func TestLookupMatchesTheEmbeddedTable(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := Lookup(tt.host)
-			if got.HostPattern != tt.pattern || got.PolicyClass != tt.class || got.RequestsPerSecond != tt.rps {
+			if got.ID() != tt.pattern || got.PolicyClass != tt.class || got.RequestsPerSecond != tt.rps {
 				t.Errorf("Lookup(%q) = {%q %q %v}, want {%q %q %v}",
-					tt.host, got.HostPattern, got.PolicyClass, got.RequestsPerSecond, tt.pattern, tt.class, tt.rps)
+					tt.host, got.ID(), got.PolicyClass, got.RequestsPerSecond, tt.pattern, tt.class, tt.rps)
 			}
 		})
 	}
@@ -47,8 +48,8 @@ func TestLookupMatchesTheEmbeddedTable(t *testing.T) {
 
 func TestLookupReturnsTheFirstEntryThatMatches(t *testing.T) {
 	entries := []Entry{
-		{HostPattern: "a.example.com", PolicyClass: Open, RequestsPerSecond: 8},
-		{HostPattern: "*.example.com", PolicyClass: Restricted, RequestsPerSecond: 1},
+		{HostPatterns: []string{"a.example.com"}, PolicyClass: Open, RequestsPerSecond: 8},
+		{HostPatterns: []string{"*.example.com"}, PolicyClass: Restricted, RequestsPerSecond: 1},
 	}
 	if got := lookup(entries, "a.example.com"); got.PolicyClass != Open {
 		t.Errorf("lookup(a.example.com).PolicyClass = %q, want open", got.PolicyClass)
@@ -64,10 +65,11 @@ func TestParseRejectsAnInvalidTable(t *testing.T) {
 		json string
 		want string
 	}{
-		{"rejects an unknown policy class", `[{"host_pattern":"*.a.com","policy_class":"free","requests_per_second":1}]`, `policy_class "free"`},
-		{"rejects an empty policy class", `[{"host_pattern":"*.a.com","requests_per_second":1}]`, `policy_class ""`},
-		{"rejects a rate of zero", `[{"host_pattern":"*.a.com","policy_class":"open","requests_per_second":0}]`, "requests_per_second"},
-		{"rejects an empty host pattern", `[{"policy_class":"open","requests_per_second":1}]`, "host_pattern"},
+		{"rejects an unknown policy class", `[{"host_patterns":["*.a.com"],"policy_class":"free","requests_per_second":1}]`, `policy_class "free"`},
+		{"rejects an empty policy class", `[{"host_patterns":["*.a.com"],"requests_per_second":1}]`, `policy_class ""`},
+		{"rejects a rate of zero", `[{"host_patterns":["*.a.com"],"policy_class":"open","requests_per_second":0}]`, "requests_per_second"},
+		{"rejects an entry with no host patterns", `[{"policy_class":"open","requests_per_second":1}]`, "host_patterns"},
+		{"rejects an empty host pattern", `[{"host_patterns":["*.a.com",""],"policy_class":"open","requests_per_second":1}]`, "host_patterns"},
 		{"rejects a body that is not JSON", `{`, "parse policy table"},
 	}
 	for _, tt := range tests {
@@ -87,10 +89,10 @@ func TestEmbeddedTableHasEveryField(t *testing.T) {
 	}
 	for _, e := range entries {
 		if e.Reason == "" || e.Retrieved == "" {
-			t.Errorf("entry %q has no reason or no retrieval date", e.HostPattern)
+			t.Errorf("entry %q has no reason or no retrieval date", e.ID())
 		}
 		if e.PolicyClass == Restricted && e.ReferenceURL == "" {
-			t.Errorf("restricted entry %q has no reference_url", e.HostPattern)
+			t.Errorf("restricted entry %q has no reference_url", e.ID())
 		}
 	}
 }
@@ -110,7 +112,7 @@ func TestUnverifiedLicenseSourcesAreConditionalAtTwo(t *testing.T) {
 			t.Run(filepath.Base(file), func(t *testing.T) {
 				got := entryForFile(t, parser, file)
 				if got.PolicyClass != Conditional || got.RequestsPerSecond != 2 {
-					t.Errorf("entry = {%q %q %v}, want conditional at 2", got.HostPattern, got.PolicyClass, got.RequestsPerSecond)
+					t.Errorf("entry = {%q %q %v}, want conditional at 2", got.ID(), got.PolicyClass, got.RequestsPerSecond)
 				}
 			})
 		}
@@ -170,8 +172,8 @@ func TestForSourceReturnsTheStrictestEntry(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ForSource(&tt.src)
-			if got.HostPattern != tt.pattern || got.PolicyClass != tt.class {
-				t.Errorf("ForSource() = {%q %q}, want {%q %q}", got.HostPattern, got.PolicyClass, tt.pattern, tt.class)
+			if got.ID() != tt.pattern || got.PolicyClass != tt.class {
+				t.Errorf("ForSource() = {%q %q}, want {%q %q}", got.ID(), got.PolicyClass, tt.pattern, tt.class)
 			}
 		})
 	}

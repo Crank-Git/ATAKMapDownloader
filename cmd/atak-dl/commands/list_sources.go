@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
@@ -37,7 +36,7 @@ func runListSources(cmd *cobra.Command, _ []string) error {
 		for _, name := range parser.ListSources() {
 			s := sources[name]
 			fmt.Fprintf(&b, "  %s (%s) - Zoom %d-%d - %s - %s\n",
-				name, s.TileType, s.MinZoom, s.MaxZoom, s.TileUpdate, policy.ForSource(s).PolicyClass)
+				name, s.TileType, s.MinZoom, s.MaxZoom, s.TileUpdate, sourcePolicy(s).PolicyClass)
 		}
 		fmt.Fprintf(&b, "\nFound %d map sources\n", len(sources))
 	}

@@ -14,7 +14,7 @@ import (
 // maxHostRequests is the number of requests that one host gets at the same time (FR-polite-downloading-8).
 const maxHostRequests = 4
 
-// hostGate holds the request rate, the open requests and the pause of one host pattern.
+// hostGate holds the request rate, the open requests and the pause of the hosts of one policy entry.
 type hostGate struct {
 	// limiter has a burst of 1, so a host at 8 per second gets at most 9 requests in any 1 s window.
 	limiter *rate.Limiter
@@ -76,7 +76,7 @@ func (g *hostGate) pauseLeft() time.Duration {
 	return time.Until(g.pausedUntil)
 }
 
-// gateRegistry holds one gate for each host pattern.
+// gateRegistry holds one gate for each policy entry, keyed by the entry ID.
 type gateRegistry struct {
 	mu    sync.Mutex
 	gates map[string]*hostGate
@@ -89,17 +89,17 @@ func newGateRegistry() *gateRegistry {
 // hostGates is shared by every job of the process, so two jobs on one host share one limit.
 var hostGates = newGateRegistry()
 
-// gate returns the gate of hostPattern at rps requests per second.
-func (r *gateRegistry) gate(hostPattern string, rps float64) *hostGate {
+// gate returns the gate of the policy entry with the ID id, at rps requests per second.
+func (r *gateRegistry) gate(id string, rps float64) *hostGate {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	g, ok := r.gates[hostPattern]
+	g, ok := r.gates[id]
 	if !ok {
 		g = newHostGate(rate.Limit(rps))
-		r.gates[hostPattern] = g
+		r.gates[id] = g
 		return g
 	}
-	// The policy table gives one rate per host pattern, so only a test changes the rate of a gate.
+	// The policy table gives one rate per entry, so only a test changes the rate of a gate.
 	if g.limiter.Limit() != rate.Limit(rps) {
 		g.limiter.SetLimit(rate.Limit(rps))
 	}

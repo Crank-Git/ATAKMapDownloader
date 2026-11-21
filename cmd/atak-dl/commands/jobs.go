@@ -385,7 +385,7 @@ func (h *WebHandler) newJob(req jobRequest, bounds *tilecalc.GeographicBounds, c
 func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds) {
 	cfg := req.engineConfig()
 	cfg.UserAgent = h.userAgent
-	cfg.Policy = h.policyFor(source)
+	cfg.Policy = sourcePolicy(source)
 	engine := download.NewEngine(cfg)
 	outputPath := filepath.Join(h.outputDir, j.snapshot().OutputFile)
 	_, err := engine.DownloadTiles(ctx, source, bounds, zoomLevelsBetween(req.MinZoom, req.MaxZoom), outputPath,

@@ -10,7 +10,6 @@ import (
 	"syscall"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
-	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
 )
@@ -123,7 +122,11 @@ func downloadConfig(cmd *cobra.Command, source *xmlparser.MapSource, concurrent 
 		cmd.SilenceUsage = true
 		return cfg, err
 	}
-	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
+	ignoreErrors, err := cmd.Flags().GetBool("ignore-errors")
+	if err != nil {
+		return cfg, fmt.Errorf("read --ignore-errors: %w", err)
+	}
+	cfg.IgnoreErrors = ignoreErrors
 	insecure, err := cmd.Flags().GetBool("insecure")
 	if err != nil {
 		return cfg, fmt.Errorf("read --insecure: %w", err)
@@ -143,7 +146,7 @@ func downloadConfig(cmd *cobra.Command, source *xmlparser.MapSource, concurrent 
 // It returns an invalid_rate_limit error for a negative rate limit.
 func setPoliteness(cmd *cobra.Command, source *xmlparser.MapSource, userAgent string, cfg *download.Config) error {
 	cfg.UserAgent = userAgent
-	cfg.Policy = policy.ForSource(source)
+	cfg.Policy = sourcePolicy(source)
 	limit, err := cmd.Flags().GetFloat64("rate-limit")
 	if err != nil {
 		return fmt.Errorf("read --rate-limit: %w", err)
@@ -154,7 +157,7 @@ func setPoliteness(cmd *cobra.Command, source *xmlparser.MapSource, userAgent st
 	rps := cfg.Policy.RequestsPerSecond
 	if limit > rps {
 		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "note: --rate-limit %g is above the policy rate %g of %s, so the job uses %g\n",
-			limit, rps, cfg.Policy.HostPattern, rps); err != nil {
+			limit, rps, cfg.Policy.Hosts(), rps); err != nil {
 			return fmt.Errorf("print the rate limit note: %w", err)
 		}
 		limit = rps
@@ -181,7 +184,7 @@ func checkTerms(cmd *cobra.Command, source *xmlparser.MapSource) error {
 			"terms_not_accepted: %s (%s); add --accept-terms to accept the terms", entry.Reason, entry.ReferenceURL)}
 	}
 	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s terms restrict bulk download: %s (%s)\n",
-		entry.HostPattern, entry.Reason, entry.ReferenceURL); err != nil {
+		entry.Hosts(), entry.Reason, entry.ReferenceURL); err != nil {
 		return fmt.Errorf("print the terms warning: %w", err)
 	}
 	return nil

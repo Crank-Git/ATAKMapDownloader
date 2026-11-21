@@ -24,7 +24,7 @@ var wideArea = tilecalc.TileBounds{MinX: 300, MaxX: 303, MinY: 400, MaxY: 402, Z
 // politeEngine returns an engine with its own host gates, so no other test shares a pause or a rate.
 // The policy entry of cfg gives the host the rate rps.
 func politeEngine(cfg Config, rps float64) *Engine {
-	cfg.Policy = policy.Entry{HostPattern: "127.0.0.1", PolicyClass: policy.Open, RequestsPerSecond: rps}
+	cfg.Policy = policy.Entry{HostPatterns: []string{"127.0.0.1"}, PolicyClass: policy.Open, RequestsPerSecond: rps}
 	cfg.UserAgent = testUserAgent
 	e := NewEngine(cfg)
 	e.gates = newGateRegistry()
@@ -277,5 +277,43 @@ func TestHostGatePauseHoldsEveryRequestToTheHost(t *testing.T) {
 	}
 	if waited := time.Since(start); waited < 200*time.Millisecond {
 		t.Errorf("acquire returned after %v, want at least 200 ms", waited)
+	}
+}
+
+func TestTwoSourcesOfOnePolicyEntryShareOneRate(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	twoTiles := tilecalc.TileBounds{MinX: area.MinX, MaxX: area.MinX + 1, MinY: area.MinY, MaxY: area.MinY, Zoom: area.Zoom}
+	// One registry stands for the process, as hostGates does for two web jobs.
+	shared := newGateRegistry()
+	errs := make(chan error, 2)
+	// The two hosts belong to one operator, so the jobs share the 1 request per second of its entry.
+	for _, host := range []string{"tile.openstreetmap.org", "a.tile.openstreetmap.org"} {
+		cfg := testConfig()
+		cfg.UserAgent = testUserAgent
+		cfg.Policy = policy.Lookup(host)
+		e := NewEngine(cfg)
+		e.gates = shared
+		source := loadFixture(t, "xyz.xml", srv)
+		output := filepath.Join(t.TempDir(), "out.sqlite")
+		go func() {
+			ok, err := e.DownloadTiles(t.Context(), source, boundsOf(t, twoTiles), []int{twoTiles.Zoom}, output, nil)
+			if err == nil && !ok {
+				err = errors.New("the job failed")
+			}
+			errs <- err
+		}()
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	log := srv.Log()
+	if len(log) != 2*twoTiles.TileCount() {
+		t.Fatalf("server got %d requests, want %d", len(log), 2*twoTiles.TileCount())
+	}
+	// At 1 request per second, any 1.5 s window holds 2 requests. Two gates put 4 requests in the first window.
+	if got := maxInWindow(log, 1500*time.Millisecond); got > 2 {
+		t.Errorf("server got %d requests in one 1.5 s window, want at most 2 at 1 request per second", got)
 	}
 }

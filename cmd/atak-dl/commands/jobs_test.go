@@ -48,9 +48,12 @@ func newJobServer(t *testing.T, table testtiles.Table) *jobServer {
 	h := newTestHandler(t, map[string]string{"tiles.xml": xml})
 	h.outputDir = t.TempDir()
 	// A 1000-tile job at the default rate of 4 per second takes minutes, so the test tile server gets a high rate.
-	h.policyFor = func(*xmlparser.MapSource) policy.Entry {
-		return policy.Entry{HostPattern: "127.0.0.1", PolicyClass: policy.Open, RequestsPerSecond: 10000}
+	original := sourcePolicy
+	sourcePolicy = func(*xmlparser.MapSource) policy.Entry {
+		return policy.Entry{HostPatterns: []string{"127.0.0.1"}, PolicyClass: policy.Open, RequestsPerSecond: 10000}
 	}
+	// The cleanup runs after srv.Close, so no job reads the policy during the restore.
+	t.Cleanup(func() { sourcePolicy = original })
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return &jobServer{handler: h, url: srv.URL, tiles: tiles}
@@ -200,8 +203,10 @@ func TestJobAPIOnARestrictedSourceNeedsAcceptTerms(t *testing.T) {
 	area := tilecalc.TileBounds{MinX: 300, MaxX: 300, MinY: 400, MaxY: 400, Zoom: 10}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			restrictEverySource(t)
 			s := newJobServer(t, nil)
+			// newJobServer sets an open entry, so the restricted entry replaces it after the server starts.
+			// Each case waits for the end of its job, so no request reads the policy during the cleanup.
+			restrictEverySource(t)
 			body := strings.TrimSuffix(jobBody(area), "}") + tt.accept + "}"
 			if tt.status == http.StatusForbidden {
 				checkError(t, s.request(t, http.MethodPost, "/api/jobs", body), tt.status, "terms_not_accepted")

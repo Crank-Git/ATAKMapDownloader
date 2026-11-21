@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
-	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/crank-git/atak-map-downloader/web"
@@ -39,8 +38,6 @@ type WebHandler struct {
 	// geocodeWait is the longest wait for the limiter. A test makes it short.
 	geocodeWait  time.Duration
 	geocodeCache *geocodeCache
-	// policyFor returns the policy entry of a map source. A test gives a loopback tile server a high rate.
-	policyFor func(*xmlparser.MapSource) policy.Entry
 	// dlState is the job lock. createJob takes it, so two jobs never run at once.
 	dlState struct {
 		sync.Mutex
@@ -66,7 +63,6 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 		geocodeClient:  &http.Client{Timeout: 10 * time.Second},
 		geocodeWait:    geocodeWait,
 		geocodeCache:   newGeocodeCache(),
-		policyFor:      policy.ForSource,
 	}
 	h.routeJobs(h.jobRoutes)
 	return h
@@ -193,7 +189,7 @@ func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
 	list := []sourceItem{}
 	for _, name := range h.parser.ListSources() {
 		s := sources[name]
-		p := policy.ForSource(s)
+		p := sourcePolicy(s)
 		list = append(list, sourceItem{
 			Name:               name,
 			URL:                s.URL,
@@ -204,14 +200,14 @@ func (h *WebHandler) apiSources(w http.ResponseWriter, _ *http.Request) {
 			PolicyReason:       p.Reason,
 			PolicyReferenceURL: p.ReferenceURL,
 			RequestsPerSecond:  p.RequestsPerSecond,
-			PolicyHost:         p.HostPattern,
+			PolicyHost:         p.Hosts(),
 		})
 	}
 	writeJSON(w, list)
 }
 
 // sourceItem is one map source in the GET /api/sources response (FR-polite-downloading-16).
-// PolicyHost is the host pattern of the policy entry, so the web UI can name the host that the rate applies to.
+// PolicyHost lists the host patterns of the policy entry, so the web UI can name the hosts that the rate applies to.
 type sourceItem struct {
 	Name               string  `json:"name"`
 	URL                string  `json:"url"`

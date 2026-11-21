@@ -35,6 +35,7 @@ func ExitCode(err error) int {
 }
 
 // sourcePolicy returns the policy entry of a map source.
+// The terms check, the source badges and the engine configuration all call it, so they cannot disagree.
 // Tests replace it, because a test map source must point at a local server and not at a restricted host.
 var sourcePolicy = policy.ForSource
 

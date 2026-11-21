@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
@@ -24,13 +25,14 @@ const (
 const defaultRequestsPerSecond = 4
 
 // Entry is one row of the source policy table.
+// One entry holds every host of one provider, so the hosts share one rate limit.
 type Entry struct {
-	// HostPattern is "*.<domain>" for every subdomain of <domain>, or one exact host.
-	HostPattern       string  `json:"host_pattern"`
-	PolicyClass       Class   `json:"policy_class"`
-	RequestsPerSecond float64 `json:"requests_per_second"`
-	Reason            string  `json:"reason"`
-	ReferenceURL      string  `json:"reference_url"`
+	// HostPatterns holds "*.<domain>" for every subdomain of <domain>, or one exact host.
+	HostPatterns      []string `json:"host_patterns"`
+	PolicyClass       Class    `json:"policy_class"`
+	RequestsPerSecond float64  `json:"requests_per_second"`
+	Reason            string   `json:"reason"`
+	ReferenceURL      string   `json:"reference_url"`
 	// Retrieved is the date, as YYYY-MM-DD, on which a person last read ReferenceURL.
 	Retrieved string `json:"retrieved"`
 }
@@ -57,19 +59,29 @@ func parse(data []byte) ([]Entry, error) {
 	}
 	for i, e := range entries {
 		switch {
-		case e.HostPattern == "":
-			return nil, fmt.Errorf("policy entry %d has no host_pattern", i)
+		case len(e.HostPatterns) == 0 || slices.Contains(e.HostPatterns, ""):
+			return nil, fmt.Errorf("policy entry %d has an empty host_patterns list or an empty pattern", i)
 		case e.PolicyClass != Open && e.PolicyClass != Conditional && e.PolicyClass != Restricted:
-			return nil, fmt.Errorf("policy entry %q has policy_class %q, want open, conditional or restricted", e.HostPattern, e.PolicyClass)
+			return nil, fmt.Errorf("policy entry %q has policy_class %q, want open, conditional or restricted", e.ID(), e.PolicyClass)
 		case e.RequestsPerSecond <= 0:
-			return nil, fmt.Errorf("policy entry %q has requests_per_second %v, want a positive number", e.HostPattern, e.RequestsPerSecond)
+			return nil, fmt.Errorf("policy entry %q has requests_per_second %v, want a positive number", e.ID(), e.RequestsPerSecond)
 		}
 	}
 	return entries, nil
 }
 
-// Lookup returns the first table entry whose host pattern matches host (FR-polite-downloading-4).
-// When no entry matches, it returns a conditional entry at 4 requests per second whose HostPattern is host.
+// ID returns the first host pattern of the entry, which names the entry and its host gate.
+func (e Entry) ID() string {
+	return e.HostPatterns[0]
+}
+
+// Hosts returns the host patterns of the entry as one comma-separated string, for a message to the user.
+func (e Entry) Hosts() string {
+	return strings.Join(e.HostPatterns, ", ")
+}
+
+// Lookup returns the first table entry with a host pattern that matches host (FR-polite-downloading-4).
+// When no entry matches, it returns a conditional entry at 4 requests per second whose only host pattern is host.
 func Lookup(host string) Entry {
 	return lookup(table, host)
 }
@@ -77,12 +89,12 @@ func Lookup(host string) Entry {
 func lookup(entries []Entry, host string) Entry {
 	host = strings.ToLower(host)
 	for _, e := range entries {
-		if matches(e.HostPattern, host) {
+		if slices.ContainsFunc(e.HostPatterns, func(p string) bool { return matches(p, host) }) {
 			return e
 		}
 	}
 	return Entry{
-		HostPattern:       host,
+		HostPatterns:      []string{host},
 		PolicyClass:       Conditional,
 		RequestsPerSecond: defaultRequestsPerSecond,
 		Reason:            "No entry in the policy table matches this host, so the default rate applies.",
