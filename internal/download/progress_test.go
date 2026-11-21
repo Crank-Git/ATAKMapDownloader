@@ -27,7 +27,7 @@ func TestEngineProgressReaches100PercentWhen10PercentOfTilesReturn404(t *testing
 
 	var mu sync.Mutex
 	var last float64
-	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, boundsOf(t, tenByTen), []int{tenByTen.Zoom}, output,
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areasOf(t, tenByTen), output,
 		func(p Progress) bool {
 			mu.Lock()
 			defer mu.Unlock()
@@ -55,7 +55,7 @@ func TestEngineReturnsAFailureRateErrorAboveTheFailureTolerance(t *testing.T) {
 	source := loadFixture(t, "xyz.xml", srv)
 	output := filepath.Join(t.TempDir(), "out.sqlite")
 
-	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areasOf(t, oneTile), output, nil)
 	var rateErr *FailureRateError
 	if res.OK || !errors.As(err, &rateErr) {
 		t.Fatalf("DownloadTiles = %v, %v; want false and a *FailureRateError", res.OK, err)
@@ -103,7 +103,7 @@ func TestEngineProgressStaysAt100WhenTheRetryPassStoresATileOutsideTheBounds(t *
 
 	var mu sync.Mutex
 	var highest float64
-	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output,
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areasOf(t, oneTile), output,
 		func(p Progress) bool {
 			mu.Lock()
 			defer mu.Unlock()
@@ -155,7 +155,7 @@ func TestEngineStopsAllRequestsWithin500msOfACancel(t *testing.T) {
 			}
 			done := make(chan error, 1)
 			go func() {
-				_, err := e.DownloadTiles(ctx, source, boundsOf(t, largeArea), []int{largeArea.Zoom}, output, cb)
+				_, err := e.DownloadTiles(ctx, source, areasOf(t, largeArea), output, cb)
 				done <- err
 			}()
 			if !tt.callbackCancels {
