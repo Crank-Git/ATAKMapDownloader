@@ -35,6 +35,7 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
 	cmd.Flags().Bool("insecure", false, "Do not verify the TLS certificates of the tile server")
 	cmd.Flags().Float64("rate-limit", 0, "Requests per second, below the policy rate of the source (default: the policy rate)")
+	cmd.Flags().Bool("accept-terms", false, "Accept the terms of use of a restricted map source and start the job")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
@@ -62,6 +63,9 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		cmd.SilenceUsage = true
 		return fmt.Errorf("%s: %s", code, message)
 	}
+	if err := checkTerms(cmd, source); err != nil {
+		return err
+	}
 
 	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
 
@@ -73,23 +77,9 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		output = filepath.Join(dlDir, fname)
 	}
 
-	cfg := download.DefaultConfig()
-	cfg.MaxConcurrent = concurrent
-	if err := setPoliteness(cmd, source, userAgent, &cfg); err != nil {
-		cmd.SilenceUsage = true
-		return err
-	}
-	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
-	insecure, err := cmd.Flags().GetBool("insecure")
+	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {
-		return fmt.Errorf("read --insecure: %w", err)
-	}
-	cfg.VerifyTLS = !insecure
-	if insecure {
-		// The job does not start without the warning, because FR-security-hardening-6 requires it.
-		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: TLS certificate verification is off for this job"); err != nil {
-			return fmt.Errorf("print the TLS warning: %w", err)
-		}
+		return err
 	}
 
 	engine := download.NewEngine(cfg)
@@ -124,6 +114,30 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	return nil
 }
 
+// downloadConfig returns the engine configuration of the download command for source.
+// It prints the TLS warning when --insecure is set, and it returns the error of setPoliteness.
+func downloadConfig(cmd *cobra.Command, source *xmlparser.MapSource, concurrent int, userAgent string) (download.Config, error) {
+	cfg := download.DefaultConfig()
+	cfg.MaxConcurrent = concurrent
+	if err := setPoliteness(cmd, source, userAgent, &cfg); err != nil {
+		cmd.SilenceUsage = true
+		return cfg, err
+	}
+	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
+	insecure, err := cmd.Flags().GetBool("insecure")
+	if err != nil {
+		return cfg, fmt.Errorf("read --insecure: %w", err)
+	}
+	cfg.VerifyTLS = !insecure
+	if insecure {
+		// The job does not start without the warning, because FR-security-hardening-6 requires it.
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: TLS certificate verification is off for this job"); err != nil {
+			return cfg, fmt.Errorf("print the TLS warning: %w", err)
+		}
+	}
+	return cfg, nil
+}
+
 // setPoliteness sets the User-Agent, the policy entry of source and the --rate-limit value in cfg.
 // A rate limit above the policy rate gives the policy rate and a note on stderr, because a rate limit only lowers the rate.
 // It returns an invalid_rate_limit error for a negative rate limit.
@@ -146,5 +160,29 @@ func setPoliteness(cmd *cobra.Command, source *xmlparser.MapSource, userAgent st
 		limit = rps
 	}
 	cfg.RateLimit = limit
+	return nil
+}
+
+// checkTerms returns an ExitError with exitTermsNotAccepted when source is restricted and cmd has no --accept-terms.
+// When source is restricted and cmd has --accept-terms, it prints the terms warning to stderr (FR-polite-downloading-17, -18).
+func checkTerms(cmd *cobra.Command, source *xmlparser.MapSource) error {
+	acceptTerms, err := cmd.Flags().GetBool("accept-terms")
+	if err != nil {
+		return fmt.Errorf("read --accept-terms: %w", err)
+	}
+	entry, restricted := restrictedEntry(source)
+	if !restricted {
+		return nil
+	}
+	if !acceptTerms {
+		// The refusal is a policy decision and not a flag error, so the usage text does not help the user.
+		cmd.SilenceUsage = true
+		return &ExitError{Code: exitTermsNotAccepted, Err: fmt.Errorf(
+			"terms_not_accepted: %s (%s); add --accept-terms to accept the terms", entry.Reason, entry.ReferenceURL)}
+	}
+	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s terms restrict bulk download: %s (%s)\n",
+		entry.HostPattern, entry.Reason, entry.ReferenceURL); err != nil {
+		return fmt.Errorf("print the terms warning: %w", err)
+	}
 	return nil
 }

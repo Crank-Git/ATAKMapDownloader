@@ -29,6 +29,7 @@ type jobRequest struct {
 	FailureTolerance *float64  `json:"failure_tolerance"`
 	IgnoreErrors     *bool     `json:"ignore_errors"`
 	VerifyTLS        *bool     `json:"verify_tls"`
+	AcceptTerms      *bool     `json:"accept_terms"`
 	// RateLimit lowers the request rate in requests per second. The engine ignores a value above the policy rate.
 	RateLimit *float64 `json:"rate_limit"`
 }
@@ -319,6 +320,11 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xm
 	// Zero rate_limit keeps the policy rate in the engine, so the API rejects it with the negative values.
 	if req.RateLimit != nil && *req.RateLimit <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid_rate_limit", fmt.Sprintf("rate_limit %g is not above 0", *req.RateLimit))
+		return nil, nil, false
+	}
+	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
+		writeError(w, http.StatusForbidden, "terms_not_accepted", fmt.Sprintf(
+			"%s (%s); send \"accept_terms\": true to accept the terms", entry.Reason, entry.ReferenceURL))
 		return nil, nil, false
 	}
 	return source, bounds, true

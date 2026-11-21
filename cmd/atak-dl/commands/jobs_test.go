@@ -187,6 +187,32 @@ func readAllEvents(t *testing.T, r *bufio.Reader) []sseEvent {
 	}
 }
 
+func TestJobAPIOnARestrictedSourceNeedsAcceptTerms(t *testing.T) {
+	tests := []struct {
+		name   string
+		accept string
+		status int
+	}{
+		{"rejects a job with no accept_terms", "", http.StatusForbidden},
+		{"rejects a job with accept_terms false", `,"accept_terms":false`, http.StatusForbidden},
+		{"accepts a job with accept_terms true", `,"accept_terms":true`, http.StatusAccepted},
+	}
+	area := tilecalc.TileBounds{MinX: 300, MaxX: 300, MinY: 400, MaxY: 400, Zoom: 10}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restrictEverySource(t)
+			s := newJobServer(t, nil)
+			body := strings.TrimSuffix(jobBody(area), "}") + tt.accept + "}"
+			if tt.status == http.StatusForbidden {
+				checkError(t, s.request(t, http.MethodPost, "/api/jobs", body), tt.status, "terms_not_accepted")
+				return
+			}
+			rec := s.startJob(t, body)
+			s.finalRecord(t, rec.ID)
+		})
+	}
+}
+
 func TestJobAPIStreamsEveryEventOfA1000TileJob(t *testing.T) {
 	area := tilecalc.TileBounds{MinX: 300, MaxX: 339, MinY: 400, MaxY: 424, Zoom: 10}
 	s := newJobServer(t, nil)
