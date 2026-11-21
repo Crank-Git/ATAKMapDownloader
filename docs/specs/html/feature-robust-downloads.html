@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Robust downloads</h1>
-<p class="meta">Epic 3: Robust downloads &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 3: Robust downloads &nbsp; <span class="badge">built</span></p>
 <h3 id="robust-downloads-purpose">Purpose</h3>
 <p>Today a job deletes an existing output file at the same path with no warning (<code>internal/mbtiles/mbtiles.go:18-22</code>). A cancelled job deletes its own output file, so every downloaded tile is lost (<code>internal/download/download.go:235-237</code>). The engine stores whatever bytes the server returns, which includes HTML error pages. The engine also has a data race on its progress fields (<code>download.go:191-212</code>), and it writes one autocommit insert per tile from many goroutines. Progress counts only successful tiles, so a job with failures never shows 100%.</p>
 <p>This feature makes every job safe to stop and resume, and it keeps bad tiles out of the output file.</p>

@@ -530,3 +530,9 @@ FR coverage (each sub-issue and the requirements it quotes):
   - `rate_limit` of 0 or below returns 400 `invalid_rate_limit` in the API. The CLI keeps the policy rate for 0 (#87).
   - `/api/preview` is viewing in the browser and needs no terms acceptance.
   - The failed-job exit code goes to #29.
+- 2026-11-21: Epic 3 merged into `develop` (#95). Decisions at its gates:
+  - Output files close in rollback-journal mode, as one file with no `-wal` or `-shm`, so that ATAK can open them read-only (batch fix).
+  - The retry pass makes 1 attempt per tile, as feature 07 says (batch fix).
+  - An API resume accepts a v0.1 file without force. The code `invalid_if_exists` is new (#91).
+  - The progress percent clamps at 100 (#94).
+  - Until #34 adds the overwrite/resume choice, a repeated web UI job for the same area returns 409 `output_exists`.

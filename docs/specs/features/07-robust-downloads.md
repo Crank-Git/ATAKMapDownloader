@@ -2,7 +2,7 @@
 id: robust-downloads
 feature: Robust downloads
 epic: "Epic 3: Robust downloads"
-status: issued
+status: built
 issues: [24, 25, 26, 27, 28, 29]
 mockups: []
 ---

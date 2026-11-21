@@ -782,6 +782,20 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 </ul>
 </li>
+<li>2026-11-21: Epic 3 merged into <code>develop</code> (#95). Decisions at its gates:
+<ul>
+<li>Output files close in rollback-journal mode, as one file with no <code>-wal</code> or <code>-shm</code>, so that ATAK can open them read-only (batch fix).
+</li>
+<li>The retry pass makes 1 attempt per tile, as feature 07 says (batch fix).
+</li>
+<li>An API resume accepts a v0.1 file without force. The code <code>invalid_if_exists</code> is new (#91).
+</li>
+<li>The progress percent clamps at 100 (#94).
+</li>
+<li>Until #34 adds the overwrite/resume choice, a repeated web UI job for the same area returns 409 <code>output_exists</code>.
+</li>
+</ul>
+</li>
 </ul><nav class="pager">
 <span></span>
 <a href="html/feature-foundation.html">Feature: Foundation &rarr;</a>
