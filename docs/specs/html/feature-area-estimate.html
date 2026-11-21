@@ -418,12 +418,12 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td></td><td><code>--zoom</code></td><td>10</td><td>Marked required</td></tr>
 </table></div>
 <h4 id="area-estimate-http">HTTP</h4>
-<p><code>POST /api/estimate</code> (<code>cmd/atak-dl/commands/web.go:177-224</code>).</p>
-<p>Request: <code>{"bounds": [west, south, east, north], "min_zoom": int, "max_zoom": int}</code>.</p>
+<p><code>POST /api/estimate</code> (<code>cmd/atak-dl/commands/web.go:229-309</code>).</p>
+<p>Request: <code>{"bounds": [west, south, east, north], "min_zoom": int, "max_zoom": int}</code>, or <code>{"areas": [...]}</code> with the areas of feature 11 (FR-area-selection-25).</p>
 <div class="table-wrap"><table>
 <tr><th>Status</th><th>Body</th></tr>
-<tr><td>200</td><td><code>{"total_tiles", "estimated_size_mb", "zoom_breakdown": {"&lt;z&gt;": count}, "bounds", "zoom_range": [min, max]}</code></td></tr>
-<tr><td>400</td><td><code>invalid_json</code>, or <code>invalid_bounds</code> with the bounds error as the message</td></tr>
+<tr><td>200</td><td><code>{"total_tiles", "estimated_size_mb", "zoom_breakdown": {"&lt;z&gt;": count}, "bounds", "zoom_range": [min, max], "areas": [{"name", "tiles"}], "unique_tiles"}</code>. <code>total_tiles</code> is equal to <code>unique_tiles</code> (FR-area-selection-10).</td></tr>
+<tr><td>400</td><td><code>invalid_json</code>, <code>invalid_bounds</code> with the bounds error as the message, <code>invalid_area</code>, or <code>zoom_out_of_range</code></td></tr>
 <tr><td>405</td><td><code>method_not_allowed</code></td></tr>
 <tr><td>413</td><td><code>body_too_large</code> (#81)</td></tr>
 </table></div>

@@ -190,14 +190,14 @@ None on disk. The calculations are pure functions in `internal/tilecalc`.
 
 ### HTTP
 
-`POST /api/estimate` (`cmd/atak-dl/commands/web.go:177-224`).
+`POST /api/estimate` (`cmd/atak-dl/commands/web.go:229-309`).
 
-Request: `{"bounds": [west, south, east, north], "min_zoom": int, "max_zoom": int}`.
+Request: `{"bounds": [west, south, east, north], "min_zoom": int, "max_zoom": int}`, or `{"areas": [...]}` with the areas of feature 11 (FR-area-selection-25).
 
 | Status | Body |
 |---|---|
-| 200 | `{"total_tiles", "estimated_size_mb", "zoom_breakdown": {"<z>": count}, "bounds", "zoom_range": [min, max]}` |
-| 400 | `invalid_json`, or `invalid_bounds` with the bounds error as the message |
+| 200 | `{"total_tiles", "estimated_size_mb", "zoom_breakdown": {"<z>": count}, "bounds", "zoom_range": [min, max], "areas": [{"name", "tiles"}], "unique_tiles"}`. `total_tiles` is equal to `unique_tiles` (FR-area-selection-10). |
+| 400 | `invalid_json`, `invalid_bounds` with the bounds error as the message, `invalid_area`, or `zoom_out_of_range` |
 | 405 | `method_not_allowed` |
 | 413 | `body_too_large` (#81) |
 

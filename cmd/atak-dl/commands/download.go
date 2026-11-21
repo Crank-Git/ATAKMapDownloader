@@ -12,7 +12,10 @@ import (
 	"syscall"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
+	"github.com/paulmach/orb"
 	"github.com/spf13/cobra"
 )
 
@@ -37,7 +40,7 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("source", "", "Map source name (required)")
-	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required)")
+	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required, except with --resume --output)")
 	cmd.Flags().Int("min-zoom", 1, "Minimum zoom level")
 	cmd.Flags().Int("max-zoom", 15, "Maximum zoom level")
 	cmd.Flags().String("output", "", "Output file path (default: downloads/<name>.sqlite)")
@@ -53,7 +56,6 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().Int("max-tiles", defaultMaxTiles, "Refuse a job above this tile count")
 	cmd.MarkFlagsMutuallyExclusive("resume", "overwrite")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
-	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
 }
 
@@ -65,11 +67,11 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		exitErr("Source '" + sourceName + "' not found")
 	}
 
-	bboxStr, _ := cmd.Flags().GetString("bbox")
-	bounds, _ := parseBBox(bboxStr)
-
-	minZoom, _ := cmd.Flags().GetInt("min-zoom")
-	maxZoom, _ := cmd.Flags().GetInt("max-zoom")
+	output, _ := cmd.Flags().GetString("output")
+	areas, err := downloadAreas(cmd, output)
+	if err != nil {
+		return err
+	}
 	concurrent, err := cmd.Flags().GetInt("concurrent")
 	if err != nil {
 		return fmt.Errorf("read --concurrent: %w", err)
@@ -78,7 +80,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	if err != nil {
 		return fmt.Errorf("read --max-tiles: %w", err)
 	}
-	if code, message := checkJobLimits(source, bounds, minZoom, maxZoom, concurrent, maxTiles); code != "" {
+	if code, message := checkJobLimits(source, areas, concurrent, maxTiles); code != "" {
 		// The flags are valid in form, so the usage text does not help the user.
 		cmd.SilenceUsage = true
 		err := fmt.Errorf("%s: %s", code, message)
@@ -91,14 +93,9 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		return err
 	}
 
-	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
-
-	output, _ := cmd.Flags().GetString("output")
 	customName, _ := cmd.Flags().GetString("name")
 	if output == "" {
-		dlDir := download.DownloadsDir()
-		fname := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
-		output = filepath.Join(dlDir, fname)
+		output = filepath.Join(download.DownloadsDir(), jobOutputFile(sourceName, areas, customName))
 	}
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {
@@ -117,7 +114,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	// The engine calls the callback from every tile goroutine, so the mutex guards lastPercent.
 	var mu sync.Mutex
 	var lastPercent float64
-	res, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, output, func(p download.Progress) bool {
+	res, err := engine.DownloadTiles(ctx, source, areas, output, func(p download.Progress) bool {
 		mu.Lock()
 		defer mu.Unlock()
 		percent := p.ProgressPercent()
@@ -129,6 +126,53 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		return true
 	})
 	return finishDownload(ctx, cmd, res, err, output)
+}
+
+// downloadAreas returns the areas of the download command: one bounds area from --bbox, --min-zoom and --max-zoom.
+// With no --bbox, a --resume into the existing file at output reads the areas of its atakdl_areas row (FR-area-selection-29).
+// It returns an error when the command has no --bbox and no resume, or when the file has no atakdl_areas row.
+func downloadAreas(cmd *cobra.Command, output string) ([]tilecalc.JobArea, error) {
+	bboxStr, err := cmd.Flags().GetString("bbox")
+	if err != nil {
+		return nil, fmt.Errorf("read --bbox: %w", err)
+	}
+	resume, err := cmd.Flags().GetBool("resume")
+	if err != nil {
+		return nil, fmt.Errorf("read --resume: %w", err)
+	}
+	if bboxStr != "" {
+		bounds, _ := parseBBox(bboxStr)
+		minZoom, err := cmd.Flags().GetInt("min-zoom")
+		if err != nil {
+			return nil, fmt.Errorf("read --min-zoom: %w", err)
+		}
+		maxZoom, err := cmd.Flags().GetInt("max-zoom")
+		if err != nil {
+			return nil, fmt.Errorf("read --max-zoom: %w", err)
+		}
+		b := orb.Bound{Min: orb.Point{bounds.MinLon, bounds.MinLat}, Max: orb.Point{bounds.MaxLon, bounds.MaxLat}}
+		return []tilecalc.JobArea{{Area: tilecalc.Area{Kind: tilecalc.AreaBounds, Geometry: b}, MinZoom: minZoom, MaxZoom: maxZoom}}, nil
+	}
+	if !resume || output == "" {
+		return nil, errors.New("--bbox is required, except with --resume --output <file>")
+	}
+	// ReadMetadata of a missing path can make an empty database, so the check for the file comes first.
+	if _, err := os.Stat(output); err != nil {
+		return nil, fmt.Errorf("read the areas of the output file: %w", err)
+	}
+	cmd.SilenceUsage = true
+	stored, ok, err := mbtiles.ReadMetadata(output, areasKey)
+	if err != nil {
+		return nil, fmt.Errorf("read the areas of the output file: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("the output file has no %s row, so it names no areas: use --bbox", areasKey)
+	}
+	areas, err := tilecalc.DecodeAreas([]byte(stored))
+	if err != nil {
+		return nil, fmt.Errorf("read the %s row of the output file: %w", areasKey, err)
+	}
+	return areas, nil
 }
 
 // finishDownload prints the final line of a job and returns the error that sets the exit code of atak-dl.
