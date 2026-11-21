@@ -551,3 +551,27 @@ option.policy-restricted {
     margin: 8px 12px;
     line-height: 1.4;
 }
+
+/* Output file list (FR-offline-web-ui-11). Each row holds the file details and a Download button. */
+.file-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.file-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.file-list .file-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-list .file-name {
+    overflow-wrap: anywhere;
+}

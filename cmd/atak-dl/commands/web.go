@@ -113,6 +113,8 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveIndex(w, r)
 	case r.URL.Path == "/api/jobs" || strings.HasPrefix(r.URL.Path, "/api/jobs/"):
 		h.jobRoutes.ServeHTTP(w, r)
+	case r.URL.Path == "/api/files" || strings.HasPrefix(r.URL.Path, "/api/files/"):
+		h.serveFiles(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		h.serveAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/static/"):
