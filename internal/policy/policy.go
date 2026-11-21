@@ -38,15 +38,14 @@ type Entry struct {
 //go:embed policy.json
 var tableJSON []byte
 
-// table panics at program start on a bad entry, because the table ships in the binary.
-var table = mustParse(tableJSON)
+var table []Entry
 
-func mustParse(data []byte) []Entry {
-	entries, err := parse(data)
-	if err != nil {
+// A bad entry is a build defect, because the table ships in the binary, so init panics.
+func init() {
+	var err error
+	if table, err = parse(tableJSON); err != nil {
 		panic(err)
 	}
-	return entries
 }
 
 // parse returns the entries of a policy table in JSON.
