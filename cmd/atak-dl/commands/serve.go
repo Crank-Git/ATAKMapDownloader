@@ -13,12 +13,13 @@ import (
 
 // NewServeCmd returns the serve command, which starts the web interface.
 // Every tile request and every geocode request of the server sends userAgent.
-func NewServeCmd(userAgent string) *cobra.Command {
+// GET /healthz reports version.
+func NewServeCmd(userAgent, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the web interface",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runServe(cmd, userAgent)
+			return runServe(cmd, userAgent, version)
 		},
 	}
 	cmd.Flags().String("addr", "localhost:5000", "Address to listen on")
@@ -33,7 +34,7 @@ func NewServeCmd(userAgent string) *cobra.Command {
 // maxWorkers is the highest value of serve --workers (feature 12, interfaces).
 const maxWorkers = 8
 
-func runServe(cmd *cobra.Command, userAgent string) error {
+func runServe(cmd *cobra.Command, userAgent, version string) error {
 	addr, _ := cmd.Flags().GetString("addr")
 
 	host, _, err := net.SplitHostPort(addr)
@@ -53,6 +54,7 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 
 	calc := tilecalc.NewTileCalculator()
 	wh := NewWebHandler(parser, calc, dir, userAgent)
+	wh.version = version
 	// The store opens before the workers start, so a restored queued job runs (FR-team-server-10).
 	if err := serveDataDir(cmd, wh); err != nil {
 		return err
