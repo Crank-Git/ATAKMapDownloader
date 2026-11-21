@@ -4,11 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
+	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +48,7 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	source := sourceFlag(cmd, parser)
 	sourceName := source.Name
 	if areaFile != "" {
-		return estimateAreaFile(cmd, areaFile, sourceName, source.TileType)
+		return estimateAreaFile(cmd, areaFile, source)
 	}
 	bounds, coords := parseBBox(bboxStr)
 
@@ -110,8 +113,12 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 
 // estimateAreaFile prints the tile count of each area of the --area file at path and the unique tile count (FR-area-selection-17).
 // A feature with no zoom property gets the zoom range of --zoom or --zoom-range.
-// It returns an error when a feature has no zoom property and the command has neither flag, or when an area is not valid.
-func estimateAreaFile(cmd *cobra.Command, path, sourceName, tileType string) error {
+// As the bounds estimate does, it removes each zoom level outside the source zoom range and warns about it (feature 02).
+// It returns an error for these cases:
+//   - A feature has no zoom property, and the command has neither flag.
+//   - No area has a zoom level in the source zoom range.
+//   - An area is not valid.
+func estimateAreaFile(cmd *cobra.Command, path string, source *xmlparser.MapSource) error {
 	zoom, err := cmd.Flags().GetInt("zoom")
 	if err != nil {
 		return fmt.Errorf("read --zoom: %w", err)
@@ -139,13 +146,17 @@ func estimateAreaFile(cmd *cobra.Command, path, sourceName, tileType string) err
 			return fmt.Errorf("area %d of %s has no zoom property: set --zoom or --zoom-range", i+1, path)
 		}
 	}
+	areas, err = sourceZoomAreas(cmd, areas, source)
+	if err != nil {
+		return err
+	}
 	if code, message := checkAreas(areas); code != "" {
 		return fmt.Errorf("%s: %s", code, message)
 	}
 	count := tilecalc.CountJobTiles(areas)
-	sizeKB := tilecalc.TileSizeKB(tileType)
+	sizeKB := tilecalc.TileSizeKB(source.TileType)
 	var b strings.Builder
-	fmt.Fprintf(&b, "\nDownload Estimate for '%s'\n-----------------------------------\n", sourceName)
+	fmt.Fprintf(&b, "\nDownload Estimate for '%s'\n-----------------------------------\n", source.Name)
 	for i, a := range areas {
 		name := a.Name
 		if name == "" {
@@ -158,6 +169,34 @@ func estimateAreaFile(cmd *cobra.Command, path, sourceName, tileType string) err
 		return fmt.Errorf("print the estimate: %w", err)
 	}
 	return nil
+}
+
+// sourceZoomAreas returns the areas with their zoom ranges cut to the zoom range of source.
+// It prints one warning for each zoom level that it removes, and it drops an area that keeps no zoom level.
+// It returns an error when no area keeps a zoom level.
+func sourceZoomAreas(cmd *cobra.Command, areas []tilecalc.JobArea, source *xmlparser.MapSource) ([]tilecalc.JobArea, error) {
+	removed := map[int]bool{}
+	kept := make([]tilecalc.JobArea, 0, len(areas))
+	for _, a := range areas {
+		for z := a.MinZoom; z <= a.MaxZoom; z++ {
+			if z < source.MinZoom || z > source.MaxZoom {
+				removed[z] = true
+			}
+		}
+		a.MinZoom, a.MaxZoom = max(a.MinZoom, source.MinZoom), min(a.MaxZoom, source.MaxZoom)
+		if a.MinZoom <= a.MaxZoom {
+			kept = append(kept, a)
+		}
+	}
+	for _, z := range slices.Sorted(maps.Keys(removed)) {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Zoom %d outside source range (%d-%d)\n", z, source.MinZoom, source.MaxZoom); err != nil {
+			return nil, fmt.Errorf("print the zoom warning: %w", err)
+		}
+	}
+	if len(kept) == 0 {
+		return nil, errors.New("no valid zoom levels for this source")
+	}
+	return kept, nil
 }
 
 func formatInt(n int) string {

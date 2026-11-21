@@ -186,24 +186,9 @@ func TestEstimateAreaFileWarnsAboutZoomLevelsOutsideTheSourceRange(t *testing.T)
 	}
 
 	_, _, err = runEstimateArgs(t, srv, "--area", areaFixture("trail.kml"), "--buffer", "300", "--zoom-range", "19-20")
-	if err == nil || !strings.Contains(err.Error(), "No valid zoom levels for this source") || ExitCode(err) != 1 {
+	if err == nil || !strings.Contains(err.Error(), "no valid zoom levels for this source") || ExitCode(err) != 1 {
 		t.Errorf("estimate --area above the source range = %v (exit code %d), want exit code 1 and no valid zoom levels", err, ExitCode(err))
 	}
-}
-
-// writeNamedSource returns a map source directory whose one source is named name and points at srv.
-func writeNamedSource(t *testing.T, srv *testtiles.Server, name string) string {
-	t.Helper()
-	dir := writeSource(t, srv)
-	path := filepath.Join(dir, "tls.xml")
-	xml, err := os.ReadFile(path) //nolint:gosec // path is in the test directory.
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, bytes.Replace(xml, []byte("Test TLS"), []byte(name), 1), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return dir
 }
 
 // The v0.1 name "USGS - Usgsbasemap" has the v2 name "USGS Topo" in the alias table (FR-source-sync-16).
@@ -334,7 +319,7 @@ func TestParseRouteErrors(t *testing.T) {
 		{"rejects a zoom default that is not a number", "/api/areas/parse?max_zoom=x", trail, http.StatusBadRequest, "invalid_query"},
 		{"rejects a body larger than 5 MiB", "/api/areas/parse", append(bytes.Repeat([]byte(" "), 6<<20), padded...),
 			http.StatusRequestEntityTooLarge, "body_too_large"},
-		{"keeps the 1 MiB limit of the estimate route", "/api/estimate", padded, http.StatusRequestEntityTooLarge, "body_too_large"},
+		{"keeps the 1 MiB limit of a route with no areas", "/api/preview", padded, http.StatusRequestEntityTooLarge, "body_too_large"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
