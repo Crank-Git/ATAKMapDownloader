@@ -10,7 +10,18 @@ const OFFLINE_AFTER_FAILURES = 3;
 // With no job and no user action, only a probe request shows that the server is back.
 const PROBE_INTERVAL_MS = 4000;
 // A running job makes these settings read-only (feature 08, downloading state). setJobLocked handles the map source picker.
-const JOB_SETTINGS = ['minZoom', 'maxZoom', 'customName', 'maxConcurrent', 'failureTolerance', 'ignoreErrors', 'verifyTLS', 'ifExists'];
+// The area tools are in the list, so a running job keeps the area list that it started with.
+const JOB_SETTINGS = ['minZoom', 'maxZoom', 'customName', 'maxConcurrent', 'failureTolerance', 'ignoreErrors', 'verifyTLS', 'ifExists',
+    'drawRectangle', 'drawPolygon', 'drawRoute', 'importFile', 'routeBuffer', 'clearSelection'];
+// The server accepts at most 20 areas in one job (FR-area-selection-5).
+const MAX_AREAS = 20;
+const KIND_LABEL = { bounds: 'Rectangle', polygon: 'Polygon', route_buffer: 'Route' };
+// DRAW_TOOLS maps each Geoman draw shape to its toolbar button and to the hint that the draw state shows.
+const DRAW_TOOLS = {
+    Rectangle: ['drawRectangle', 'Drag on the map to draw a rectangle. Press Esc to cancel.'],
+    Polygon: ['drawPolygon', 'Click on the map for each corner, and click the first corner to end. Press Esc to cancel.'],
+    Line: ['drawRoute', 'Click on the map for each point of the route, and click the last point again to end. Press Esc to cancel.']
+};
 const CONNECTION_LOOK = {
     connected: ['ok', 'Connected'],
     reconnecting: ['warn', 'Reconnecting'],
@@ -20,7 +31,20 @@ const CONNECTION_LOOK = {
 class ATAKDownloader {
     constructor() {
         this.map = null;
-        this.selectedArea = null;
+        // areas is the area list in job order. Each area holds its geometry as GeoJSON and its Leaflet layer.
+        this.areas = [];
+        this.nextAreaId = 1;
+        this.selectedAreaId = null;
+        // uniqueTiles is the unique tile count of the area list from the last estimate, and null before it.
+        this.uniqueTiles = null;
+        // maxTiles is the tile cap of a job from GET /api/config, and null until the config loads.
+        this.maxTiles = null;
+        this.shadeLayer = null;
+        // drawShape is the Geoman shape of the open draw mode, and null when no draw mode is open.
+        this.drawShape = null;
+        // A newer request replaces an older one, so each response checks that its sequence number is the last one.
+        this.countSeq = 0;
+        this.shadeSeq = 0;
         this.mapSources = [];
         this.jobId = null;
         this.jobEvents = null;
@@ -126,17 +150,19 @@ class ATAKDownloader {
         this.logStatus('Map initialized');
     }
     
-    // Geoman draws, edits and removes the rectangle (FR-offline-web-ui-6).
+    // Geoman draws, edits and removes the areas (FR-offline-web-ui-6, FR-area-selection-19).
+    // The sidebar toolbar opens the draw modes, so the Geoman toolbar holds only edit, drag and removal.
     initDrawControls() {
         this.map.pm.setGlobalOptions({
-            pathOptions: { color: '#3498db', weight: 2, fillOpacity: 0.2 }
+            pathOptions: { color: '#3498db', weight: 2, fillOpacity: 0.2 },
+            exitModeOnEscape: true
         });
         this.map.pm.addControls({
             position: 'topright',
             drawMarker: false,
             drawCircleMarker: false,
             drawPolyline: false,
-            drawRectangle: true,
+            drawRectangle: false,
             drawPolygon: false,
             drawCircle: false,
             drawText: false,
@@ -151,27 +177,47 @@ class ATAKDownloader {
             button.setAttribute('aria-label', button.parentElement.title);
         });
 
-        this.map.on('pm:create', (e) => {
-            if (e.shape !== 'Rectangle') return;
-            const layer = e.layer;
-            this.selectedArea = layer.getBounds();
-            this.updateSelectionInfo();
-            this.enableEstimation();
-            // Edit mode and drag mode move the rectangle, so the selected area follows each change.
-            const follow = () => {
-                this.selectedArea = layer.getBounds();
-                this.updateSelectionInfo();
-            };
-            layer.on('pm:edit', follow);
-            layer.on('pm:dragend', follow);
-        });
-
+        this.map.on('pm:drawstart', (e) => this.setDrawState(e.shape));
+        this.map.on('pm:drawend', () => this.setDrawState(null));
+        this.map.on('pm:create', (e) => this.onDrawCreate(e));
         this.map.on('pm:remove', (e) => {
-            if (e.shape !== 'Rectangle') return;
-            this.selectedArea = null;
-            this.updateSelectionInfo();
-            this.disableEstimation();
+            const area = this.areas.find(a => a.layer === e.layer);
+            if (area) this.removeArea(area.id);
         });
+    }
+
+    // startDraw opens the Geoman draw mode of shape, or closes it when it is open already.
+    startDraw(shape) {
+        if (this.isDownloading) return;
+        if (this.map.pm.globalDrawModeEnabled() && this.drawShape === shape) {
+            this.map.pm.disableDraw();
+            return;
+        }
+        this.map.pm.enableDraw(shape);
+    }
+
+    // setDrawState marks the toolbar button of the open draw mode and shows how to cancel it. shape is null when no mode is open.
+    setDrawState(shape) {
+        this.drawShape = shape;
+        Object.entries(DRAW_TOOLS).forEach(([name, [id]]) => {
+            document.getElementById(id).setAttribute('aria-pressed', String(name === shape));
+        });
+        const hint = document.getElementById('drawHint');
+        hint.hidden = !DRAW_TOOLS[shape];
+        hint.textContent = DRAW_TOOLS[shape] ? DRAW_TOOLS[shape][1] : '';
+    }
+
+    // onDrawCreate adds the shape that the user drew to the area list.
+    onDrawCreate(e) {
+        const kind = { Rectangle: 'bounds', Polygon: 'polygon', Line: 'route_buffer' }[e.shape];
+        if (!kind) return;
+        const added = this.addArea({
+            kind: kind,
+            geometry: e.layer.toGeoJSON().geometry,
+            bufferM: kind === 'route_buffer' ? this.routeBufferM() : null,
+            name: KIND_LABEL[kind] + ' ' + this.nextAreaId
+        }, e.layer);
+        if (added) this.areasChanged();
     }
 
     // recordSuccess marks the server as reachable. Any response counts, an error status too.
@@ -221,10 +267,19 @@ class ATAKDownloader {
     // setJobLocked makes Estimate, Start and the job settings read-only while locked is true.
     setJobLocked(locked) {
         this.isDownloading = locked;
-        document.getElementById('estimateBtn').disabled = locked || !this.selectedArea;
+        document.getElementById('estimateBtn').disabled = locked || this.areas.length === 0;
         // An empty source list keeps the map source picker disabled after the job too.
         document.getElementById('mapSourceSelect').disabled = locked || this.mapSources.length === 0;
         JOB_SETTINGS.forEach(id => { document.getElementById(id).disabled = locked; });
+        // A Geoman mode can change an area on the map, so a running job closes the modes and hides their toolbar.
+        if (locked) {
+            this.map.pm.disableDraw();
+            this.map.pm.disableGlobalEditMode();
+            this.map.pm.disableGlobalDragMode();
+            this.map.pm.disableGlobalRemovalMode();
+        }
+        if (this.map.pm.controlsVisible() === locked) this.map.pm.toggleControls();
+        this.renderAreaList();
         this.setStartEnabled(this.startReady);
     }
 
@@ -285,7 +340,7 @@ class ATAKDownloader {
     }
 
     // requestJSON sends a request and returns the JSON body of a 2xx response.
-    // For an error status, it throws an Error with the server's error.message.
+    // For an error status, it throws an Error with the server's error.message, and its code property holds error.code.
     // If the request does not reach the server, it throws "Server unreachable".
     async requestJSON(path, options) {
         let response;
@@ -299,7 +354,10 @@ class ATAKDownloader {
         // A proxy can send an error page that is not JSON, so a parse failure keeps the status as the message.
         const body = await response.json().catch(() => null);
         if (!response.ok) {
-            throw new Error((body && body.error && body.error.message) || 'The server returned status ' + response.status);
+            const error = new Error((body && body.error && body.error.message) || 'The server returned status ' + response.status);
+            // The code lets a caller tell an expected refusal, such as too_many_tiles, from a failure.
+            error.code = body && body.error && body.error.code;
+            throw error;
         }
         return body;
     }
@@ -318,6 +376,8 @@ class ATAKDownloader {
         this.errorKey = key;
         this.retryRequest = retry;
         document.getElementById('errorMessage').textContent = message;
+        // An import warning has no request to send again, so its banner shows no Retry.
+        document.getElementById('errorRetry').hidden = !retry;
         document.getElementById('errorBanner').hidden = false;
     }
 
@@ -483,8 +543,22 @@ class ATAKDownloader {
     bindEvents() {
         document.getElementById('themeToggle').addEventListener('click', () => this.toggleTheme());
         document.getElementById('errorRetry').addEventListener('click', () => this.retry());
-        document.getElementById('drawRectangle').addEventListener('click', () => {
-            this.map.pm.enableDraw('Rectangle');
+        document.getElementById('drawRectangle').addEventListener('click', () => this.startDraw('Rectangle'));
+        document.getElementById('drawPolygon').addEventListener('click', () => this.startDraw('Polygon'));
+        document.getElementById('drawRoute').addEventListener('click', () => this.startDraw('Line'));
+        document.getElementById('importFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            // A cleared value lets the user pick the same file again after a fix.
+            e.target.value = '';
+            if (file) this.importAreaFile(file);
+        });
+        [document.getElementById('importDrop'), this.map.getContainer()].forEach(zone => {
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                document.getElementById('importDrop').classList.add('over');
+            });
+            zone.addEventListener('dragleave', () => document.getElementById('importDrop').classList.remove('over'));
+            zone.addEventListener('drop', (e) => this.onAreaDrop(e));
         });
         document.getElementById('clearSelection').addEventListener('click', () => this.clearSelection());
         document.getElementById('estimateBtn').addEventListener('click', () => this.estimateDownload());
@@ -505,52 +579,289 @@ class ATAKDownloader {
         document.getElementById('maxZoom').addEventListener('change', () => this.validateZoomLevels());
     }
     
+    // clearSelection removes every area from the map and the area list.
     clearSelection() {
-        this.map.eachLayer((layer) => {
-            if (layer instanceof L.Rectangle || layer instanceof L.Polygon) {
-                this.map.removeLayer(layer);
-            }
-        });
-        this.selectedArea = null;
-        this.updateSelectionInfo();
-        this.disableEstimation();
+        if (this.isDownloading) return;
+        this.areas.forEach(area => this.map.removeLayer(area.layer));
+        this.areas = [];
+        this.selectedAreaId = null;
         this.clearPreview();
+        this.areasChanged();
         this.logStatus('Selection cleared');
     }
-    
-    updateSelectionInfo() {
-        const infoDiv = document.getElementById('selectionInfo');
-        if (this.selectedArea) {
-            const bounds = this.selectedArea;
-            const area = this.calculateArea(bounds);
-            const title = document.createElement('strong');
-            title.textContent = 'Selected Area:';
-            const size = document.createElement('small');
-            size.textContent = 'Area: ~' + area.toFixed(2) + ' km²';
-            infoDiv.replaceChildren(title);
-            [
-                'North: ' + bounds.getNorth().toFixed(6) + '°',
-                'South: ' + bounds.getSouth().toFixed(6) + '°',
-                'East: ' + bounds.getEast().toFixed(6) + '°',
-                'West: ' + bounds.getWest().toFixed(6) + '°'
-            ].forEach(line => infoDiv.append(document.createElement('br'), line));
-            infoDiv.append(document.createElement('br'), size);
-        } else {
-            infoDiv.textContent = 'Click "Draw Rectangle" to select an area on the map';
+
+    // routeBufferM returns the route buffer of the sidebar in meters. An empty field gives the default 500 (FR-area-selection-20).
+    routeBufferM() {
+        return parseFloat(document.getElementById('routeBuffer').value) || 500;
+    }
+
+    // addArea puts an area at the end of the list and selects it. It returns false when the list holds MAX_AREAS areas.
+    // spec holds kind, geometry, name and bufferM, and minZoom and maxZoom when the area has its own zoom range.
+    // layer is the drawn layer. With no layer, addArea draws the geometry. The caller calls areasChanged.
+    addArea(spec, layer) {
+        if (this.areas.length >= MAX_AREAS) {
+            if (layer) this.map.removeLayer(layer);
+            this.showError('areaLimit', 'A job holds at most ' + MAX_AREAS + ' areas. Remove an area first.', null);
+            return false;
+        }
+        // L.geoJSON returns a group, and Geoman edits and removes the layer inside it, so the area keeps that layer.
+        const drawn = layer || L.geoJSON(spec.geometry, { style: { color: '#3498db', weight: 2, fillOpacity: 0.2 } }).getLayers()[0];
+        const area = {
+            id: this.nextAreaId++,
+            kind: spec.kind,
+            name: spec.name,
+            geometry: spec.geometry,
+            bufferM: spec.bufferM,
+            minZoom: spec.minZoom ?? parseInt(document.getElementById('minZoom').value),
+            maxZoom: spec.maxZoom ?? parseInt(document.getElementById('maxZoom').value),
+            tiles: null,
+            layer: drawn.addTo(this.map)
+        };
+        // Edit mode and drag mode move the area, so the geometry follows each change.
+        const follow = () => {
+            area.geometry = area.layer.toGeoJSON().geometry;
+            this.areasChanged();
+        };
+        area.layer.on('pm:edit', follow);
+        area.layer.on('pm:dragend', follow);
+        area.layer.on('click', () => this.selectArea(area.id));
+        this.areas.push(area);
+        this.selectedAreaId = area.id;
+        return true;
+    }
+
+    removeArea(id) {
+        const area = this.areas.find(a => a.id === id);
+        if (!area || this.isDownloading) return;
+        this.map.removeLayer(area.layer);
+        this.areas = this.areas.filter(a => a !== area);
+        this.hideError('areaLimit');
+        if (this.selectedAreaId === id) {
+            this.selectedAreaId = this.areas.length > 0 ? this.areas[this.areas.length - 1].id : null;
+        }
+        this.areasChanged();
+    }
+
+    selectArea(id) {
+        this.selectedAreaId = id;
+        this.renderAreaList();
+        return this.shadeSelectedArea();
+    }
+
+    // setAreaZoom sets the min or max zoom of an area from its row (FR-area-selection-23). field is minZoom or maxZoom.
+    // An inverted range moves the other end, as validateZoomLevels does for the sidebar range.
+    setAreaZoom(id, field, value) {
+        const area = this.areas.find(a => a.id === id);
+        const zoom = parseInt(value);
+        if (!area || Number.isNaN(zoom)) {
+            this.renderAreaList();
+            return;
+        }
+        area[field] = Math.min(25, Math.max(0, zoom));
+        if (area.minZoom > area.maxZoom) {
+            if (field === 'minZoom') area.maxZoom = area.minZoom; else area.minZoom = area.maxZoom;
+        }
+        this.areasChanged();
+    }
+
+    // areasChanged redraws the area list and asks the server for the new counts and shading.
+    // The old estimate no longer matches the list, so Start waits for a new estimate.
+    areasChanged() {
+        this.uniqueTiles = null;
+        this.areas.forEach(a => { a.tiles = null; });
+        this.renderAreaList();
+        if (this.areas.length > 0) this.enableEstimation(); else this.disableEstimation();
+        return Promise.all([this.refreshCounts(), this.shadeSelectedArea()]);
+    }
+
+    // areaRequest returns one area in the job API shape (FR-area-selection-25).
+    areaRequest(area) {
+        const request = { kind: area.kind, geometry: area.geometry, min_zoom: area.minZoom, max_zoom: area.maxZoom, name: area.name };
+        if (area.kind === 'route_buffer') request.buffer_m = area.bufferM;
+        return request;
+    }
+
+    areaPayload() {
+        return this.areas.map(area => this.areaRequest(area));
+    }
+
+    // applyCounts copies the counts of an estimate to the areas that the request sent, in request order.
+    applyCounts(areas, result) {
+        areas.forEach((area, i) => { area.tiles = result.areas[i].tiles; });
+        this.uniqueTiles = result.unique_tiles;
+        this.renderAreaList();
+    }
+
+    // refreshCounts asks POST /api/estimate for the tile count of each area and the unique total.
+    async refreshCounts() {
+        const seq = ++this.countSeq;
+        if (this.areas.length === 0) {
+            this.hideError('areas');
+            return;
+        }
+        const areas = this.areas.slice();
+        try {
+            const result = await this.postJSON('/api/estimate', { areas: this.areaPayload() });
+            if (seq !== this.countSeq) return;
+            this.applyCounts(areas, result);
+            this.hideError('areas');
+        } catch (error) {
+            if (seq !== this.countSeq) return;
+            this.showError('areas', 'The area list is not valid: ' + error.message, () => this.refreshCounts());
         }
     }
-    
-    calculateArea(bounds) {
-        const lat1 = bounds.getSouth();
-        const lat2 = bounds.getNorth();
-        const lon1 = bounds.getWest();
-        const lon2 = bounds.getEast();
-        return Math.abs((lon2 - lon1) * (lat2 - lat1)) * 111.32 * 111.32;
+
+    // renderAreaList shows one row per area with its kind, name, zoom range, tile count and Remove (FR-area-selection-22).
+    // Area names come from the user or from a file, so they go in through textContent only.
+    renderAreaList() {
+        const list = document.getElementById('areaList');
+        list.replaceChildren();
+        document.getElementById('areaEmpty').hidden = this.areas.length > 0;
+        this.areas.forEach(area => {
+            const row = document.createElement('li');
+            row.classList.toggle('selected', area.id === this.selectedAreaId);
+            const top = document.createElement('div');
+            top.className = 'area-top';
+            // The name is a button, so the keyboard can select the area that the map shades.
+            const name = document.createElement('button');
+            name.type = 'button';
+            name.className = 'area-name';
+            name.textContent = area.name;
+            name.setAttribute('aria-pressed', String(area.id === this.selectedAreaId));
+            name.addEventListener('click', () => this.selectArea(area.id));
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn btn-sm';
+            remove.textContent = 'Remove';
+            remove.setAttribute('aria-label', 'Remove ' + area.name);
+            remove.disabled = this.isDownloading;
+            remove.addEventListener('click', () => this.removeArea(area.id));
+            top.append(name, remove);
+
+            const minInput = document.createElement('input');
+            const maxInput = document.createElement('input');
+            [[minInput, 'minZoom'], [maxInput, 'maxZoom']].forEach(([input, field]) => {
+                input.type = 'number';
+                input.min = '0';
+                input.max = '25';
+                input.value = String(area[field]);
+                input.disabled = this.isDownloading;
+                input.addEventListener('change', (e) => this.setAreaZoom(area.id, field, e.target.value));
+            });
+            minInput.setAttribute('aria-label', 'Min zoom of ' + area.name);
+            maxInput.setAttribute('aria-label', 'Max zoom of ' + area.name);
+            const zoom = document.createElement('div');
+            zoom.className = 'area-zoom';
+            zoom.append('Zoom', minInput, '–', maxInput);
+
+            const count = document.createElement('div');
+            count.className = 'area-count';
+            const kind = KIND_LABEL[area.kind] + (area.kind === 'route_buffer' ? ' + ' + area.bufferM + ' m buffer' : '');
+            count.textContent = kind + ' · ' + (area.tiles === null ? 'counting tiles' : area.tiles.toLocaleString() + ' tiles');
+            row.append(top, zoom, count);
+            list.appendChild(row);
+        });
+        this.renderAreaTotal();
     }
-    
+
+    // renderAreaTotal shows the unique tile count under the list, in red with a banner above the tile cap.
+    renderAreaTotal() {
+        const total = document.getElementById('areaTotal');
+        const over = this.maxTiles !== null && this.uniqueTiles !== null && this.uniqueTiles > this.maxTiles;
+        total.hidden = this.areas.length === 0 || this.uniqueTiles === null;
+        total.classList.toggle('over', over);
+        total.textContent = this.uniqueTiles === null ? '' : 'Total: ' + this.uniqueTiles.toLocaleString() + ' tiles (overlaps counted once)';
+        if (over) {
+            this.showError('cap', 'The areas hold ' + this.uniqueTiles.toLocaleString() + ' tiles, and the tile cap is ' +
+                this.maxTiles.toLocaleString() + '. Remove an area or lower a zoom range.', null);
+        } else {
+            this.hideError('cap');
+        }
+    }
+
+    // shadeSelectedArea draws the tiles of the selected area at its max zoom (FR-area-selection-24).
+    // At 5,000 tiles or more the route returns too_many_tiles, and the map then shows the outline only.
+    async shadeSelectedArea() {
+        const seq = ++this.shadeSeq;
+        if (this.shadeLayer) {
+            this.map.removeLayer(this.shadeLayer);
+            this.shadeLayer = null;
+        }
+        const area = this.areas.find(a => a.id === this.selectedAreaId);
+        if (!area) return;
+        try {
+            const result = await this.postJSON('/api/areas/tiles', { area: this.areaRequest(area), zoom: area.maxZoom });
+            if (seq !== this.shadeSeq) return;
+            const squares = result.tiles.map(([x, y]) => L.rectangle(this.tileBounds(x, y, area.maxZoom), {
+                pmIgnore: true, interactive: false, weight: 1, color: '#2f6b4f', fillOpacity: 0.25
+            }));
+            this.shadeLayer = L.layerGroup(squares).addTo(this.map);
+        } catch (error) {
+            if (seq !== this.shadeSeq) return;
+            if (error.code === 'too_many_tiles') {
+                this.logStatus(area.name + ' selects 5,000 tiles or more at zoom ' + area.maxZoom + ', so the map shows its outline only');
+            } else {
+                this.logStatus('The tiles of ' + area.name + ' did not load: ' + error.message, 'error');
+            }
+        }
+    }
+
+    // tileBounds returns the corners of the Web Mercator tile x, y at zoom level z as Leaflet [lat, lon] pairs.
+    tileBounds(x, y, z) {
+        const n = Math.pow(2, z);
+        const lat = (row) => Math.atan(Math.sinh(Math.PI * (1 - 2 * row / n))) * 180 / Math.PI;
+        return [[lat(y + 1), x / n * 360 - 180], [lat(y), (x + 1) / n * 360 - 180]];
+    }
+
+    // onAreaDrop imports the first file of a drop on the drop zone or on the map (FR-area-selection-21).
+    onAreaDrop(e) {
+        e.preventDefault();
+        document.getElementById('importDrop').classList.remove('over');
+        if (this.isDownloading) return Promise.resolve();
+        const file = e.dataTransfer.files[0];
+        return file ? this.importAreaFile(file) : Promise.resolve();
+    }
+
+    // importAreaFile sends a GeoJSON, KML or KMZ file to POST /api/areas/parse, which holds the one area file parser (#53).
+    // The query sends the sidebar defaults, because the server uses 0 for a value that the file and the query do not set.
+    async importAreaFile(file) {
+        if (this.isDownloading) return;
+        const form = new FormData();
+        form.append('file', file, file.name);
+        const query = new URLSearchParams({
+            min_zoom: document.getElementById('minZoom').value,
+            max_zoom: document.getElementById('maxZoom').value,
+            buffer_m: String(this.routeBufferM())
+        });
+        let result;
+        try {
+            result = await this.requestJSON('/api/areas/parse?' + query, { method: 'POST', body: form });
+        } catch (error) {
+            this.logStatus('Import error: ' + error.message, 'error');
+            this.showError('import', 'Import of ' + file.name + ' failed: ' + error.message, () => this.importAreaFile(file));
+            return;
+        }
+        this.hideError('import');
+        let added = 0;
+        for (const a of result.areas) {
+            const ok = this.addArea({
+                kind: a.kind, geometry: a.geometry, bufferM: a.buffer_m, minZoom: a.min_zoom, maxZoom: a.max_zoom,
+                name: a.name || file.name + ' ' + (added + 1)
+            });
+            if (!ok) break;
+            added++;
+        }
+        this.logStatus('Imported ' + added + ' areas from ' + file.name, 'success');
+        if (result.warnings.length > 0) {
+            this.showError('import', file.name + ': ' + result.warnings.join('. '), null);
+        }
+        if (added > 0) await this.areasChanged();
+    }
+
     enableEstimation() {
         document.getElementById('estimateBtn').disabled = this.isDownloading;
         document.getElementById('previewBtn').disabled = false;
+        this.setStartEnabled(false);
     }
     
     disableEstimation() {
@@ -564,15 +875,8 @@ class ATAKDownloader {
     
     async estimateDownload() {
         if (this.isDownloading) return;
-        if (!this.selectedArea || !document.getElementById('mapSourceSelect').value) {
+        if (this.areas.length === 0 || !document.getElementById('mapSourceSelect').value) {
             this.logStatus('Select area and map source first', 'error');
-            return;
-        }
-        const minZoom = parseInt(document.getElementById('minZoom').value);
-        const maxZoom = parseInt(document.getElementById('maxZoom').value);
-        // One zoom level is a valid range (FR-offline-web-ui-24).
-        if (minZoom > maxZoom) {
-            this.logStatus('Invalid zoom range', 'error');
             return;
         }
         const button = document.getElementById('estimateBtn');
@@ -582,15 +886,22 @@ class ATAKDownloader {
         resultDiv.className = 'card';
         resultDiv.innerHTML = SPINNER;
         resultDiv.append(' Estimating the job size');
+        // The estimate holds the area counts too, so it takes the place of a count that runs.
+        const seq = ++this.countSeq;
+        const areas = this.areas.slice();
         try {
-            const bounds = this.selectedArea;
             // The server picks the size per tile from the tile type of the map source (FR-offline-web-ui-23).
             const result = await this.postJSON('/api/estimate', {
                 source: document.getElementById('mapSourceSelect').value,
-                bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-                min_zoom: minZoom,
-                max_zoom: maxZoom
+                areas: this.areaPayload()
             });
+            // An area change during the request starts a new count, and then this result no longer matches the list.
+            if (seq !== this.countSeq) {
+                resultDiv.className = '';
+                resultDiv.textContent = '';
+                return;
+            }
+            this.applyCounts(areas, result);
             this.displayEstimation(result);
             this.hideError('estimate');
             this.setStartEnabled(true);
@@ -608,14 +919,10 @@ class ATAKDownloader {
     }
     
     async previewTiles() {
-        if (!this.selectedArea || !document.getElementById('mapSourceSelect').value) {
+        // The preview route takes one rectangle, so it shows the bounding rectangle of the selected area.
+        const area = this.areas.find(a => a.id === this.selectedAreaId);
+        if (!area || !document.getElementById('mapSourceSelect').value) {
             this.logStatus('Select area and map source first', 'error');
-            return;
-        }
-        const minZoom = parseInt(document.getElementById('minZoom').value);
-        const maxZoom = parseInt(document.getElementById('maxZoom').value);
-        if (minZoom > maxZoom) {
-            this.logStatus('Invalid zoom range', 'error');
             return;
         }
         const button = document.getElementById('previewBtn');
@@ -623,12 +930,12 @@ class ATAKDownloader {
         try {
             this.clearPreview();
             this.logStatus('Loading preview tiles...', 'info');
-            const bounds = this.selectedArea;
+            const bounds = area.layer.getBounds();
             const result = await this.postJSON('/api/preview', {
                 source: document.getElementById('mapSourceSelect').value,
                 bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-                min_zoom: minZoom,
-                max_zoom: maxZoom
+                min_zoom: area.minZoom,
+                max_zoom: area.maxZoom
             });
             this.displayPreview(result);
             this.hideError('preview');
@@ -748,12 +1055,15 @@ class ATAKDownloader {
     }
 
     // serve --no-geocode removes place search, so the web UI hides the search box (FR-polite-downloading-26).
+    // The tile cap marks an area list that the server would reject, before the user starts the job.
     async loadConfig() {
         try {
             const config = await this.requestJSON('/api/config');
             if (config.geocode === false) {
                 document.getElementById('addressSearchGroup').hidden = true;
             }
+            this.maxTiles = config.max_tiles;
+            this.renderAreaTotal();
         } catch (error) {
             this.logStatus('Error loading config: ' + error.message, 'error');
         }
@@ -851,17 +1161,14 @@ class ATAKDownloader {
         const sourceName = document.getElementById('mapSourceSelect').value;
         // An empty select value matches no source, so this one check covers the case with no source selected.
         const source = this.mapSources.find(s => s.name === sourceName);
-        if (!this.selectedArea || !source) {
+        if (this.areas.length === 0 || !source) {
             this.logStatus('Select area and map source first', 'error');
             return;
         }
-        const bounds = this.selectedArea;
         const concurrency = parseInt(document.getElementById('maxConcurrent').value) || 5;
         const request = {
             source: sourceName,
-            bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-            min_zoom: parseInt(document.getElementById('minZoom').value),
-            max_zoom: parseInt(document.getElementById('maxZoom').value),
+            areas: this.areaPayload(),
             name: document.getElementById('customName').value.trim(),
             concurrency: concurrency,
             failure_tolerance: parseFloat(document.getElementById('failureTolerance').value) || 0.3,
@@ -953,7 +1260,7 @@ class ATAKDownloader {
         if (jobId !== this.jobId) return;
         this.jobId = null;
         this.setJobLocked(false);
-        this.setStartEnabled(Boolean(this.selectedArea && document.getElementById('mapSourceSelect').value));
+        this.setStartEnabled(Boolean(this.areas.length > 0 && document.getElementById('mapSourceSelect').value));
         document.getElementById('downloadBtn').innerHTML = ICON_DOWNLOAD + ' Start Download';
         document.getElementById('downloadProgress').hidden = true;
         this.showCancelButton(false);

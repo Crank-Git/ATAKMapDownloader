@@ -68,8 +68,9 @@ The project exists because ATAK users often work with no network. Examples are s
 | zoom level | noun | An integer from 0 to 25 that selects the tile grid. | level, z (in prose) |
 | zoom range | noun | A minimum and a maximum zoom level, both included. | levels |
 | bounds | noun | A geographic rectangle: minimum and maximum latitude and longitude. The `--bbox` flag name stays as it is. | bbox (in prose), extent, box |
-| area | noun | The region that a job covers: bounds, a polygon or a route buffer (polygon and route buffer are planned, feature 11). | AOI, region, selection |
-| route buffer | noun | An area made from a line and a distance in metres on each side of it (planned). | corridor |
+| area | noun | The region that a job covers: bounds, a polygon or a route buffer (feature 11). | AOI, region, selection |
+| route buffer | noun | An area made from a line and a distance in metres on each side of it (feature 11). | corridor |
+| vertex | noun | One position of a polygon ring or of a line. An area holds at most 20,000 (feature 11). | node, corner |
 | estimate | noun | A prediction of the tile count, file size and time for an area and a zoom range. The `estimate` command name stays as it is. | quote, calculation |
 | preview | noun | A grid of sample tiles from a map source, shown on the map over the area. | thumbnail |
 | download | verb | To get tiles from a map source over HTTP and write them to an output file. Never a noun in this spec. | fetch, grab, scrape, pull |
@@ -303,10 +304,10 @@ Per entity:
 - **SKIPPED_SOURCE** (built, feature 09). An in-memory record of a source file that did not load, with its path, reason and detail (#38).
 - **SOURCE_POLICY** (planned, feature 06). A table embedded in the binary, keyed by a host pattern such as `*.google.com`. `policy_class` is `open`, `conditional` or `restricted`. `requests_per_second` is the rate limit for that host.
 - **JOB** (built as one in-memory record, `cmd/atak-dl/commands/jobs.go:62-78`, #76). It has an `id`, and its state is `running`, `complete`, `failed` or `cancelled`. The server keeps only the last job (`web.go:29-35`). Planned (feature 12): the `queued` state and a persistent record in the data directory.
-- **AREA** (built as bounds only). Planned: polygon and route buffer geometry as GeoJSON, with a zoom range for each area (feature 11).
+- **AREA** (built, feature 11). Its kind is `bounds`, `polygon` or `route_buffer`, with GeoJSON geometry and a zoom range for each area. A job holds 1 to 20 areas, and the output file metadata `atakdl_areas` stores them.
 - **OUTPUT_FILE** (built). Path: `./downloads/<name>_z<min>-<max>.sqlite`. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row `atakdl_source` names the map source. Planned: an extension per output format (feature 10).
 - **TILE** (built, `internal/mbtiles/mbtiles.go:31-33`). `UNIQUE (zoom_level, tile_column, tile_row)`. `tile_row` is TMS: `(1<<z)-1-y`. `tile_data` holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
-- **METADATA_ENTRY** (built). Keys: `name`, `type`, `version`, `description`, `format`, `bounds`, `minzoom`, `maxzoom` and `atakdl_source`. The `--resume` check reads `atakdl_source` (feature 07, #26). Planned: `center` and `attribution` (feature 10).
+- **METADATA_ENTRY** (built). Keys: `name`, `type`, `version`, `description`, `format`, `bounds`, `minzoom`, `maxzoom`, `atakdl_source` and `atakdl_areas`. The `--resume` check reads `atakdl_source` (feature 07, #26), and it rebuilds the tile set from `atakdl_areas` (feature 11). Planned: `center` and `attribution` (feature 10).
 - **FAILED_TILE** (built, feature 07, #28). A table `atakdl_failed_tiles` in the output file. The retry pass and `--resume` request each tile in it again, except a `not_found` tile. ATAK reads only the `tiles` and `metadata` tables, so an extra table is safe. This is inferred from ATAK-CIV `TilesetInfo.java` and is a risk item.
 - **JOB_EVENT** (built in memory, #76). An SSE message: `progress`, `state` or `log`. The server does not store it.
 
@@ -334,7 +335,7 @@ stateDiagram-v2
 - **Validation and limits.** Built (#81):
   - The zoom range is within the map source's zoom range (`zoom_out_of_range`). The CLI and `POST /api/jobs` share `checkJobLimits` (`jobs.go:320-337`).
   - Concurrency is from 1 to 32 (`invalid_concurrency`).
-  - A request body is at most 1 MiB (`body_too_large`, status 413, `web.go:64-79`).
+  - A request body is at most 1 MiB (`body_too_large`, status 413, `limitBody` in `web.go`). A route that carries areas reads 5 MiB plus 64 KiB (FR-security-hardening-17).
   - The server sets `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s and `IdleTimeout` 120 s, and no `WriteTimeout`, because an SSE stream stays open (`serve.go:91-99`).
   - A geocode result with a coordinate that is not a number gives 500 `internal`.
 

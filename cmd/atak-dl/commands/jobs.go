@@ -21,16 +21,18 @@ import (
 // jobRequest is the body of POST /api/jobs, with the schema of docs/specs/features/05-security-hardening.md.
 // A nil pointer field means that the client did not send the setting, so the engine default applies.
 type jobRequest struct {
-	Source           string    `json:"source"`
-	Bounds           []float64 `json:"bounds"`
-	MinZoom          int       `json:"min_zoom"`
-	MaxZoom          int       `json:"max_zoom"`
-	Name             string    `json:"name"`
-	Concurrency      *int      `json:"concurrency"`
-	FailureTolerance *float64  `json:"failure_tolerance"`
-	IgnoreErrors     *bool     `json:"ignore_errors"`
-	VerifyTLS        *bool     `json:"verify_tls"`
-	AcceptTerms      *bool     `json:"accept_terms"`
+	Source string `json:"source"`
+	// Areas is the area list of the job. With no areas, Bounds, MinZoom and MaxZoom give one bounds area (FR-area-selection-26).
+	Areas            []areaRequest `json:"areas"`
+	Bounds           []float64     `json:"bounds"`
+	MinZoom          int           `json:"min_zoom"`
+	MaxZoom          int           `json:"max_zoom"`
+	Name             string        `json:"name"`
+	Concurrency      *int          `json:"concurrency"`
+	FailureTolerance *float64      `json:"failure_tolerance"`
+	IgnoreErrors     *bool         `json:"ignore_errors"`
+	VerifyTLS        *bool         `json:"verify_tls"`
+	AcceptTerms      *bool         `json:"accept_terms"`
 	// RateLimit lowers the request rate in requests per second. The engine ignores a value above the policy rate.
 	RateLimit *float64 `json:"rate_limit"`
 	// IfExists is the rule for an existing output file. An empty value means ifExistsFail.
@@ -281,7 +283,7 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	source, bounds, warning, ok := h.checkJobRequest(w, &req)
+	source, areas, warning, ok := h.checkJobRequest(w, &req)
 	if !ok {
 		return
 	}
@@ -293,31 +295,32 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The job lock is held, so no other job writes the output file between the check and the start.
-	if !h.checkOutput(w, req, source, bounds) {
+	outputFile := jobOutputFile(req.Source, areas, req.Name)
+	if !h.checkOutput(w, req, source, outputFile) {
 		h.dlState.Unlock()
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	j := h.newJob(req, bounds, cancel)
+	j := h.newJob(req, areas, outputFile, cancel)
 	j.warning = warning
 	h.dlState.downloading = true
 	h.dlState.job = j
 	h.dlState.Unlock()
 
 	go j.sendEvents()
-	go h.runJob(ctx, j, req, source, bounds)
+	go h.runJob(ctx, j, req, source, areas)
 	writeAccepted(w, j.snapshot())
 }
 
-// checkOutput applies the if_exists rule of req to its output file.
+// checkOutput applies the if_exists rule of req to its output file, the file outputFile in the output directory.
 // It writes the error response and returns false when the rule does not accept the file or the check fails.
 // The API has no force field, so a resume accepts a v0.1 output file with no map source name.
-func (h *WebHandler) checkOutput(w http.ResponseWriter, req jobRequest, source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds) bool {
+func (h *WebHandler) checkOutput(w http.ResponseWriter, req jobRequest, source *xmlparser.MapSource, outputFile string) bool {
 	rule := req.IfExists
 	if rule == "" {
 		rule = ifExistsFail
 	}
-	path := filepath.Join(h.outputDir, download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name))
+	path := filepath.Join(h.outputDir, outputFile)
 	err := prepareOutput(path, rule, source.Name, true)
 	var conflict *outputConflict
 	switch {
@@ -331,16 +334,17 @@ func (h *WebHandler) checkOutput(w http.ResponseWriter, req jobRequest, source *
 	return err == nil
 }
 
-// checkJobRequest returns the map source and the bounds of req.
+// checkJobRequest returns the map source and the areas of req.
 // When req names a v0.1 map source, it sets req.Source to the v2 name and returns the deprecation warning.
 // It writes the error response and returns false when req is not valid.
-func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*xmlparser.MapSource, *tilecalc.GeographicBounds, string, bool) {
+func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*xmlparser.MapSource, []tilecalc.JobArea, string, bool) {
 	if req.Source == "" {
 		writeError(w, http.StatusBadRequest, "unknown_source", "Source name is required")
 		return nil, nil, "", false
 	}
-	if len(req.Bounds) != 4 {
-		writeError(w, http.StatusBadRequest, "invalid_bounds", "Bounds must hold four numbers: west, south, east, north")
+	areas, code, message := requestAreas(req.Bounds, req.MinZoom, req.MaxZoom, req.Areas)
+	if code != "" {
+		writeError(w, http.StatusBadRequest, code, message)
 		return nil, nil, "", false
 	}
 	source, warning, err := findSource(h.parser, req.Source)
@@ -354,12 +358,7 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 	}
 	// The job record, the output file name and the job all use the v2 name.
 	req.Source = source.Name
-	bounds, err := tilecalc.NewGeographicBounds(req.Bounds[1], req.Bounds[3], req.Bounds[0], req.Bounds[2])
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_bounds", err.Error())
-		return nil, nil, "", false
-	}
-	if code, message := checkJobLimits(source, bounds, req.MinZoom, req.MaxZoom, req.engineConfig().MaxConcurrent, h.maxTiles); code != "" {
+	if code, message := checkJobLimits(source, areas, req.engineConfig().MaxConcurrent, h.maxTiles); code != "" {
 		writeError(w, http.StatusBadRequest, code, message)
 		return nil, nil, "", false
 	}
@@ -379,7 +378,7 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 			"%s (%s); send \"accept_terms\": true to accept the terms", entry.Reason, entry.ReferenceURL))
 		return nil, nil, "", false
 	}
-	return source, bounds, warning, true
+	return source, areas, warning, true
 }
 
 // maxConcurrency is the highest concurrency that a job accepts (FR-security-hardening-20).
@@ -388,18 +387,19 @@ const maxConcurrency = 32
 // defaultMaxTiles is the default tile cap of download --max-tiles and serve --max-tiles (FR-robust-downloads-26).
 const defaultMaxTiles = 500_000
 
-// checkJobLimits returns an error code and a message when the zoom range, the concurrency or the tile count of a job is not valid.
-// The tile count is the count of the tiles of bounds from minZoom to maxZoom. It returns these codes:
-//   - "zoom_out_of_range" when the range from minZoom to maxZoom is empty or outside the zoom range of source.
+// checkJobLimits returns an error code and a message when the areas, the concurrency or the tile count of a job is not valid.
+// The tile count is the count of unique tiles over all areas (FR-area-selection-9). It returns these codes:
+//   - The codes of checkAreas.
+//   - "zoom_out_of_range" when the zoom range of an area is outside the zoom range of source.
 //   - "invalid_concurrency" when concurrency is below 1 or above maxConcurrency.
 //   - "too_many_tiles" when the tile count is above maxTiles (FR-robust-downloads-26, -27).
 //
 // It returns an empty code when the job is valid.
-func checkJobLimits(source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds, minZoom, maxZoom, concurrency, maxTiles int) (code, message string) {
-	if minZoom > maxZoom {
-		return "zoom_out_of_range", fmt.Sprintf("min_zoom %d is above max_zoom %d", minZoom, maxZoom)
+func checkJobLimits(source *xmlparser.MapSource, areas []tilecalc.JobArea, concurrency, maxTiles int) (code, message string) {
+	if code, message := checkAreas(areas); code != "" {
+		return code, message
 	}
-	if minZoom < source.MinZoom || maxZoom > source.MaxZoom {
+	if minZoom, maxZoom := tilecalc.JobZoomRange(areas); minZoom < source.MinZoom || maxZoom > source.MaxZoom {
 		return "zoom_out_of_range", fmt.Sprintf("zoom range %d-%d is outside the source zoom range %d-%d",
 			minZoom, maxZoom, source.MinZoom, source.MaxZoom)
 	}
@@ -408,25 +408,18 @@ func checkJobLimits(source *xmlparser.MapSource, bounds *tilecalc.GeographicBoun
 		return "invalid_concurrency", fmt.Sprintf("concurrency %d is outside the range 1-%d", concurrency, maxConcurrency)
 	}
 	// The check runs before any request, so a job above the tile cap sends none.
-	if tiles := tileCount(bounds, minZoom, maxZoom); tiles > maxTiles {
+	if tiles := tilecalc.CountJobTiles(areas).Unique; tiles > maxTiles {
 		return "too_many_tiles", fmt.Sprintf("the job has %d tiles, and the tile cap is %d", tiles, maxTiles)
 	}
 	return "", ""
 }
 
-// tileCount returns the count of the tiles of bounds at every zoom level from minZoom to maxZoom.
-func tileCount(bounds *tilecalc.GeographicBounds, minZoom, maxZoom int) int {
-	calc := tilecalc.NewTileCalculator()
-	total := 0
-	for z := minZoom; z <= maxZoom; z++ {
-		total += calc.CalculateTileBounds(bounds, z).TileCount()
-	}
-	return total
-}
-
-// newJob returns a running job for req.
-func (h *WebHandler) newJob(req jobRequest, bounds *tilecalc.GeographicBounds, cancel context.CancelFunc) *job {
+// newJob returns a running job for req, which writes the output file outputFile.
+// The record holds the rectangle and the zoom range over all areas.
+func (h *WebHandler) newJob(req jobRequest, areas []tilecalc.JobArea, outputFile string, cancel context.CancelFunc) *job {
 	id := newJobID()
+	b := tilecalc.JobBound(areas)
+	minZoom, maxZoom := tilecalc.JobZoomRange(areas)
 	return &job{
 		id:     id,
 		cancel: cancel,
@@ -438,25 +431,25 @@ func (h *WebHandler) newJob(req jobRequest, bounds *tilecalc.GeographicBounds, c
 		record: jobRecord{
 			ID:         id,
 			Source:     req.Source,
-			Bounds:     req.Bounds,
-			MinZoom:    req.MinZoom,
-			MaxZoom:    req.MaxZoom,
+			Bounds:     []float64{b.Min[0], b.Min[1], b.Max[0], b.Max[1]},
+			MinZoom:    minZoom,
+			MaxZoom:    maxZoom,
 			State:      jobRunning,
-			OutputFile: download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name),
-			Total:      tileCount(bounds, req.MinZoom, req.MaxZoom),
+			OutputFile: outputFile,
+			Total:      tilecalc.CountJobTiles(areas).Unique,
 			CreatedAt:  time.Now().UTC(),
 		},
 	}
 }
 
 // runJob runs the engine for j, frees the job lock and sends the result to the event goroutine.
-func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds) {
+func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source *xmlparser.MapSource, areas []tilecalc.JobArea) {
 	cfg := req.engineConfig()
 	cfg.UserAgent = h.userAgent
 	cfg.Policy = sourcePolicy(source)
 	engine := download.NewEngine(cfg)
 	outputPath := filepath.Join(h.outputDir, j.snapshot().OutputFile)
-	_, err := engine.DownloadTiles(ctx, source, bounds, zoomLevelsBetween(req.MinZoom, req.MaxZoom), outputPath,
+	_, err := engine.DownloadTiles(ctx, source, areas, outputPath,
 		func(p download.Progress) bool {
 			j.progress <- progressEvent{
 				Downloaded: p.Downloaded,

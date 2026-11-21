@@ -87,23 +87,31 @@ func newServerHandler(h http.Handler) http.Handler {
 // maxBodyBytes is the largest request body that the server reads (FR-security-hardening-17).
 const maxBodyBytes = 1 << 20
 
+// areaRoutes are the paths whose request body carries areas.
+var areaRoutes = map[string]bool{"/api/areas/parse": true, "/api/areas/tiles": true, "/api/estimate": true, "/api/jobs": true}
+
 // limitBody returns a handler that rejects a request body larger than maxBodyBytes (FR-security-hardening-17).
+// A route in areaRoutes has the larger limit areaBodyBytes, because its areas can come from a 5 MiB file.
 // A body with a larger Content-Length gets 413 body_too_large at once.
-// A body with no Content-Length gets the limit on read, and decodeJSON writes the 413.
+// A body with no Content-Length gets the limit on read, and the handler writes the 413.
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ContentLength > maxBodyBytes {
-			writeBodyTooLarge(w)
+		limit := int64(maxBodyBytes)
+		if areaRoutes[r.URL.Path] {
+			limit = areaBodyBytes
+		}
+		if r.ContentLength > limit {
+			writeBodyTooLarge(w, limit)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
 }
 
-// writeBodyTooLarge writes the 413 body_too_large error response.
-func writeBodyTooLarge(w http.ResponseWriter) {
-	writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("Request body is larger than %d bytes", maxBodyBytes))
+// writeBodyTooLarge writes the 413 body_too_large error response for a body above limit bytes.
+func writeBodyTooLarge(w http.ResponseWriter, limit int64) {
+	writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("Request body is larger than %d bytes", limit))
 }
 
 // ServeHTTP implements http.Handler.
@@ -172,6 +180,10 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 		h.apiSkippedSources(w, r)
 	case "/api/estimate":
 		h.apiEstimate(w, r)
+	case "/api/areas/parse":
+		h.apiAreasParse(w, r)
+	case "/api/areas/tiles":
+		h.apiAreaTiles(w, r)
 	case "/api/tile-info":
 		h.apiTileInfo(w, r)
 	case "/api/validate-source":
@@ -251,6 +263,9 @@ type sourceItem struct {
 	Origin             string  `json:"origin"`
 }
 
+// apiEstimate returns the tile count and the size of a job (feature 02).
+// The request holds an area list, or the legacy bounds and zoom range of one bounds area (FR-area-selection-25, -26).
+// The response counts each area and the unique tiles over all areas, and total_tiles is the unique count (FR-area-selection-9, -10).
 func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
@@ -258,16 +273,31 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		// Source is optional. With no source, the estimate uses the size per tile of an unknown tile type.
-		Source  string    `json:"source"`
-		Bounds  []float64 `json:"bounds"`
-		MinZoom int       `json:"min_zoom"`
-		MaxZoom int       `json:"max_zoom"`
+		Source  string        `json:"source"`
+		Areas   []areaRequest `json:"areas"`
+		Bounds  []float64     `json:"bounds"`
+		MinZoom int           `json:"min_zoom"`
+		MaxZoom int           `json:"max_zoom"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if len(req.Bounds) != 4 {
-		writeError(w, http.StatusBadRequest, "invalid_bounds", "Bounds must hold four numbers: west, south, east, north")
+	// The legacy request has zoom defaults and accepts an inverted zoom range, as feature 02 defines it.
+	if req.MinZoom == 0 {
+		req.MinZoom = 1
+	}
+	if req.MaxZoom == 0 {
+		req.MaxZoom = 18
+	}
+	if req.MinZoom > req.MaxZoom {
+		req.MinZoom, req.MaxZoom = req.MaxZoom, req.MinZoom
+	}
+	areas, code, message := requestAreas(req.Bounds, req.MinZoom, req.MaxZoom, req.Areas)
+	if code == "" {
+		code, message = checkAreas(areas)
+	}
+	if code != "" {
+		writeError(w, http.StatusBadRequest, code, message)
 		return
 	}
 	tileType := ""
@@ -279,45 +309,40 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		}
 		tileType = source.TileType
 	}
-	west, south, east, north := req.Bounds[0], req.Bounds[1], req.Bounds[2], req.Bounds[3]
-	if req.MinZoom == 0 {
-		req.MinZoom = 1
+	count := tilecalc.CountJobTiles(areas)
+	perArea := make([]areaEstimate, len(areas))
+	for i, a := range areas {
+		perArea[i] = areaEstimate{Name: a.Name, Tiles: count.Areas[i]}
 	}
-	if req.MaxZoom == 0 {
-		req.MaxZoom = 18
-	}
-	bounds, err := tilecalc.NewGeographicBounds(south, north, west, east)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_bounds", err.Error())
-		return
-	}
-	if req.MinZoom > req.MaxZoom {
-		req.MinZoom, req.MaxZoom = req.MaxZoom, req.MinZoom
-	}
-	var totalTiles int
-	zoomBreakdown := make(map[int]int)
-	for z := req.MinZoom; z <= req.MaxZoom; z++ {
-		tb := h.calc.CalculateTileBounds(bounds, z)
-		totalTiles += tb.TileCount()
-		zoomBreakdown[z] = tb.TileCount()
-	}
-	estMB := float64(totalTiles) * tilecalc.TileSizeKB(tileType) / 1024
+	b := tilecalc.JobBound(areas)
+	minZoom, maxZoom := tilecalc.JobZoomRange(areas)
 	writeJSON(w, estimateResult{
-		TotalTiles:      totalTiles,
-		EstimatedSizeMB: estMB,
-		ZoomBreakdown:   zoomBreakdown,
-		Bounds:          req.Bounds,
-		ZoomRange:       []int{req.MinZoom, req.MaxZoom},
+		TotalTiles:      count.Unique,
+		EstimatedSizeMB: float64(count.Unique) * tilecalc.TileSizeKB(tileType) / 1024,
+		ZoomBreakdown:   count.Zooms,
+		Bounds:          []float64{b.Min[0], b.Min[1], b.Max[0], b.Max[1]},
+		ZoomRange:       []int{minZoom, maxZoom},
+		Areas:           perArea,
+		UniqueTiles:     count.Unique,
 	})
 }
 
-// estimateResult is the POST /api/estimate response. ZoomBreakdown maps each zoom level to its tile count.
+// estimateResult is the POST /api/estimate response.
+// ZoomBreakdown maps each zoom level to its count of unique tiles. TotalTiles and UniqueTiles hold the same count.
 type estimateResult struct {
-	TotalTiles      int         `json:"total_tiles"`
-	EstimatedSizeMB float64     `json:"estimated_size_mb"`
-	ZoomBreakdown   map[int]int `json:"zoom_breakdown"`
-	Bounds          []float64   `json:"bounds"`
-	ZoomRange       []int       `json:"zoom_range"`
+	TotalTiles      int            `json:"total_tiles"`
+	EstimatedSizeMB float64        `json:"estimated_size_mb"`
+	ZoomBreakdown   map[int]int    `json:"zoom_breakdown"`
+	Bounds          []float64      `json:"bounds"`
+	ZoomRange       []int          `json:"zoom_range"`
+	Areas           []areaEstimate `json:"areas"`
+	UniqueTiles     int            `json:"unique_tiles"`
+}
+
+// areaEstimate is the tile count of one area alone in the POST /api/estimate response.
+type areaEstimate struct {
+	Name  string `json:"name"`
+	Tiles int    `json:"tiles"`
 }
 
 func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
@@ -481,7 +506,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 
 // decodeJSON decodes the request body into v.
 // It returns false when it wrote an error response:
-//   - 413 body_too_large when the body is larger than maxBodyBytes.
+//   - 413 body_too_large when the body is larger than the limit of limitBody.
 //   - 400 invalid_json when the body is not valid JSON.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	err := json.NewDecoder(r.Body).Decode(v)
@@ -490,7 +515,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	case err == nil:
 		return true
 	case errors.As(err, &tooLarge):
-		writeBodyTooLarge(w)
+		writeBodyTooLarge(w, tooLarge.Limit)
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
 	}

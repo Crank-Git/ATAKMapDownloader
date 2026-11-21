@@ -275,7 +275,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li>FR-web-ui-23 — The server rejects a request body larger than 1 MiB with status 413
 </li>
 </ul>
-<p>and error code <code>body_too_large</code> (#81).</p>
+<p>and error code <code>body_too_large</code> (#81). A route that carries areas has the larger limit of FR-security-hardening-17.</p>
 <ul>
 <li>FR-web-ui-24 — If the host in <code>--addr</code> is not a loopback address, <code>serve</code> prints a
 </li>
@@ -449,10 +449,10 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><strong>Map Source</strong>: <code>#mapSourceSelect</code>.
 </li>
-<li><strong>Area Selection</strong>: geocode input <code>#addressSearch</code>, <strong>Draw Rectangle</strong>, <strong>Clear</strong>,
+<li><strong>Area Selection</strong>: geocode input <code>#addressSearch</code>, the area toolbar (<strong>Rectangle</strong>,
 </li>
 </ol>
-<p>and <code>#selectionInfo</code>.</p>
+<p><strong>Polygon</strong>, <strong>Route</strong> and <strong>Import</strong>), <code>#routeBuffer</code>, the drop zone <code>#importDrop</code>, the area list <code>#areaList</code> with the total <code>#areaTotal</code>, and <strong>Clear</strong> (feature 11).</p>
 <ol>
 <li><strong>Zoom Levels</strong>: <code>#minZoom</code> (default 1) and <code>#maxZoom</code> (default 15), each 1–20, plus
 </li>
@@ -575,15 +575,15 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>It sets no <code>WriteTimeout</code>, because an SSE stream stays open for the full job.</p>
 <ul>
-<li>The server limits every request body to 1 MiB (<code>web.go:64-79</code>, #81). It returns 413
+<li>The server limits every request body to 1 MiB (<code>limitBody</code> in <code>web.go</code>, #81). A route that carries
 </li>
 </ul>
-<p><code>body_too_large</code> at once when <code>Content-Length</code> is larger. It returns the same error when a body with no <code>Content-Length</code> grows past the limit.</p>
+<p>areas reads 5 MiB plus 64 KiB: <code>POST /api/estimate</code>, <code>POST /api/jobs</code>, <code>POST /api/areas/parse</code> and <code>POST /api/areas/tiles</code> (FR-security-hardening-17). It returns 413 <code>body_too_large</code> at once when <code>Content-Length</code> is larger. It returns the same error when a body with no <code>Content-Length</code> grows past the limit.</p>
 <ul>
 <li><code>newServerHandler</code> applies the cross-origin check first and the body limit second
 </li>
 </ul>
-<p>(<code>web.go:56-62</code>, #77, #81).</p>
+<p>(<code>newServerHandler</code> in <code>web.go</code>, #77, #81).</p>
 <ul>
 <li>The server creates <code>./downloads</code> at start and writes every output file there.
 </li>
@@ -684,24 +684,28 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>GET</td><td><code>/</code></td><td>—</td><td><code>index.html</code></td><td>—</td></tr>
 <tr><td>GET</td><td><code>/static/*</code></td><td>—</td><td>Embedded file</td><td>404 <code>not_found</code></td></tr>
 <tr><td>any</td><td><code>/api/sources</code></td><td>—</td><td>See <code>01-map-sources.md</code></td><td>—</td></tr>
-<tr><td>POST</td><td><code>/api/estimate</code></td><td>See <code>02-area-estimate.md</code></td><td></td><td>400 <code>invalid_json</code>, <code>invalid_bounds</code>; 405 <code>method_not_allowed</code>; 413</td></tr>
+<tr><td>POST</td><td><code>/api/estimate</code></td><td>See <code>02-area-estimate.md</code>, and <code>areas</code> in feature 11</td><td></td><td>400 <code>invalid_json</code>, <code>invalid_bounds</code>, <code>invalid_area</code>, <code>zoom_out_of_range</code>; 404 <code>unknown_source</code>; 405 <code>method_not_allowed</code>; 413</td></tr>
 <tr><td>POST</td><td><code>/api/tile-info</code></td><td>See <code>02-area-estimate.md</code></td><td></td><td>400 <code>invalid_json</code>; 405; 413</td></tr>
 <tr><td>POST</td><td><code>/api/validate-source</code></td><td>See <code>01-map-sources.md</code></td><td></td><td>400 <code>invalid_json</code>; 404 <code>unknown_source</code>; 405; 413</td></tr>
 <tr><td>POST</td><td><code>/api/preview</code></td><td><code>{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}</code></td><td><code>{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}</code></td><td>400 <code>invalid_json</code>, <code>unknown_source</code>, <code>invalid_bounds</code>; 404 <code>unknown_source</code>; 405; 413</td></tr>
 <tr><td>POST</td><td><code>/api/geocode</code></td><td><code>{"query"}</code></td><td><code>{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}</code></td><td>400 <code>invalid_json</code>, <code>invalid_query</code>; 405; 413; 500 <code>internal</code></td></tr>
 <tr><td>POST</td><td><code>/api/jobs</code></td><td>See Job API</td><td>202 job record</td><td>400, 404 <code>unknown_source</code>, 409 <code>job_running</code>, 413</td></tr>
+<tr><td>POST</td><td><code>/api/areas/parse</code></td><td>A multipart form with the field <code>file</code>, or the file itself. Query: <code>min_zoom</code>, <code>max_zoom</code>, <code>buffer_m</code></td><td><code>{"areas": [{"kind", "geometry", "min_zoom", "max_zoom", "buffer_m", "name"}], "warnings"}</code></td><td>400 <code>invalid_area_file</code>, <code>invalid_query</code>; 405; 413 <code>body_too_large</code></td></tr>
+<tr><td>POST</td><td><code>/api/areas/tiles</code></td><td><code>{"area": {"kind", "geometry", "buffer_m"}, "zoom"}</code></td><td><code>{"tiles": [[x, y]]}</code></td><td>400 <code>invalid_json</code>, <code>invalid_area</code>, <code>zoom_out_of_range</code>; 405; 413 <code>body_too_large</code>, or 413 <code>too_many_tiles</code> at 5,000 tiles or more</td></tr>
 <tr><td>GET</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>200 job record</td><td>404 <code>job_not_found</code></td></tr>
 <tr><td>GET</td><td><code>/api/jobs/{id}/events</code></td><td>—</td><td>200 <code>text/event-stream</code></td><td>404 <code>job_not_found</code></td></tr>
 <tr><td>DELETE</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>202 job record</td><td>404 <code>job_not_found</code></td></tr>
 <tr><td>any other</td><td>any other <code>/api/</code> path</td><td>—</td><td>—</td><td>404 <code>not_found</code>, or 405 <code>method_not_allowed</code> for a job path</td></tr>
 </table></div>
 <p>Any route returns 403 <code>cross_origin</code> for a cross-origin browser request that is not <code>GET</code>, <code>HEAD</code> or <code>OPTIONS</code> (#77). A path that matches no route returns 404 <code>not_found</code> (#74).</p>
-<p>The web UI calls <code>/api/sources</code>, <code>/api/estimate</code>, <code>/api/preview</code>, <code>/api/geocode</code> and the job API. It does not call <code>/api/tile-info</code>, <code>/api/validate-source</code> or <code>GET /api/jobs/{id}</code>.</p>
+<p>The web UI calls <code>/api/sources</code>, <code>/api/estimate</code>, <code>/api/preview</code>, <code>/api/geocode</code>, <code>/api/areas/parse</code>, <code>/api/areas/tiles</code> and the job API. It does not call <code>/api/tile-info</code>, <code>/api/validate-source</code> or <code>GET /api/jobs/{id}</code>.</p>
 <h4 id="web-ui-job-api">Job API</h4>
 <p>The job API replaces the websocket protocol and the <code>/ws</code> route (#76, #78). <code>05-security-hardening.md</code> holds the requirements. This section records what is built.</p>
 <p><code>POST /api/jobs</code> request (<code>jobs.go:20-32</code>):</p>
-<pre class="code"><code>{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom", "name",
+<pre class="code"><code>{"source", "areas": [{"kind", "geometry", "min_zoom", "max_zoom", "buffer_m", "name"}],
+ "bounds": [w, s, e, n], "min_zoom", "max_zoom", "name",
  "concurrency", "failure_tolerance", "ignore_errors", "verify_tls"}</code></pre>
+<p>A request holds <code>areas</code> or the legacy <code>bounds</code>, <code>min_zoom</code> and <code>max_zoom</code>, not both. The legacy fields give one <code>bounds</code> area (FR-area-selection-25, -26).</p>
 <p>The job record (<code>jobs.go:62-78</code>):</p>
 <pre class="code"><code>{"id", "source", "bounds", "min_zoom", "max_zoom", "state", "output_file",
  "total", "downloaded", "skipped", "failed", "created_at", "error"}</code></pre>
@@ -748,7 +752,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>(<code>web.go:315-319</code>, #74).</p>
 <ul>
-<li>A request body larger than 1 MiB gets 413 <code>body_too_large</code> (#81).
+<li>A request body larger than 1 MiB gets 413 <code>body_too_large</code> (#81). A route that carries areas reads 5 MiB plus 64 KiB.
 </li>
 <li>The <code>/static/</code> route uses <code>fs.Sub</code> on an <code>embed.FS</code>, which rejects <code>..</code> paths.
 </li>

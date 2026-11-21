@@ -183,7 +183,7 @@ Initial policy table. The research spike collected these sources on 2026-11-21. 
 - `GET /api/sources` adds `policy_class`, `policy_reason`, `policy_reference_url` and `requests_per_second` to each item.
 - `POST /api/jobs` accepts `accept_terms` (boolean) and `rate_limit` (number, requests per second).
 - `GET /api/sources` also returns `policy_host`, the `host_patterns` of the chosen entry joined with `, ` (#84).
-- `GET /api/config` returns `{"geocode": true|false}`. The web UI reads it at load and hides the search box when it is false (#88).
+- `GET /api/config` returns `{"geocode": true|false}`. The web UI reads it at load and hides the search box when it is false (#88). Feature 11 adds `max_tiles` (#54).
 - `POST /api/geocode` keeps its shape. It adds 429 `geocode_busy` and 502 `geocode_failed`.
 - CLI: `download --accept-terms`, `download --rate-limit <n>`, `serve --geocoder-url <url>`, `serve --no-geocode`.
 - Nominatim usage policy: at most 1 request per second, an identifying User-Agent, caching, no bulk use (https://operations.osmfoundation.org/policies/nominatim/, retrieved 2026-11-21).

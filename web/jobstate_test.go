@@ -12,6 +12,8 @@ import (
 var jobSettings = []string{
 	"minZoom", "maxZoom", "customName", "maxConcurrent",
 	"failureTolerance", "ignoreErrors", "verifyTLS", "ifExists",
+	// A running job keeps its area list, so the area tools are job settings too (FR-area-selection-19).
+	"drawRectangle", "drawPolygon", "drawRoute", "importFile", "routeBuffer", "clearSelection",
 }
 
 func TestAppJSKeepsARunningJobReadOnly(t *testing.T) {
@@ -65,7 +67,7 @@ func TestAppJSKeepsARunningJobReadOnly(t *testing.T) {
 
 func TestResetDownloadUIEnablesStartOnlyWithAnAreaAndAMapSource(t *testing.T) {
 	reset := methodBody(t, appJS(t), "resetDownloadUI")
-	if !strings.Contains(reset, "this.setStartEnabled(Boolean(this.selectedArea && document.getElementById('mapSourceSelect').value))") {
+	if !strings.Contains(reset, "this.setStartEnabled(Boolean(this.areas.length > 0 && document.getElementById('mapSourceSelect').value))") {
 		t.Error("resetDownloadUI does not check the area and the map source before it enables Start")
 	}
 	if strings.Contains(reset, "this.setStartEnabled(true)") {

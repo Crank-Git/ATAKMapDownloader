@@ -115,6 +115,9 @@ Then open http://localhost:5000 in your browser.
 
 # Download tiles
 ./atak-dl download --source="Google Satellite" --bbox=40.7,-74.1,40.8,-74.0 --min-zoom=10 --max-zoom=12 --accept-terms
+
+# Download the tiles within 300 m of the trail in a KML file
+./atak-dl download --source="OpenTopoMap" --area=trail.kml --buffer=300 --min-zoom=12 --max-zoom=16
 ```
 
 ### Options
@@ -129,11 +132,13 @@ Then open http://localhost:5000 in your browser.
 | `serve` | `--no-geocode` | `false` | Turn off place search. `POST /api/geocode` returns 404 `not_found`, `GET /api/config` returns `{"geocode": false}`, and the web UI hides the search box. |
 | `serve` | `--max-tiles` | `500000` | Tile cap of a job. `POST /api/jobs` for a job above the cap returns 400 `too_many_tiles`, and the job sends no request. |
 | `download` | `--source` | - | Map source name (required) |
-| `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon (required) |
+| `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon. It is required, except with `--area` or `--resume --output <file>`. |
+| `download` | `--area` | - | GeoJSON (`.geojson`, `.json`), KML (`.kml`) or KMZ (`.kmz`) file of the areas, at most 5 MiB. A polygon becomes a `polygon` area, and a line becomes a `route_buffer` area. The GeoJSON Feature properties `min_zoom`, `max_zoom`, `buffer_m` and `name` set the values of that area. A KML Placemark `name` becomes the area name. The command ignores Point features and prints a warning with their count. You cannot use it together with `--bbox`, or the command exits with code 1. |
+| `download` | `--buffer` | `0` | Buffer in metres on each side of each line of the `--area` file that has no `buffer_m` property, from 10 to 50,000. |
 | `download` | `--min-zoom` | 1 | Minimum zoom level. It must not be below the map source's minimum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--max-zoom` | 15 | Maximum zoom level. It must not be above the map source's maximum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--output` | `downloads/<name>.sqlite` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
-| `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, the command exits with code 3. |
+| `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, the command exits with code 3. With no `--bbox`, the job reads its areas and zoom ranges from the `atakdl_areas` metadata row of the file. |
 | `download` | `--overwrite` | `false` | Delete the existing output file before the job starts. You cannot use it together with `--resume`. |
 | `download` | `--force` | `false` | With `--resume`, accept an output file that names no map source, for example a file from v0.1. |
 | `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
@@ -141,6 +146,7 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--rate-limit` | `0` | Requests per second to the tile server. A value only lowers the policy rate of the map source, and `0` keeps it. A value above the policy rate gives the policy rate, with a note on stderr. A negative value fails with `invalid_rate_limit`. |
 | `download` | `--accept-terms` | `false` | Accept the terms of use of a `restricted` map source. Without this flag, the command prints the reason and the reference URL for a restricted map source, and it exits with code 2. With this flag, it prints a warning to stderr and starts the job. |
 | `download` | `--max-tiles` | `500000` | Tile cap of the job. If the job has more tiles, the command prints `too_many_tiles` and exits with code 4 before it sends a request. |
+| `estimate` | `--area`, `--buffer` | - | The same as for `download`. A feature with no zoom property gets the zoom range of `--zoom` or `--zoom-range`, and one of the two is then required. The command prints the tile count of each area and the unique tile count. |
 
 ### Progress and exit codes
 

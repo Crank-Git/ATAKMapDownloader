@@ -84,7 +84,7 @@ func TestEngineStoresATileThatFailsWith503AndThenSucceeds(t *testing.T) {
 			source := loadFixture(t, "xyz.xml", srv)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			res, err := retryEngine().DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, output, nil)
+			res, err := retryEngine().DownloadTiles(t.Context(), source, areasOf(t, singleTile), output, nil)
 			if !res.OK || err != nil {
 				t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 			}
@@ -122,7 +122,7 @@ func TestEngineRecordsAFailedTileWithItsReason(t *testing.T) {
 			source := loadFixture(t, "xyz.xml", srv)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			res, _ := retryEngine().DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, output, nil) // The test checks the failed tile row, not the job error.
+			res, _ := retryEngine().DownloadTiles(t.Context(), source, areasOf(t, singleTile), output, nil) // The test checks the failed tile row, not the job error.
 			if res.Downloaded != 0 || res.Failed != 1 {
 				t.Errorf("DownloadTiles counts %d downloaded and %d failed, want 0 and 1", res.Downloaded, res.Failed)
 			}
@@ -148,7 +148,7 @@ func TestEngineRetriesTheFailedTilesOfAResumedFile(t *testing.T) {
 
 	writeFailedTiles(t, output, map[testtiles.Tile]string{retried: "http_503", notFound: "not_found"})
 
-	res, err := retryEngine().DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, output, nil)
+	res, err := retryEngine().DownloadTiles(t.Context(), source, areasOf(t, singleTile), output, nil)
 	if !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
@@ -193,7 +193,7 @@ func TestEngineStopsTheRetryPassWithin500msOfACancel(t *testing.T) {
 	var res Result
 	go func() {
 		var err error
-		res, err = politeEngine(cfg, 1e6).DownloadTiles(ctx, source, boundsOf(t, singleTile), []int{singleTile.Zoom}, output, nil)
+		res, err = politeEngine(cfg, 1e6).DownloadTiles(ctx, source, areasOf(t, singleTile), output, nil)
 		done <- err
 	}()
 	for srv.Requests(retried[0]) == 0 {

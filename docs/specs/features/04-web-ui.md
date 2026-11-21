@@ -70,7 +70,8 @@ request changed names that pull request, for example (#76).
   event (#78).
 - FR-web-ui-22 — The web UI saves the light or dark theme in `localStorage`.
 - FR-web-ui-23 — The server rejects a request body larger than 1 MiB with status 413
-  and error code `body_too_large` (#81).
+  and error code `body_too_large` (#81). A route that carries areas has the larger limit
+  of FR-security-hardening-17.
 - FR-web-ui-24 — If the host in `--addr` is not a loopback address, `serve` prints a
   warning to stderr that the server has no authentication (#81).
 
@@ -207,8 +208,9 @@ Sidebar sections, top to bottom:
 
 1. Title and theme toggle (`#themeToggle`).
 2. **Map Source**: `#mapSourceSelect`.
-3. **Area Selection**: geocode input `#addressSearch`, **Draw Rectangle**, **Clear**,
-   and `#selectionInfo`.
+3. **Area Selection**: geocode input `#addressSearch`, the area toolbar (**Rectangle**,
+   **Polygon**, **Route** and **Import**), `#routeBuffer`, the drop zone `#importDrop`,
+   the area list `#areaList` with the total `#areaTotal`, and **Clear** (feature 11).
 4. **Zoom Levels**: `#minZoom` (default 1) and `#maxZoom` (default 15), each 1–20, plus
    a zoom guide.
 5. **Download Options**: `#customName` and the collapsed **Advanced Settings**
@@ -281,11 +283,13 @@ Feature 08 replaces these assets. Since #31, the binary embeds Leaflet and Leafl
   - `IdleTimeout` 120 s.
 
   It sets no `WriteTimeout`, because an SSE stream stays open for the full job.
-- The server limits every request body to 1 MiB (`web.go:64-79`, #81). It returns 413
+- The server limits every request body to 1 MiB (`limitBody` in `web.go`, #81). A route that carries
+  areas reads 5 MiB plus 64 KiB: `POST /api/estimate`, `POST /api/jobs`, `POST /api/areas/parse`
+  and `POST /api/areas/tiles` (FR-security-hardening-17). It returns 413
   `body_too_large` at once when `Content-Length` is larger. It returns the same error
   when a body with no `Content-Length` grows past the limit.
 - `newServerHandler` applies the cross-origin check first and the body limit second
-  (`web.go:56-62`, #77, #81).
+  (`newServerHandler` in `web.go`, #77, #81).
 - The server creates `./downloads` at start and writes every output file there.
 - In `POST /api/jobs`, an optional setting that the client does not send gets the engine
   default (`jobs.go:20-50`, #76):
@@ -349,12 +353,14 @@ Every JSON success response sets `Content-Type: application/json` (`web.go:423-4
 | GET | `/` | — | `index.html` | — |
 | GET | `/static/*` | — | Embedded file | 404 `not_found` |
 | any | `/api/sources` | — | See `01-map-sources.md` | — |
-| POST | `/api/estimate` | See `02-area-estimate.md` | | 400 `invalid_json`, `invalid_bounds`; 405 `method_not_allowed`; 413 |
+| POST | `/api/estimate` | See `02-area-estimate.md`, and `areas` in feature 11 | | 400 `invalid_json`, `invalid_bounds`, `invalid_area`, `zoom_out_of_range`; 404 `unknown_source`; 405 `method_not_allowed`; 413 |
 | POST | `/api/tile-info` | See `02-area-estimate.md` | | 400 `invalid_json`; 405; 413 |
 | POST | `/api/validate-source` | See `01-map-sources.md` | | 400 `invalid_json`; 404 `unknown_source`; 405; 413 |
 | POST | `/api/preview` | `{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}` | `{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}` | 400 `invalid_json`, `unknown_source`, `invalid_bounds`; 404 `unknown_source`; 405; 413 |
 | POST | `/api/geocode` | `{"query"}` | `{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}` | 400 `invalid_json`, `invalid_query`; 405; 413; 500 `internal` |
 | POST | `/api/jobs` | See Job API | 202 job record | 400, 404 `unknown_source`, 409 `job_running`, 413 |
+| POST | `/api/areas/parse` | A multipart form with the field `file`, or the file itself. Query: `min_zoom`, `max_zoom`, `buffer_m` | `{"areas": [{"kind", "geometry", "min_zoom", "max_zoom", "buffer_m", "name"}], "warnings"}` | 400 `invalid_area_file`, `invalid_query`; 405; 413 `body_too_large` |
+| POST | `/api/areas/tiles` | `{"area": {"kind", "geometry", "buffer_m"}, "zoom"}` | `{"tiles": [[x, y]]}` | 400 `invalid_json`, `invalid_area`, `zoom_out_of_range`; 405; 413 `body_too_large`, or 413 `too_many_tiles` at 5,000 tiles or more |
 | GET | `/api/jobs/{id}` | — | 200 job record | 404 `job_not_found` |
 | GET | `/api/jobs/{id}/events` | — | 200 `text/event-stream` | 404 `job_not_found` |
 | DELETE | `/api/jobs/{id}` | — | 202 job record | 404 `job_not_found` |
@@ -364,8 +370,8 @@ Any route returns 403 `cross_origin` for a cross-origin browser request that is 
 `GET`, `HEAD` or `OPTIONS` (#77). A path that matches no route returns 404 `not_found`
 (#74).
 
-The web UI calls `/api/sources`, `/api/estimate`, `/api/preview`, `/api/geocode` and the
-job API. It does not call `/api/tile-info`, `/api/validate-source` or
+The web UI calls `/api/sources`, `/api/estimate`, `/api/preview`, `/api/geocode`,
+`/api/areas/parse`, `/api/areas/tiles` and the job API. It does not call `/api/tile-info`, `/api/validate-source` or
 `GET /api/jobs/{id}`.
 
 ### Job API
@@ -376,9 +382,13 @@ The job API replaces the websocket protocol and the `/ws` route (#76, #78).
 `POST /api/jobs` request (`jobs.go:20-32`):
 
 ```json
-{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom", "name",
+{"source", "areas": [{"kind", "geometry", "min_zoom", "max_zoom", "buffer_m", "name"}],
+ "bounds": [w, s, e, n], "min_zoom", "max_zoom", "name",
  "concurrency", "failure_tolerance", "ignore_errors", "verify_tls"}
 ```
+
+A request holds `areas` or the legacy `bounds`, `min_zoom` and `max_zoom`, not both.
+The legacy fields give one `bounds` area (FR-area-selection-25, -26).
 
 The job record (`jobs.go:62-78`):
 
@@ -417,7 +427,7 @@ What the code handles:
   cross-origin check, so `curl` works (#77).
 - `/api/preview` with bounds that are not valid returns 400 `invalid_bounds`
   (`web.go:315-319`, #74).
-- A request body larger than 1 MiB gets 413 `body_too_large` (#81).
+- A request body larger than 1 MiB gets 413 `body_too_large` (#81). A route that carries areas reads 5 MiB plus 64 KiB.
 - The `/static/` route uses `fs.Sub` on an `embed.FS`, which rejects `..` paths.
 - The output file name keeps only safe characters, so `name` cannot leave `./downloads`.
 - The status log writes text through `textContent` (`app.js:960`, #78).
