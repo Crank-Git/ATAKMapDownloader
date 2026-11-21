@@ -1,8 +1,8 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, and checks six responses and the bind warning.
+# smoke.sh builds atak-dl, starts serve on a free port, and checks seven responses and the bind warning.
 # It also checks the terms exit code, the output file exit code, the tile cap and --no-geocode.
 # FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
-# and FR-robust-downloads-6, -26 and -27 define the checks.
+# FR-robust-downloads-6, -26 and -27, and FR-source-sync-29 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -45,6 +45,15 @@ body = json.load(sys.stdin)
 if not isinstance(body, list) or "Google Satellite" not in [s.get("name") for s in body]:
     sys.exit("smoke: GET /api/sources did not return the snapshot map sources")
 print("smoke: GET /api/sources returned %d snapshot sources" % len(body))
+'
+
+# The snapshot holds source files that the parser does not load, so the skipped list is not empty (FR-source-sync-29).
+curl -sf "$base/api/sources/skipped" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if not isinstance(body, list) or not body or any(sorted(s) != ["detail", "path", "reason"] for s in body):
+    sys.exit("smoke: GET /api/sources/skipped did not return [{path, reason, detail}]")
+print("smoke: GET /api/sources/skipped returned %d skipped source files" % len(body))
 '
 
 # No job runs yet, so the job API returns the job_not_found error shape.

@@ -21,6 +21,7 @@ class ATAKDownloader {
         this.initTheme();
         this.initMap();
         this.loadMapSources();
+        this.loadSkippedSources();
         this.loadConfig();
         this.bindEvents();
         this.initModal();
@@ -183,7 +184,37 @@ class ATAKDownloader {
             this.logStatus('Error loading sources: ' + error.message, 'error');
         }
     }
-    
+
+    // loadSkippedSources fills the "N sources skipped" link under the source picker (FR-source-sync-30).
+    async loadSkippedSources() {
+        try {
+            const response = await fetch('/api/sources/skipped');
+            const skipped = await response.json();
+            if (!response.ok) {
+                throw new Error((skipped.error && skipped.error.message) || 'Failed to load the skipped list');
+            }
+            const block = document.getElementById('skippedSources');
+            const list = document.getElementById('skippedList');
+            const link = document.getElementById('skippedLink');
+            // A path comes from the file system, so each value goes in with textContent.
+            list.replaceChildren(...skipped.map(s => {
+                const item = document.createElement('li');
+                const path = document.createElement('code');
+                path.textContent = s.path;
+                item.append(path, document.createTextNode(` ${s.reason}: ${s.detail}`));
+                return item;
+            }));
+            link.textContent = skipped.length === 1 ? '1 source skipped' : `${skipped.length} sources skipped`;
+            link.onclick = (e) => {
+                e.preventDefault();
+                document.getElementById('skippedDialog').showModal();
+            };
+            block.hidden = skipped.length === 0;
+        } catch (error) {
+            this.logStatus('Error loading skipped sources: ' + error.message, 'error');
+        }
+    }
+
     populateSourceSelect() {
         const select = document.getElementById('mapSourceSelect');
         select.innerHTML = '<option value="">Select a map source...</option>';

@@ -14,19 +14,40 @@ import (
 )
 
 // NewListSourcesCmd returns the list-sources command, which prints the map sources in the source catalog.
+// With --skipped, it prints each skipped source file as "path  reason  detail" (FR-source-sync-28).
 func NewListSourcesCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list-sources",
 		Short: "List all available map sources",
 		RunE:  runListSources,
 	}
+	cmd.Flags().Bool("skipped", false, "List the source files that did not load, each with its reason")
+	return cmd
 }
 
 func runListSources(cmd *cobra.Command, _ []string) error {
 	parser := getParser(cmd)
-	sources := parser.DiscoverSources(false)
+	skippedOnly, err := cmd.Flags().GetBool("skipped")
+	if err != nil {
+		return fmt.Errorf("read --skipped: %w", err)
+	}
 
 	var b strings.Builder
+	if skippedOnly {
+		skipped := parser.SkippedSources()
+		if len(skipped) == 0 {
+			fmt.Fprintln(&b, "No skipped source files.")
+		}
+		for _, s := range skipped {
+			fmt.Fprintf(&b, "%s  %s  %s\n", s.Path, s.Reason, s.Detail)
+		}
+		if _, err := io.WriteString(cmd.OutOrStdout(), b.String()); err != nil {
+			return fmt.Errorf("write the skipped list: %w", err)
+		}
+		return nil
+	}
+
+	sources := parser.DiscoverSources()
 	if len(sources) == 0 {
 		fmt.Fprintln(&b, "No map sources found.")
 		fmt.Fprintf(&b, "Make sure XML files exist in: %s\n", parser.MapsourcesDir)
