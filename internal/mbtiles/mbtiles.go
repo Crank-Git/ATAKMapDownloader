@@ -130,7 +130,7 @@ func init() {
 			return nil, err
 		}
 		return w, nil
-	})
+	}, ReadTile)
 }
 
 // tileColumns are the columns of the tiles table that mark an MBTiles file.
