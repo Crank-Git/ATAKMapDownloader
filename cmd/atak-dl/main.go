@@ -1,3 +1,4 @@
+// Command atak-dl downloads map tiles to MBTiles files for ATAK.
 package main
 
 import (

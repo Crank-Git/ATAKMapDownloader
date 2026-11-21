@@ -57,7 +57,7 @@ func (m *MapSource) tileToQuadkey(x, y, z int) string {
 		digit := 0
 		mask := 1 << (i - 1)
 		if (x & mask) != 0 {
-			digit += 1
+			digit++
 		}
 		if (y & mask) != 0 {
 			digit += 2
@@ -120,7 +120,8 @@ func (p *XMLParser) DiscoverSources(forceRescan bool) map[string]*MapSource {
 	slog.Info("scanning for XML sources", "dir", p.MapsourcesDir)
 	sources := make(map[string]*MapSource)
 
-	filepath.WalkDir(p.MapsourcesDir, func(path string, d fs.DirEntry, err error) error {
+	// The callback returns nil for every entry, so WalkDir returns nil.
+	_ = filepath.WalkDir(p.MapsourcesDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".xml") {
 			return nil
 		}
@@ -147,7 +148,7 @@ func (p *XMLParser) DiscoverSources(forceRescan bool) map[string]*MapSource {
 
 // ParseFile parses a single XML configuration file.
 func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
-	data, err := os.ReadFile(xmlPath)
+	data, err := os.ReadFile(xmlPath) //nolint:gosec // The operator chooses the map sources directory.
 	if err != nil {
 		return nil, err
 	}

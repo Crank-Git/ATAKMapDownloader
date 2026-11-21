@@ -129,7 +129,7 @@ func TestInsertTileAcceptsConcurrentWriters(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- InsertTile(db, 5, i, 0, bytes.Repeat([]byte{byte(i)}, 4096))
+			errs <- InsertTile(db, 5, i, 0, bytes.Repeat([]byte{byte(i)}, 4096)) //nolint:gosec // i is below writers, so byte(i) does not overflow.
 		}()
 	}
 	wg.Wait()

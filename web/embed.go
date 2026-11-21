@@ -1,3 +1,4 @@
+// Package web holds the embedded files of the web interface.
 package web
 
 import (
