@@ -185,6 +185,17 @@ if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --over
 fi
 echo "smoke: download with --format gpkg passed the format check and exited 3"
 
+# --format osmdroid has a writer, so the job passes the format check and stops at the existing output file (FR-output-formats-1).
+# A build without the OSMDroid writer exits 1 with not_implemented before the output check.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--format osmdroid --output "$exists_file" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --overwrite" "$stderr_file"; then
+	echo "smoke: download with --format osmdroid into an existing output file exited $status, want 3" >&2
+	exit 1
+fi
+echo "smoke: download with --format osmdroid passed the format check and exited 3"
+
 # A job above --max-tiles exits with code 4 before it sends a request (FR-robust-downloads-26).
 # The output directory is a regular file, so a build without the check fails before it sends a request.
 status=0
