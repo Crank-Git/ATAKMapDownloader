@@ -706,6 +706,10 @@ func (h *WebHandler) getJob(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// afterCancelLookup runs in cancelJob between the job lookup and the queue removal.
+// A test replaces it to put a resume at that point.
+var afterCancelLookup = func() {}
+
 // cancelJob cancels the job and returns 202 with its record (FR-security-hardening-11).
 // A queued job leaves the queue and ends cancelled (FR-team-server-4).
 // The record can still show the queued or the running state, because the job stops after the response.
@@ -715,6 +719,7 @@ func (h *WebHandler) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if j == nil {
 		return
 	}
+	afterCancelLookup()
 	// No worker takes a removed job, so this send is the only result of the job.
 	if h.queue.Remove(j.id) {
 		j.result <- jobResult{state: jobCancelled}

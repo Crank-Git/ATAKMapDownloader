@@ -357,3 +357,23 @@ func TestNoLogLineHoldsTheToken(t *testing.T) {
 		t.Errorf("the log holds the token:\n%s", logs.String())
 	}
 }
+
+func TestFailureLimiterDeletesAnIPAddressWhoseLastFailureIsOutsideTheWindow(t *testing.T) {
+	start := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	now := start
+	l := &failureLimiter{now: func() time.Time { return now }, byIP: map[string][]time.Time{}}
+	l.record("192.0.2.1")
+	now = start.Add(30 * time.Second)
+	l.record("192.0.2.2")
+	// The first address makes no new attempt, so only the failure of another address can remove it.
+	now = start.Add(failureWindow + time.Second)
+	l.record("192.0.2.3")
+	if _, ok := l.byIP["192.0.2.1"]; ok {
+		t.Errorf("the limiter keeps 192.0.2.1 %v after its last failure, want it deleted", failureWindow+time.Second)
+	}
+	for _, ip := range []string{"192.0.2.2", "192.0.2.3"} {
+		if n := len(l.byIP[ip]); n != 1 {
+			t.Errorf("the limiter holds %d failures of %s, want 1", n, ip)
+		}
+	}
+}
