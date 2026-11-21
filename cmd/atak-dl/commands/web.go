@@ -88,22 +88,27 @@ func newServerHandler(h http.Handler) http.Handler {
 const maxBodyBytes = 1 << 20
 
 // limitBody returns a handler that rejects a request body larger than maxBodyBytes (FR-security-hardening-17).
+// POST /api/areas/parse has the larger limit parseRouteBodyBytes, because an area file can be 5 MiB.
 // A body with a larger Content-Length gets 413 body_too_large at once.
-// A body with no Content-Length gets the limit on read, and decodeJSON writes the 413.
+// A body with no Content-Length gets the limit on read, and the handler writes the 413.
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ContentLength > maxBodyBytes {
-			writeBodyTooLarge(w)
+		limit := int64(maxBodyBytes)
+		if r.URL.Path == "/api/areas/parse" {
+			limit = parseRouteBodyBytes
+		}
+		if r.ContentLength > limit {
+			writeBodyTooLarge(w, limit)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
 }
 
-// writeBodyTooLarge writes the 413 body_too_large error response.
-func writeBodyTooLarge(w http.ResponseWriter) {
-	writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("Request body is larger than %d bytes", maxBodyBytes))
+// writeBodyTooLarge writes the 413 body_too_large error response for a body above limit bytes.
+func writeBodyTooLarge(w http.ResponseWriter, limit int64) {
+	writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("Request body is larger than %d bytes", limit))
 }
 
 // ServeHTTP implements http.Handler.
@@ -170,6 +175,8 @@ func (h *WebHandler) serveAPI(w http.ResponseWriter, r *http.Request) {
 		h.apiSources(w, r)
 	case "/api/estimate":
 		h.apiEstimate(w, r)
+	case "/api/areas/parse":
+		h.apiAreasParse(w, r)
 	case "/api/tile-info":
 		h.apiTileInfo(w, r)
 	case "/api/validate-source":
@@ -480,7 +487,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	case err == nil:
 		return true
 	case errors.As(err, &tooLarge):
-		writeBodyTooLarge(w)
+		writeBodyTooLarge(w, tooLarge.Limit)
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
 	}

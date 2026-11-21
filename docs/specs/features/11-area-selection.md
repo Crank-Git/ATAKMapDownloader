@@ -148,6 +148,7 @@ Regions: the area toolbar, the import drop zone, the area list and the shaded ti
 - Geometry library: pick a maintained Go library for GeoJSON decoding (for example `github.com/paulmach/orb`). Read its current docs and license before you add it, and record the choice in an ADR.
 - Leaflet-Geoman draw modes `Polygon` and `Line`: https://github.com/geoman-io/leaflet-geoman (vendored in feature 08).
 - `POST /api/estimate` response adds `areas: [{name, tiles}]` and `unique_tiles`.
+- `POST /api/areas/parse` reads an area file for the web UI import, so the web UI has no second parser. The body is a multipart form with the field `file`, or the file itself. The query parameters `min_zoom`, `max_zoom` and `buffer_m` set the values that the file does not set. The response is `{areas, warnings}`, with `areas` in the shape of FR-area-selection-25. A file that does not decode returns 400 `invalid_area_file`.
 
 ## Edge cases & failures
 

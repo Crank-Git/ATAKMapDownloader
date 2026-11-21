@@ -48,7 +48,7 @@ This feature closes these gaps. It also replaces the websocket with a small job 
 
 ### Limits and timeouts
 
-- FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413.
+- FR-security-hardening-17 — The server rejects a request body larger than 1 MiB with status 413. `POST /api/areas/parse` takes an area file of up to 5 MiB, so its limit is 5 MiB plus 64 KiB for the multipart form (feature 11).
 - FR-security-hardening-18 — The server sets `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s and `IdleTimeout` 120 s. The SSE route has no write timeout.
 - FR-security-hardening-19 — The server and the CLI reject a zoom range outside the map source's zoom range with error code `zoom_out_of_range`.
 - FR-security-hardening-20 — The server and the CLI reject a concurrency below 1 or above 32 with error code `invalid_concurrency`.
@@ -133,7 +133,7 @@ Feature 08 redesigns the screens.
 - `id` is 12 lowercase hex characters from `crypto/rand`.
 - Job states in this feature: `running`, `complete`, `failed` and `cancelled`. Feature 12 adds `queued`.
 - The `delay_between_batches` setting is removed. The engine never read it (`internal/download/download.go:28`). Feature 06 replaces it with rate limits.
-- Error codes: `cross_origin`, `invalid_json`, `invalid_bounds`, `zoom_out_of_range`, `invalid_concurrency`, `unknown_source`, `job_running`, `job_not_found`, `invalid_if_exists`, `body_too_large`, `internal`, `invalid_query`, `not_found`, `method_not_allowed`. Later epics add `terms_not_accepted` and `invalid_rate_limit` (feature 06), `output_exists` and `too_many_tiles` (feature 07), and `invalid_area` (feature 11).
+- Error codes: `cross_origin`, `invalid_json`, `invalid_bounds`, `zoom_out_of_range`, `invalid_concurrency`, `unknown_source`, `job_running`, `job_not_found`, `invalid_if_exists`, `body_too_large`, `internal`, `invalid_query`, `not_found`, `method_not_allowed`. Later epics add `terms_not_accepted` and `invalid_rate_limit` (feature 06), `output_exists` and `too_many_tiles` (feature 07), and `invalid_area` and `invalid_area_file` (feature 11).
 - `invalid_query` is for an empty `/api/geocode` query, `not_found` is for a route that does not exist, and `method_not_allowed` comes with status 405. The PM accepted these three codes at the #74 gate.
 
 ## Data touched
