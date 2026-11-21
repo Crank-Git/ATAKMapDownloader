@@ -160,7 +160,7 @@ If you press Ctrl-C, the engine stops its requests within 500 ms and commits the
 | 0 | The job succeeded. |
 | 1 | An error that has no other code. |
 | 2 | The map source is restricted, and the command has no `--accept-terms`. |
-| 3 | The output file exists, or it belongs to another map source. |
+| 3 | The output file exists, it belongs to another map source, or it is not an output file. With `--resume` and no `--force`, a file with no map source name also exits with 3. |
 | 4 | The job has more tiles than `--max-tiles`. |
 | 5 | The failure rate of the job is above the failure tolerance. |
 | 130 | Ctrl-C or SIGTERM cancelled the job. |

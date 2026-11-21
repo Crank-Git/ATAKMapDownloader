@@ -205,9 +205,11 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>output format</td><td>noun</td><td>The schema of the output file: <code>mbtiles</code>, <code>osmdroid</code> or <code>gpkg</code> (planned, feature 10).</td><td>file type</td></tr>
 <tr><td>data package</td><td>noun</td><td>An ATAK zip file with a <code>MANIFEST/manifest.xml</code> (planned, feature 10).</td><td>mission package (except in ATAK quotes)</td></tr>
 <tr><td>retry</td><td>verb</td><td>To send a tile request again after it fails.</td><td>re-fetch</td></tr>
-<tr><td>resume</td><td>verb</td><td>To continue a job into an existing output file and skip the tiles it already holds (planned, feature 07).</td><td>restart, continue</td></tr>
+<tr><td>resume</td><td>verb</td><td>To continue a job into an existing output file and skip the tiles it already holds (feature 07).</td><td>restart, continue</td></tr>
 <tr><td>failure rate</td><td>noun</td><td>Failed tiles divided by processed tiles in one job.</td><td>error rate</td></tr>
 <tr><td>failure tolerance</td><td>noun</td><td>The highest failure rate at which a job still succeeds. Code: <code>MaxFailureRate</code>.</td><td>error budget</td></tr>
+<tr><td>failure reason</td><td>noun</td><td>The word that names why one tile failed, for example <code>not_image</code> or <code>http_404</code>. Code: <code>download.Reason</code>.</td><td>error code, cause</td></tr>
+<tr><td>placeholder image</td><td>noun</td><td>One image that a map source sends for many tiles in place of real map data.</td><td>dummy tile, filler</td></tr>
 <tr><td>server</td><td>noun</td><td>The HTTP process that <code>atak-dl serve</code> starts.</td><td>backend, daemon</td></tr>
 <tr><td>web UI</td><td>noun</td><td>The browser page that the server sends from the binary.</td><td>frontend, dashboard, web app</td></tr>
 <tr><td>CLI</td><td>noun</td><td>Command-line interface: the <code>atak-dl</code> subcommands.</td><td>terminal mode</td></tr>
@@ -391,7 +393,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
     string output_format "planned"
     int total
     int downloaded
-    int skipped "planned"
+    int skipped
     int failed
     time created_at "planned"
   }
@@ -419,7 +421,8 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
     int zoom_level
     int tile_column
     int tile_row
-    string reason "planned"
+    string reason
+    int attempts
   }
   JOB_EVENT {
     string type
@@ -441,11 +444,11 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row <code>atakdl_source</code> names the map source. Planned: an extension per output format (feature 10).
 </li>
-<li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:34-37</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned, with no check.
+<li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:31-33</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
 </li>
-<li><strong>METADATA_ENTRY</strong> (built). Keys: <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code>, <code>maxzoom</code>. Planned: <code>center</code> and <code>attribution</code> (feature 10).
+<li><strong>METADATA_ENTRY</strong> (built). Keys: <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code>, <code>maxzoom</code> and <code>atakdl_source</code>. The <code>--resume</code> check reads <code>atakdl_source</code> (feature 07, #26). Planned: <code>center</code> and <code>attribution</code> (feature 10).
 </li>
-<li><strong>FAILED_TILE</strong> (planned, feature 07). A table <code>atakdl_failed_tiles</code> in the output file. ATAK reads only the <code>tiles</code> and <code>metadata</code> tables, so an extra table is safe. This is inferred from ATAK-CIV <code>TilesetInfo.java</code> and is a risk item.
+<li><strong>FAILED_TILE</strong> (built, feature 07, #28). A table <code>atakdl_failed_tiles</code> in the output file. The retry pass and <code>--resume</code> request each tile in it again, except a <code>not_found</code> tile. ATAK reads only the <code>tiles</code> and <code>metadata</code> tables, so an extra table is safe. This is inferred from ATAK-CIV <code>TilesetInfo.java</code> and is a risk item.
 </li>
 <li><strong>JOB_EVENT</strong> (built in memory, #76). An SSE message: <code>progress</code>, <code>state</code> or <code>log</code>. The server does not store it.
 </li>
@@ -469,7 +472,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>TLS.</strong> The engine verifies TLS certificates by default (<code>internal/download/download.go:43</code>, #75). <code>download --insecure</code> turns verification off for one job and prints a warning to stderr. The web UI shows <strong>Verify TLS</strong> checked by default (#78).
 </li>
-<li><strong>Error handling.</strong> Every error response is <code>application/json</code> with the shape <code>{"error": {"code": "&lt;snake_case&gt;", "message": "&lt;text&gt;"}}</code> (<code>writeError</code>, <code>web.go:443-447</code>, #74). Every JSON success response sets <code>Content-Type: application/json</code>. The error codes are in <code>05-security-hardening.md</code>. The CLI prints a limit error as <code>Error: &lt;code&gt;: &lt;message&gt;</code> and exits with code 1 (#81).
+<li><strong>Error handling.</strong> Every error response is <code>application/json</code> with the shape <code>{"error": {"code": "&lt;snake_case&gt;", "message": "&lt;text&gt;"}}</code> (<code>writeError</code>, <code>web.go:443-447</code>, #74). Every JSON success response sets <code>Content-Type: application/json</code>. The error codes are in <code>05-security-hardening.md</code>. The CLI prints a limit error as <code>Error: &lt;code&gt;: &lt;message&gt;</code>. It exits with code 4 for <code>too_many_tiles</code> and with code 1 for the other limit errors (#81, #29).
 </li>
 <li><strong>Validation and limits.</strong> Built (#81):
 <ul>
@@ -486,8 +489,9 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </ul>
 </li>
 </ul>
-<p>Planned: the tile count is at most <code>--max-tiles</code>, with a default of 500,000 (feature 07).</p>
 <ul>
+<li>The tile count is at most <code>--max-tiles</code>, with a default of 500,000 (<code>too_many_tiles</code>, feature 07, #29).
+</li>
 <li><strong>Logging.</strong> <code>log/slog</code> with the text handler today. Planned: every job log line carries <code>job_id</code>, and every failed tile is logged at debug level with its URL and reason.
 </li>
 <li><strong>Politeness.</strong> Planned (feature 06):

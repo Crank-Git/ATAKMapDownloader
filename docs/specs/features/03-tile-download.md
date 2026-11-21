@@ -39,7 +39,8 @@ Epic 1 pull request changed names that pull request, for example (#75).
 - FR-tile-download-4 — The engine stops each tile request after 30 seconds.
 - FR-tile-download-5 — The engine verifies TLS certificates unless `VerifyTLS` is false.
   The default is true (#75).
-- FR-tile-download-6 — The engine makes at most 3 attempts per tile.
+- FR-tile-download-6 — The engine makes at most 3 attempts per tile in the main pass and
+  1 in the retry pass (#28).
 - FR-tile-download-7 — The engine waits 1 second after the first failed attempt and
   2 seconds after the second.
 - FR-tile-download-8 — The engine retries a tile after a network error or after HTTP
@@ -47,14 +48,15 @@ Epic 1 pull request changed names that pull request, for example (#75).
 - FR-tile-download-9 — The engine marks a tile as failed after any other HTTP status
   that is not 200, with no retry.
 - FR-tile-download-10 — The engine stores the response body of an HTTP 200 response as
-  the tile data, unchanged.
+  the tile data, unchanged, if the body is a valid image (#27).
 - FR-tile-download-11 — The engine writes the tile row in TMS order:
   `tile_row = 2^z − 1 − y`.
-- FR-tile-download-12 — The engine deletes an output file that already exists at the
-  output path before it creates the new one.
+- FR-tile-download-12 — The engine opens an output file that already exists at the
+  output path, and it keeps the tiles that the file holds (#26).
 - FR-tile-download-13 — The engine writes the metadata keys `name`, `type`, `version`,
   `description`, `format`, `bounds`, `minzoom` and `maxzoom`.
-- FR-tile-download-14 — When the job is cancelled, the engine deletes the output file.
+- FR-tile-download-14 — When the job is cancelled, the engine keeps the output file and
+  every tile it stored (#26).
 - FR-tile-download-15 — If `IgnoreErrors` is false, the engine reports failure when the
   failure rate is greater than the failure tolerance.
 - FR-tile-download-16 — The engine reports failure when it processed no tile.
@@ -110,8 +112,9 @@ flowchart TD
    - `Error: too_many_tiles: the job has 600000 tiles, and the tile cap is 500000`
 5. The CLI uses `--output`, or builds a file name in `./downloads`.
 6. If `--insecure` is set, the CLI prints the TLS warning to stderr (#75).
-7. The engine deletes any file at the output path.
-8. The engine creates the output file and writes the metadata.
+7. If a file exists at the output path, the CLI applies `--resume`, `--overwrite` and
+   `--force` to it (#26). With no flag, the CLI exits with code 3.
+8. The engine opens or creates the output file and writes the metadata.
 9. The engine requests the tiles. The CLI prints progress.
 10. If the solo operator presses Ctrl-C, the engine stops its requests within 500 ms and
     commits the stored tiles (#29). The CLI prints
@@ -149,11 +152,13 @@ flowchart TD
 2. If the job is cancelled, the engine releases the slot and stops.
 3. The engine builds the URL from the URL template of the map source.
 4. The engine sends a GET request.
-5. If the status is 200, the engine inserts the tile with the TMS row.
+5. If the status is 200 and the body is a valid image, the engine sends the tile to the
+   writer (#27). The writer stores the TMS row.
 6. If a network error or status 403, 429 or 503 occurs, the engine waits and tries again.
    It makes at most 3 attempts.
 7. If any other status occurs, or the attempts run out, the engine counts the tile as
-   failed.
+   failed. It records the tile in `atakdl_failed_tiles`, and the retry pass requests it
+   once more (#28).
 8. If the insert fails, the engine logs `insert tile failed` and counts the tile as
    failed. It does not call the progress callback (`internal/download/download.go:272-276`).
 9. Otherwise, the engine calls the progress callback and releases the slot.
@@ -295,14 +300,15 @@ fails, and the engine keeps the output file.
 
 `internal/mbtiles`:
 
-- `Create(path, metadata) (*Writer, error)` deletes an existing file at `path`, then
-  calls `Open`.
 - `Open(path, metadata) (*Writer, error)` opens or creates the file, and it loads the
-  keys of the stored tiles.
+  keys of the stored tiles. It never deletes a file. The CLI and the job API delete a
+  file only for `--overwrite` or `"if_exists": "overwrite"` (#26).
 - `(*Writer).Has(z, x, y) bool` and `(*Writer).Put(z, x, y, data) error` take the XYZ
   row. The writer stores the TMS row.
 - `(*Writer).Close() error` commits the last transaction and returns the first write
-  error.
+  error. Then it runs `PRAGMA wal_checkpoint(TRUNCATE)` and `PRAGMA journal_mode=DELETE`.
+  The output file is then one file with no `-wal` or `-shm` file, so ATAK can open it
+  read-only.
 
 The driver is `modernc.org/sqlite` v1.62.0, a pure-Go driver, so the build needs no CGO
 (`mbtiles.go:11-12`, #63). See [ADR 0005](../../adr/0005-pure-go-sqlite.md).
@@ -312,7 +318,8 @@ The driver is `modernc.org/sqlite` v1.62.0, a pure-Go driver, so the build needs
 What the code handles:
 
 - Rate-limit statuses (403, 429, 503) get two retries.
-- SIGINT and SIGTERM stop new tile requests and delete the partial output file.
+- SIGINT and SIGTERM stop new tile requests within 500 ms. The engine commits the stored
+  tiles and keeps the output file (#26, #29).
 - A failed tile write counts as a failed tile, and it stops the job with `write_failed`.
 - TLS verification is on by default. A tile that fails verification counts as failed
   (#75).
@@ -323,32 +330,9 @@ What the code handles:
 
 What the code does not handle:
 
-- **The engine stores any HTTP 200 body as a tile.** It does not check the content type
-  or decode the image. An HTML error page or a "blocked" image goes into the output file.
-- **The engine logs no detail for a failed tile.** It counts the tile and drops the
-  error (`download.go:262-268`).
-- **Progress uses only the downloaded count.** With any failed tile, the percentage never
-  reaches 100, and the ETA is too long.
-- **The retry waits ignore cancel.** `time.Sleep` does not watch the context, and the
-  request does not use `NewRequestWithContext`. A cancel can wait for running requests.
-- **Retries do not read `Retry-After` and have no jitter.**
-- **A cancel leaves the tile producer goroutine blocked** after `goto wait`
-  (`download.go:163`).
-- **A late cancel is lost.** The engine checks the context only in the loop that starts
-  tile requests (`download.go:160-165`). If the signal arrives after the last tile
-  request starts, the job ends as a normal job. The CLI callback always returns true.
-- **The engine deletes an existing output file with no warning** (`mbtiles.go:20-24`).
-  The generated name has no time stamp, so a repeat of the same request replaces the
-  earlier output file.
-- **A cancel throws away every tile already fetched.** There is no resume.
-- **No limit on the tile count.**
 - **`serve` ignores the `os.MkdirAll` error for the downloads directory**
-  (`commands/serve.go:44`).
-  `mbtiles.Create` creates the directory again and returns the error, so a `download` run reports it.
-- **The CLI prints `Error: context canceled` and the usage text after a cancel**, because
-  only the limit checks set `SilenceUsage` (`commands/download.go:53`).
-- **Rate limits do not exist.** The engine sends requests as fast as the semaphore
-  allows.
+  (`commands/serve.go:53`).
+  `mbtiles.Open` creates the directory again and returns the error, so a job reports it.
 
 Known defects and the planned feature that repairs each:
 
