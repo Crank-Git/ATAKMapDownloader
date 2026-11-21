@@ -21,12 +21,8 @@ func NewValidateSourceCmd() *cobra.Command {
 
 func runValidateSource(cmd *cobra.Command, _ []string) error {
 	parser := getParser(cmd)
-	sourceName, _ := cmd.Flags().GetString("source")
-
-	source := parser.GetSource(sourceName)
-	if source == nil {
-		exitErr("Source '" + sourceName + "' not found")
-	}
+	source := sourceFlag(cmd, parser)
+	sourceName := source.Name
 
 	errors := parser.ValidateSource(source)
 	if len(errors) == 0 {

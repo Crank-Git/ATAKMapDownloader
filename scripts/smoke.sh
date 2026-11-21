@@ -2,7 +2,7 @@
 # smoke.sh builds atak-dl, starts serve on a free port, and checks seven responses and the bind warning.
 # It also checks the terms exit code, the output file exit code, the tile cap, --no-geocode and the sources sync command.
 # FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
-# FR-robust-downloads-6, -26 and -27, and FR-source-sync-10, -11 and -29 define the checks.
+# FR-robust-downloads-6, -26 and -27, and FR-source-sync-10, -11, -16 and -29 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -108,16 +108,21 @@ echo "smoke: serve --addr 0.0.0.0:0 printed the no-authentication warning"
 
 # A restricted map source without --accept-terms exits with code 2 (FR-polite-downloading-18).
 # The output directory is a regular file, so a build without the check fails before it sends a request to Google.
+# The v0.1 name goes through the alias, so the check also covers the deprecation warning (FR-source-sync-16).
 terms_file=$(mktemp)
 trap 'kill "$pid" "$open_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file"; rm -rf "$smoke_home"' EXIT INT TERM
 status=0
-./atak-dl download --source "Google Satellite" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+./atak-dl download --source "Google - Satellite Only" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
 	--output "$terms_file/out.sqlite" >/dev/null 2>"$stderr_file" || status=$?
 if [ "$status" != "2" ] || ! grep -q "https://developers.google.com/maps/documentation/tile/policies" "$stderr_file"; then
 	echo "smoke: download of a Google map source without --accept-terms exited $status, want 2 and the reference URL" >&2
 	exit 1
 fi
-echo "smoke: download of a Google map source without --accept-terms exited 2"
+if ! grep -qF 'The new name is "Google Satellite".' "$stderr_file"; then
+	echo "smoke: download with the old name \"Google - Satellite Only\" printed no deprecation warning" >&2
+	exit 1
+fi
+echo "smoke: download of a Google map source by its old name warned and exited 2"
 
 # An existing output file without --resume or --overwrite exits with code 3 and stays unchanged (FR-robust-downloads-6).
 # The file is not SQLite, so a build without the check fails when it opens the file, before a request.

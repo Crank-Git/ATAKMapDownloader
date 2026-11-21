@@ -36,15 +36,21 @@ type jobServer struct {
 // newJobServer starts a server whose one map source "Test Tiles" points at a tile server with table.
 func newJobServer(t *testing.T, table testtiles.Table) *jobServer {
 	t.Helper()
+	return newNamedJobServer(t, table, "Test Tiles")
+}
+
+// newNamedJobServer starts a server whose one map source name points at a tile server with table.
+func newNamedJobServer(t *testing.T, table testtiles.Table, name string) *jobServer {
+	t.Helper()
 	tiles := testtiles.New(t, table)
 	xml := fmt.Sprintf(`<?xml version="1.0"?>
 <customMapSource>
-    <name>Test Tiles</name>
+    <name>%s</name>
     <minZoom>0</minZoom>
     <maxZoom>18</maxZoom>
     <tileType>png</tileType>
     <url>%s</url>
-</customMapSource>`, tiles.URLTemplate())
+</customMapSource>`, name, tiles.URLTemplate())
 	h := newTestHandler(t, map[string]string{"tiles.xml": xml})
 	h.outputDir = t.TempDir()
 	// A 1000-tile job at the default rate of 4 per second takes minutes, so the test tile server gets a high rate.
@@ -409,6 +415,49 @@ func TestAFailedJobRecordsTheEngineError(t *testing.T) {
 	}
 	if got := s.getRecord(t, rec.ID); got.Error != final.Error {
 		t.Errorf("GET error = %q, want %q", got.Error, final.Error)
+	}
+}
+
+func TestJobAPIWithAnOldSourceNameUsesTheV2NameAndLogsAWarning(t *testing.T) {
+	area := tilecalc.TileBounds{MinX: 300, MaxX: 300, MinY: 400, MaxY: 400, Zoom: 10}
+	s := newNamedJobServer(t, nil, "USGS Topo")
+	body := strings.Replace(jobBody(area), `"Test Tiles"`, `"USGS - Usgsbasemap"`, 1)
+	rec := s.startJob(t, body)
+	if rec.Source != "USGS Topo" {
+		t.Errorf("record source = %q, want %q", rec.Source, "USGS Topo")
+	}
+
+	resp, r := s.openEvents(t, rec.ID)
+	defer closeBody(resp)
+	want := logEvent{Level: "warning", Message: `"USGS - Usgsbasemap" is an old map source name. The new name is "USGS Topo".`}
+	var logs []logEvent
+	for _, e := range readAllEvents(t, r) {
+		if e.name == "log" {
+			var l logEvent
+			if err := json.Unmarshal([]byte(e.data), &l); err != nil {
+				t.Fatalf("decode log %q: %v", e.data, err)
+			}
+			logs = append(logs, l)
+		}
+	}
+	if len(logs) != 1 || logs[0] != want {
+		t.Errorf("log events = %+v, want only %+v", logs, want)
+	}
+}
+
+func TestJobAPIWithARemovedSourceNameNamesTheUpstreamVersion(t *testing.T) {
+	area := tilecalc.TileBounds{MinX: 300, MaxX: 300, MinY: 400, MaxY: 400, Zoom: 10}
+	s := newJobServer(t, nil)
+	body := strings.Replace(jobBody(area), `"Test Tiles"`, `"Michelin - OSM Michelin"`, 1)
+	resp := s.request(t, http.MethodPost, "/api/jobs", body)
+	defer closeBody(resp)
+	var got apiError
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("body does not parse as the error shape: %v", err)
+	}
+	const want = "map source removed upstream in ATAK-Maps v1.10.1"
+	if resp.StatusCode != http.StatusNotFound || got.Error.Code != "unknown_source" || got.Error.Message != want {
+		t.Errorf("response = %d %+v, want 404 unknown_source %q", resp.StatusCode, got.Error, want)
 	}
 }
 
