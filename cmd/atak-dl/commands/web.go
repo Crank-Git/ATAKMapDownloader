@@ -87,15 +87,18 @@ func newServerHandler(h http.Handler) http.Handler {
 // maxBodyBytes is the largest request body that the server reads (FR-security-hardening-17).
 const maxBodyBytes = 1 << 20
 
+// areaRoutes are the paths whose request body carries areas.
+var areaRoutes = map[string]bool{"/api/areas/parse": true, "/api/areas/tiles": true, "/api/estimate": true, "/api/jobs": true}
+
 // limitBody returns a handler that rejects a request body larger than maxBodyBytes (FR-security-hardening-17).
-// POST /api/areas/parse has the larger limit parseRouteBodyBytes, because an area file can be 5 MiB.
+// A route in areaRoutes has the larger limit areaBodyBytes, because its areas can come from a 5 MiB file.
 // A body with a larger Content-Length gets 413 body_too_large at once.
 // A body with no Content-Length gets the limit on read, and the handler writes the 413.
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := int64(maxBodyBytes)
-		if r.URL.Path == "/api/areas/parse" {
-			limit = parseRouteBodyBytes
+		if areaRoutes[r.URL.Path] {
+			limit = areaBodyBytes
 		}
 		if r.ContentLength > limit {
 			writeBodyTooLarge(w, limit)
@@ -503,7 +506,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 
 // decodeJSON decodes the request body into v.
 // It returns false when it wrote an error response:
-//   - 413 body_too_large when the body is larger than maxBodyBytes.
+//   - 413 body_too_large when the body is larger than the limit of limitBody.
 //   - 400 invalid_json when the body is not valid JSON.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	err := json.NewDecoder(r.Body).Decode(v)

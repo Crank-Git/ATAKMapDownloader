@@ -54,9 +54,10 @@ func readAreaFile(cmd *cobra.Command, path string, minZoom, maxZoom int) ([]tile
 	return res.Areas, nil
 }
 
-// parseRouteBodyBytes is the largest body of POST /api/areas/parse.
+// areaBodyBytes is the largest body of a route that carries areas (FR-security-hardening-17).
+// The routes share one limit, so the areas of a 5 MiB file fit in a job request.
 // A multipart form adds headers and boundaries to the file, so the limit is 64 KiB above the file limit.
-const parseRouteBodyBytes = areafile.MaxBytes + 64<<10
+const areaBodyBytes = areafile.MaxBytes + 64<<10
 
 // areasParseResult is the POST /api/areas/parse response.
 // Areas uses the area shape of POST /api/estimate and POST /api/jobs (FR-area-selection-25).

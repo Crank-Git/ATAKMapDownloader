@@ -117,13 +117,13 @@ if json.load(sys.stdin).get("geocode") is not True:
 print("smoke: GET /api/config returned geocode true")
 '
 
-# A body larger than 1 MiB returns 413 (FR-security-hardening-17).
-status=$(head -c 2097152 /dev/zero | curl -s -o /dev/null -w '%{http_code}' --data-binary @- "$base/api/jobs")
+# A route that carries areas reads 5 MiB, so a 6 MiB job body returns 413 (FR-security-hardening-17).
+status=$(head -c 6291456 /dev/zero | curl -s -o /dev/null -w '%{http_code}' --data-binary @- "$base/api/jobs")
 if [ "$status" != "413" ]; then
-	echo "smoke: POST /api/jobs with a 2 MiB body returned $status, want 413" >&2
+	echo "smoke: POST /api/jobs with a 6 MiB body returned $status, want 413" >&2
 	exit 1
 fi
-echo "smoke: POST /api/jobs with a 2 MiB body returned 413"
+echo "smoke: POST /api/jobs with a 6 MiB body returned 413"
 
 # The parse route reads a KML file into areas, and it warns about the Point (FR-area-selection-18).
 curl -sf --data-binary @testdata/areas/trail.kml "$base/api/areas/parse?min_zoom=12&max_zoom=17&buffer_m=300" | python3 -c '
