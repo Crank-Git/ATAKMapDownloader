@@ -437,7 +437,7 @@ Created by spec-to-issues on 2026-11-21. Features 01–04 are `built` and have n
 
 | Epic | Epic issue | Sub-issues |
 |---|---|---|
-| Foundation | #4 | #5, #6, #7, #8, #9, #10 |
+| Foundation | #4 | #5, #6, #7, #8, #9, #10, #68 |
 | Security hardening | #11 | #12, #13, #14, #15, #16, #17 |
 | Polite downloading | #18 | #19, #20, #21, #22, #23 |
 | Robust downloads | #24 | #25, #26, #27, #28, #29 |
@@ -506,3 +506,7 @@ FR coverage (each sub-issue and the requirements it quotes):
 - 2026-11-21: Approved by the maintainer after review round 1. Mockups 02, 03 and 04 were adjusted for heading sizes and borders.
 - 2026-11-21: Removed the Homebrew tap from the release targets, at the maintainer's request, to make releases simpler.
 - 2026-11-21: Issued by spec-to-issues: 9 epics (#4, #11, #18, #24, #30, #36, #43, #50, #55) and 48 sub-issues. Epic 4 now depends on Epic 3.
+- 2026-11-21: Epic 0 merged into `develop` (#71). Decisions at its gates:
+  - The PM added #68, so release archives include `mapsources/` until Epic 5 embeds the source files.
+  - The PM ruled that a function extracted to meet the lint complexity limits may have a single caller (`.claude/rules/quality.md`).
+  - The engine tests run with one download slot until #25 fixes the Progress data race.

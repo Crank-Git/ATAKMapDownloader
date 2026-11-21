@@ -659,7 +659,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <p>Created by spec-to-issues on 2026-11-21. Features 01–04 are <code>built</code> and have no issues.</p>
 <div class="table-wrap"><table>
 <tr><th>Epic</th><th>Epic issue</th><th>Sub-issues</th></tr>
-<tr><td>Foundation</td><td>#4</td><td>#5, #6, #7, #8, #9, #10</td></tr>
+<tr><td>Foundation</td><td>#4</td><td>#5, #6, #7, #8, #9, #10, #68</td></tr>
 <tr><td>Security hardening</td><td>#11</td><td>#12, #13, #14, #15, #16, #17</td></tr>
 <tr><td>Polite downloading</td><td>#18</td><td>#19, #20, #21, #22, #23</td></tr>
 <tr><td>Robust downloads</td><td>#24</td><td>#25, #26, #27, #28, #29</td></tr>
@@ -730,6 +730,16 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <li>2026-11-21: Removed the Homebrew tap from the release targets, at the maintainer's request, to make releases simpler.
 </li>
 <li>2026-11-21: Issued by spec-to-issues: 9 epics (#4, #11, #18, #24, #30, #36, #43, #50, #55) and 48 sub-issues. Epic 4 now depends on Epic 3.
+</li>
+<li>2026-11-21: Epic 0 merged into <code>develop</code> (#71). Decisions at its gates:
+<ul>
+<li>The PM added #68, so release archives include <code>mapsources/</code> until Epic 5 embeds the source files.
+</li>
+<li>The PM ruled that a function extracted to meet the lint complexity limits may have a single caller (<code>.claude/rules/quality.md</code>).
+</li>
+<li>The engine tests run with one download slot until #25 fixes the Progress data race.
+</li>
+</ul>
 </li>
 </ul><nav class="pager">
 <span></span>
