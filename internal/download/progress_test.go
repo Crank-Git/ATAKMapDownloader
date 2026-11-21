@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 )
@@ -65,10 +66,60 @@ func TestEngineReturnsAFailureRateErrorAboveTheFailureTolerance(t *testing.T) {
 	}
 }
 
-func TestProgressPercentCountsDownloadedSkippedAndFailedTiles(t *testing.T) {
-	p := Progress{TotalTiles: 200, Downloaded: 50, Skipped: 30, Failed: 20}
-	if got := p.ProgressPercent(); got != 50 {
-		t.Errorf("ProgressPercent() = %v, want 50", got)
+func TestProgressPercent(t *testing.T) {
+	tests := []struct {
+		name string
+		p    Progress
+		want float64
+	}{
+		{"counts downloaded, skipped and failed tiles", Progress{TotalTiles: 200, Downloaded: 50, Skipped: 30, Failed: 20}, 50},
+		{"stops at 100 when the processed count is above the total", Progress{TotalTiles: 9, Downloaded: 10}, 100},
+		{"returns 0 for a job with no tiles", Progress{}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.p.ProgressPercent(); got != tt.want {
+				t.Errorf("ProgressPercent() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEngineProgressStaysAt100WhenTheRetryPassStoresATileOutsideTheBounds(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	source := loadFixture(t, "xyz.xml", srv)
+	output := filepath.Join(t.TempDir(), "out.sqlite")
+	// An earlier job with other bounds left this failed tile row, and a resume retries the whole table.
+	w, err := mbtiles.Open(output, map[string]string{"atakdl_source": source.Name})
+	if err != nil {
+		t.Fatalf("open output file: %v", err)
+	}
+	if err := w.Fail(oneTile.Zoom, oneTile.MinX+50, oneTile.MinY+50, "http_503"); err != nil {
+		t.Fatalf("store the failed tile: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close output file: %v", err)
+	}
+
+	var mu sync.Mutex
+	var highest float64
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output,
+		func(p Progress) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			highest = max(highest, p.ProgressPercent())
+			return true
+		})
+	if !res.OK || err != nil {
+		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
+	}
+	if res.Downloaded != 2 || res.TotalTiles != 1 {
+		t.Fatalf("result = %d downloaded of %d; want 2 of 1, the job tile and the retried tile", res.Downloaded, res.TotalTiles)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got := res.ProgressPercent(); got != 100 || highest != 100 {
+		t.Errorf("progress = %v%%, highest callback progress = %v%%; want 100%% for both", got, highest)
 	}
 }
 
