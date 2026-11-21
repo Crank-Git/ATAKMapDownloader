@@ -10,6 +10,9 @@ import (
 // MaxJobAreas is the highest number of areas in one job (FR-area-selection-5).
 const MaxJobAreas = 20
 
+// MaxJobVertices is the highest number of vertices over all areas of one job (FR-area-selection-31).
+const MaxJobVertices = 50_000
+
 // MaxZoomLevel is the highest zoom level of an area. It is the limit of ValidateZoomRange.
 const MaxZoomLevel = 25
 

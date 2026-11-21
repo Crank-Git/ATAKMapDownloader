@@ -26,6 +26,10 @@ const (
 	MaxBufferM = 50000
 )
 
+// MaxAreaVertices is the highest number of vertices in one area (FR-area-selection-30).
+// The self-intersection check compares each pair of edges, so the cap bounds its time.
+const MaxAreaVertices = 20_000
+
 // The edge-case errors of feature 11. Callers match them with errors.Is.
 var (
 	ErrAntimeridian     = errors.New("areas that cross 180° are not supported")
@@ -49,8 +53,12 @@ type Area struct {
 // It returns ErrAntimeridian when a position or an edge crosses 180°, and
 // ErrSelfIntersection when the edges of one polygon cross or touch.
 // It also returns an error for an unknown kind, a geometry of the wrong type,
-// a latitude outside -90 to 90, too few positions, or a BufferM outside 10 to 50,000.
+// a latitude outside -90 to 90, too few positions, a BufferM outside 10 to 50,000,
+// or more than MaxAreaVertices vertices.
 func (a Area) Validate() error {
+	if n := a.Vertices(); n > MaxAreaVertices {
+		return fmt.Errorf("the area has %d vertices, and an area holds at most %d", n, MaxAreaVertices)
+	}
 	switch a.Kind {
 	case AreaBounds:
 		return validateBounds(a.Geometry)
@@ -80,6 +88,42 @@ func (a Area) Validate() error {
 	default:
 		return fmt.Errorf("unknown area kind %q: use bounds, polygon or route_buffer", a.Kind)
 	}
+}
+
+// Vertices returns the number of positions in the geometry of the area.
+// A ring counts its closing position. A geometry of a type that no area kind takes counts 0.
+func (a Area) Vertices() int {
+	switch g := a.Geometry.(type) {
+	case orb.Bound:
+		return 4
+	case orb.LineString:
+		return len(g)
+	case orb.MultiLineString:
+		n := 0
+		for _, line := range g {
+			n += len(line)
+		}
+		return n
+	case orb.Polygon:
+		return polygonVertices(g)
+	case orb.MultiPolygon:
+		n := 0
+		for _, p := range g {
+			n += polygonVertices(p)
+		}
+		return n
+	default:
+		return 0
+	}
+}
+
+// polygonVertices returns the number of positions in the rings of p.
+func polygonVertices(p orb.Polygon) int {
+	n := 0
+	for _, ring := range p {
+		n += len(ring)
+	}
+	return n
 }
 
 // Tiles returns a channel that carries every (x, y) tile of the area at zoom level z, row by row.

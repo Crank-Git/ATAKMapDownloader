@@ -28,6 +28,8 @@ This feature adds polygons, GeoJSON and KML import, and route buffers. It also l
 - FR-area-selection-3 — A `route_buffer` area is a GeoJSON LineString or MultiLineString plus `buffer_m`, from 10 to 50,000.
 - FR-area-selection-4 — Each area has its own zoom range.
 - FR-area-selection-5 — A job holds 1 to 20 areas.
+- FR-area-selection-30 — An area holds at most 20,000 vertices. The API returns 400 `invalid_area` above the cap, and the CLI exits with code 1.
+- FR-area-selection-31 — A job holds at most 50,000 vertices over all its areas. The API and the CLI reject a larger job as in FR-area-selection-30.
 
 ### Tile selection
 

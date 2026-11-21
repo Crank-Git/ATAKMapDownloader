@@ -56,13 +56,22 @@ func requestAreas(bounds []float64, minZoom, maxZoom int, areas []areaRequest) (
 
 // checkAreas returns an error code and a message when the area list of a job is not valid.
 // It returns these codes:
-//   - "invalid_area" when the list holds fewer than 1 or more than 20 areas (FR-area-selection-5), or when an area does not validate.
+//   - "invalid_area" when the list holds fewer than 1 or more than 20 areas (FR-area-selection-5),
+//     when the areas hold more than tilecalc.MaxJobVertices vertices (FR-area-selection-31), or when an area does not validate.
 //   - "zoom_out_of_range" when the zoom range of an area is empty or outside 0 to tilecalc.MaxZoomLevel.
 //
 // It returns an empty code when the list is valid.
 func checkAreas(areas []tilecalc.JobArea) (code, message string) {
 	if len(areas) < 1 || len(areas) > tilecalc.MaxJobAreas {
 		return "invalid_area", fmt.Sprintf("a job holds 1 to %d areas, and the request has %d", tilecalc.MaxJobAreas, len(areas))
+	}
+	// The count comes before Validate, so a large request costs no self-intersection check.
+	vertices := 0
+	for _, a := range areas {
+		vertices += a.Vertices()
+	}
+	if vertices > tilecalc.MaxJobVertices {
+		return "invalid_area", fmt.Sprintf("the areas have %d vertices, and a job holds at most %d", vertices, tilecalc.MaxJobVertices)
 	}
 	for i, a := range areas {
 		// A legacy request has one area, so its messages keep the form that they had before the area list.
