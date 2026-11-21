@@ -829,6 +829,20 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 </ul>
 </li>
+<li>2026-11-21: Epic 7 merged into <code>develop</code> (#122). Decisions at its gates:
+<ul>
+<li>One area-file parser, on the server. The web UI sends a file to <code>POST /api/areas/parse</code> and has no parser of its own (cross-check).
+</li>
+<li>The routes that carry areas (<code>/api/estimate</code>, <code>/api/jobs</code>, <code>/api/areas/tiles</code>, <code>/api/areas/parse</code>) accept 5 MiB. Every other route keeps 1 MiB (batch fix, FR-security-hardening-17).
+</li>
+<li>An area holds at most 20,000 vertices, and a job at most 50,000. The cap keeps the self-intersection check bounded (batch fix, FR-area-selection-30 and -31).
+</li>
+<li>The map shades an area only below 5,000 squares, as FR-area-selection-24 says (#54).
+</li>
+<li>The old-name repair for <code>/api/estimate</code> is now #123.
+</li>
+</ul>
+</li>
 </ul><nav class="pager">
 <span></span>
 <a href="html/feature-foundation.html">Feature: Foundation &rarr;</a>

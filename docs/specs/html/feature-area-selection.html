@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Area selection</h1>
-<p class="meta">Epic 7: Area selection &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 7: Area selection &nbsp; <span class="badge">built</span></p>
 <h3 id="area-selection-purpose">Purpose</h3>
 <p>Today a job covers one rectangle of bounds (<code>cmd/atak-dl/commands/download.go:24-33</code>, <code>web/static/js/app.js:69-98</code>). A trail, a river or a county boundary needs a much larger rectangle than the region the user cares about, so the job downloads many tiles that the user does not need. ATAK's own Map Manager can select by polygon, by lasso and by route buffer (ATAK 4.6 User Guide, p. 21).</p>
 <p>This feature adds polygons, GeoJSON and KML import, and route buffers. It also lets one job hold several areas, each with its own zoom range. A job downloads only the tiles that intersect an area.</p>

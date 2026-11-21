@@ -553,3 +553,9 @@ FR coverage (each sub-issue and the requirements it quotes):
   - OpenRailwayMap (#101) and CyclOSM (batch fix) are `restricted`, because their terms ban bulk use. Waymarked Trails only discourages bulk use, so it stays conditional.
   - Commas also split `serverParts`. This is a superset of ATAK's whitespace split (#42).
   - Pending repair: `/api/estimate` does not resolve old map source names yet.
+- 2026-11-21: Epic 7 merged into `develop` (#122). Decisions at its gates:
+  - One area-file parser, on the server. The web UI sends a file to `POST /api/areas/parse` and has no parser of its own (cross-check).
+  - The routes that carry areas (`/api/estimate`, `/api/jobs`, `/api/areas/tiles`, `/api/areas/parse`) accept 5 MiB. Every other route keeps 1 MiB (batch fix, FR-security-hardening-17).
+  - An area holds at most 20,000 vertices, and a job at most 50,000. The cap keeps the self-intersection check bounded (batch fix, FR-area-selection-30 and -31).
+  - The map shades an area only below 5,000 squares, as FR-area-selection-24 says (#54).
+  - The old-name repair for `/api/estimate` is now #123.
