@@ -44,6 +44,8 @@ func newSourcesSyncCmd(userAgent string) *cobra.Command {
 }
 
 func syncSources(cmd *cobra.Command, userAgent string) error {
+	// The flags parsed, so a later error is a sync failure and the usage text does not help.
+	cmd.SilenceUsage = true
 	tag, err := cmd.Flags().GetString("tag")
 	if err != nil {
 		return fmt.Errorf("read --tag: %w", err)
