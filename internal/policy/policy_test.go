@@ -31,6 +31,12 @@ func TestLookupMatchesTheEmbeddedTable(t *testing.T) {
 		{"matches a CyclOSM subdomain", "a.tile-cyclosm.openstreetmap.fr", "*.tile-cyclosm.openstreetmap.fr", Conditional, 2},
 		{"matches a USGS subdomain", "basemap.nationalmap.gov", "*.nationalmap.gov", Open, 8},
 		{"matches a USDA subdomain", "gis.apfo.usda.gov", "*.usda.gov", Open, 8},
+		{"matches the OpenRailwayMap tile host", "tiles.openrailwaymap.org", "*.openrailwaymap.org", Restricted, 1},
+		{"matches a BLM subdomain", "gis.blm.gov", "*.blm.gov", Open, 8},
+		{"matches the BKG basemap.de host", "sgx.geodatenzentrum.de", "sgx.geodatenzentrum.de", Open, 8},
+		{"matches the Ordnance Survey API host", "api.os.uk", "api.os.uk", Conditional, 2},
+		{"matches the BC Government WMS host", "openmaps.gov.bc.ca", "openmaps.gov.bc.ca", Open, 8},
+		{"matches an FAA chart host on the Esri entry", "tiles.arcgis.com", "*.arcgisonline.com", Restricted, 1},
 		{"keeps a subdomain pattern off the bare domain", "google.com", "google.com", Conditional, 4},
 		{"keeps a subdomain pattern off a longer domain", "evilgoogle.com", "evilgoogle.com", Conditional, 4},
 		{"keeps an exact pattern off a subdomain of a subdomain", "x.openstreetmap.org", "x.openstreetmap.org", Conditional, 4},
@@ -139,6 +145,84 @@ func entryForFile(t *testing.T, parser *xmlparser.XMLParser, file string) Entry 
 		t.Fatal(err)
 	}
 	return Lookup(u.Hostname())
+}
+
+// unmatchedSnapshotHosts holds the snapshot hosts that may get the default entry, each with the reason.
+// Keep it short: a host here gets 4 requests per second without a person having read its terms.
+var unmatchedSnapshotHosts = map[string]string{}
+
+func TestEverySnapshotHostMatchesATableEntry(t *testing.T) {
+	var files []string
+	err := fs.WalkDir(snapshot.FS(), "maps", func(name string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && path.Ext(name) == ".xml" {
+			files = append(files, name)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("found no source files in the snapshot")
+	}
+	for _, file := range files {
+		for _, host := range snapshotFileHosts(t, file) {
+			if _, ok := unmatchedSnapshotHosts[host]; ok {
+				continue
+			}
+			// lookup with no entries returns the default entry, so an equal reason means no entry matched.
+			if got := Lookup(host); got.Reason == lookup(nil, host).Reason {
+				t.Errorf("%s: host %q matches no policy entry", file, host)
+			}
+		}
+	}
+}
+
+// snapshotFileHosts returns the hosts of every <url> element in a snapshot source file.
+// It reads the XML directly, because the parser skips WMS and multi-layer files.
+func snapshotFileHosts(t *testing.T, file string) []string {
+	t.Helper()
+	data, err := fs.ReadFile(snapshot.FS(), file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A multi-layer file holds its <url> and <serverParts> elements in each layer.
+	type layer struct {
+		URL         string `xml:"url"`
+		ServerParts string `xml:"serverParts"`
+	}
+	var raw struct {
+		layer
+		Layers []layer `xml:"layers>customMapSource"`
+	}
+	if err := xml.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("%s: %v", file, err)
+	}
+	var urls, parts []string
+	for _, l := range append(raw.Layers, raw.layer) {
+		if u := strings.TrimSpace(l.URL); u != "" {
+			urls = append(urls, u)
+		}
+		parts = append(parts, strings.Fields(l.ServerParts)...)
+	}
+	if len(urls) == 0 {
+		t.Errorf("%s has no <url> element", file)
+	}
+	if len(parts) == 0 {
+		parts = []string{""}
+	}
+	var hosts []string
+	for _, raw := range urls {
+		for _, part := range parts {
+			u, err := url.Parse(strings.ReplaceAll(raw, "{$serverpart}", part))
+			if err != nil || u.Hostname() == "" {
+				t.Errorf("%s: cannot read the host of %q", file, raw)
+				continue
+			}
+			hosts = append(hosts, strings.ToLower(u.Hostname()))
+		}
+	}
+	return hosts
 }
 
 func TestForSourceReturnsTheStrictestEntry(t *testing.T) {
