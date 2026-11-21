@@ -10,15 +10,20 @@ import (
 	"syscall"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/policy"
+	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
 )
 
 // NewDownloadCmd returns the download command, which writes the tiles of an area to an MBTiles file.
-func NewDownloadCmd() *cobra.Command {
+// Every tile request of the command sends userAgent.
+func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "download",
 		Short: "Download tiles for an area to MBTiles file",
-		RunE:  runDownload,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runDownload(cmd, userAgent)
+		},
 	}
 	cmd.Flags().String("source", "", "Map source name (required)")
 	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required)")
@@ -29,12 +34,13 @@ func NewDownloadCmd() *cobra.Command {
 	cmd.Flags().Int("concurrent", 5, "Concurrent downloads")
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
 	cmd.Flags().Bool("insecure", false, "Do not verify the TLS certificates of the tile server")
+	cmd.Flags().Float64("rate-limit", 0, "Requests per second, below the policy rate of the source (default: the policy rate)")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
 }
 
-func runDownload(cmd *cobra.Command, _ []string) error {
+func runDownload(cmd *cobra.Command, userAgent string) error {
 	parser := getParser(cmd)
 	sourceName, _ := cmd.Flags().GetString("source")
 	source := parser.GetSource(sourceName)
@@ -69,6 +75,10 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 
 	cfg := download.DefaultConfig()
 	cfg.MaxConcurrent = concurrent
+	if err := setPoliteness(cmd, source, userAgent, &cfg); err != nil {
+		cmd.SilenceUsage = true
+		return err
+	}
 	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
 	insecure, err := cmd.Flags().GetBool("insecure")
 	if err != nil {
@@ -111,5 +121,30 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 	fmt.Printf("Download complete. Saved to %s\n", output)
+	return nil
+}
+
+// setPoliteness sets the User-Agent, the policy entry of source and the --rate-limit value in cfg.
+// A rate limit above the policy rate gives the policy rate and a note on stderr, because a rate limit only lowers the rate.
+// It returns an invalid_rate_limit error for a negative rate limit.
+func setPoliteness(cmd *cobra.Command, source *xmlparser.MapSource, userAgent string, cfg *download.Config) error {
+	cfg.UserAgent = userAgent
+	cfg.Policy = policy.ForSource(source)
+	limit, err := cmd.Flags().GetFloat64("rate-limit")
+	if err != nil {
+		return fmt.Errorf("read --rate-limit: %w", err)
+	}
+	if limit < 0 {
+		return fmt.Errorf("invalid_rate_limit: --rate-limit %g is below 0", limit)
+	}
+	rps := cfg.Policy.RequestsPerSecond
+	if limit > rps {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "note: --rate-limit %g is above the policy rate %g of %s, so the job uses %g\n",
+			limit, rps, cfg.Policy.HostPattern, rps); err != nil {
+			return fmt.Errorf("print the rate limit note: %w", err)
+		}
+		limit = rps
+	}
+	cfg.RateLimit = limit
 	return nil
 }

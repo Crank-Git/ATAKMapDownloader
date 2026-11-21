@@ -47,7 +47,7 @@ func TestDownloadWithInsecurePrintsTheWarningAndAcceptsASelfSignedCertificate(t 
 
 	root := &cobra.Command{Use: "atak-dl"}
 	root.PersistentFlags().String("mapsources-dir", "", "")
-	root.AddCommand(NewDownloadCmd())
+	root.AddCommand(NewDownloadCmd(testUserAgent))
 	var stderr bytes.Buffer
 	root.SetErr(&stderr)
 	root.SetArgs([]string{
@@ -88,7 +88,7 @@ func TestDownloadRejectsAZoomRangeOrConcurrencyOutsideTheLimits(t *testing.T) {
 			srv := testtiles.New(t, nil)
 			root := &cobra.Command{Use: "atak-dl"}
 			root.PersistentFlags().String("mapsources-dir", "", "")
-			root.AddCommand(NewDownloadCmd())
+			root.AddCommand(NewDownloadCmd(testUserAgent))
 			var stderr bytes.Buffer
 			root.SetErr(&stderr)
 			args := []string{
@@ -113,5 +113,70 @@ func TestDownloadRejectsAZoomRangeOrConcurrencyOutsideTheLimits(t *testing.T) {
 				t.Errorf("server got %d tile requests, want 0", n)
 			}
 		})
+	}
+}
+
+func TestDownloadRateLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		rateLimit  string
+		wantErr    string
+		wantStderr string
+	}{
+		{"accepts a rate limit below the policy rate", "1", "", ""},
+		{"lowers a rate limit above the policy rate and prints a note", "100", "",
+			"note: --rate-limit 100 is above the policy rate 4 of 127.0.0.1, so the job uses 4\n"},
+		{"rejects a negative rate limit", "-1", "invalid_rate_limit: --rate-limit -1 is below 0", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := testtiles.New(t, nil)
+			root := &cobra.Command{Use: "atak-dl"}
+			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.AddCommand(NewDownloadCmd(testUserAgent))
+			var stderr bytes.Buffer
+			root.SetErr(&stderr)
+			root.SetArgs([]string{
+				"--mapsources-dir", writeSource(t, srv),
+				"download",
+				"--source", "Test TLS",
+				"--bbox", oneTileBBox(),
+				"--min-zoom", "10", "--max-zoom", "10",
+				"--concurrent", "1",
+				"--rate-limit", tt.rateLimit,
+				"--output", filepath.Join(t.TempDir(), "out.sqlite"),
+			})
+
+			err := root.Execute()
+			if got := errorString(err); got != tt.wantErr {
+				t.Fatalf("Execute() returned %q, want %q", got, tt.wantErr)
+			}
+			if tt.wantStderr != "" && !strings.Contains(stderr.String(), tt.wantStderr) {
+				t.Errorf("stderr = %q, want it to hold %q", stderr.String(), tt.wantStderr)
+			}
+			if tt.wantErr == "" {
+				checkOneRequestWithTheUserAgent(t, srv)
+			}
+		})
+	}
+}
+
+// errorString returns the message of err, or an empty string for nil.
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// checkOneRequestWithTheUserAgent reports an error when srv did not get exactly one request with testUserAgent.
+func checkOneRequestWithTheUserAgent(t *testing.T, srv *testtiles.Server) {
+	t.Helper()
+	log := srv.Log()
+	if len(log) != 1 {
+		t.Fatalf("server got %d tile requests, want 1", len(log))
+	}
+	if log[0].UserAgent != testUserAgent {
+		t.Errorf("tile request has User-Agent %q, want %q", log[0].UserAgent, testUserAgent)
 	}
 }

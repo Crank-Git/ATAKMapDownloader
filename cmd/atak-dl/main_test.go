@@ -45,3 +45,10 @@ func TestRootCommandPrintsTheBuildInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestUserAgentNamesTheVersionAndTheProjectURL(t *testing.T) {
+	want := "atak-map-downloader/0.2.0 (+https://github.com/Crank-Git/ATAKMapDownloader)"
+	if got := userAgent("0.2.0"); got != want {
+		t.Errorf("userAgent(%q) = %q, want %q", "0.2.0", got, want)
+	}
+}

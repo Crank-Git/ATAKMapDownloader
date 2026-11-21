@@ -31,8 +31,11 @@ func newTestHandler(t *testing.T, sourceFiles map[string]string) *WebHandler {
 			t.Fatal(err)
 		}
 	}
-	return NewWebHandler(xmlparser.New(dir), tilecalc.NewTileCalculator(), dir)
+	return NewWebHandler(xmlparser.New(dir), tilecalc.NewTileCalculator(), dir, testUserAgent)
 }
+
+// testUserAgent has the form of FR-polite-downloading-14.
+const testUserAgent = "atak-map-downloader/test (+https://github.com/Crank-Git/ATAKMapDownloader)"
 
 func serve(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -193,5 +196,25 @@ func TestPreviewRejectsInvertedBounds(t *testing.T) {
 	}
 	if body.Error.Code != "invalid_bounds" {
 		t.Errorf("code = %q, want invalid_bounds", body.Error.Code)
+	}
+}
+
+func TestGeocodeSendsTheUserAgentToNominatim(t *testing.T) {
+	var got string
+	nominatim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.UserAgent()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`)) // The handler test below reports a failed write as a wrong response.
+	}))
+	t.Cleanup(nominatim.Close)
+	h := newTestHandler(t, nil)
+	h.geocodeURL = nominatim.URL
+
+	rec := serve(h, http.MethodPost, "/api/geocode", `{"query":"Berlin"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/geocode returned %d, want 200: %s", rec.Code, rec.Body)
+	}
+	if got != testUserAgent {
+		t.Errorf("Nominatim got User-Agent %q, want %q", got, testUserAgent)
 	}
 }

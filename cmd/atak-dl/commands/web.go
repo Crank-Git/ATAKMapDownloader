@@ -27,6 +27,12 @@ type WebHandler struct {
 	// outputDir is the directory of the output files of job API jobs.
 	outputDir string
 	jobRoutes *http.ServeMux
+	// userAgent is the User-Agent of every tile request and every geocode request (FR-polite-downloading-14).
+	userAgent string
+	// geocodeURL is the Nominatim search endpoint. A test points it at a fake Nominatim.
+	geocodeURL string
+	// policyFor returns the policy entry of a map source. A test gives a loopback tile server a high rate.
+	policyFor func(*xmlparser.MapSource) policy.Entry
 	// dlState is the job lock. createJob takes it, so two jobs never run at once.
 	dlState struct {
 		sync.Mutex
@@ -37,13 +43,17 @@ type WebHandler struct {
 }
 
 // NewWebHandler creates a new web handler.
-func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir string) *WebHandler {
+// Every tile request and every geocode request of the handler sends userAgent.
+func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir, userAgent string) *WebHandler {
 	h := &WebHandler{
-		parser:    parser,
-		calc:      calc,
-		mapsDir:   mapsDir,
-		outputDir: download.DownloadsDir(),
-		jobRoutes: http.NewServeMux(),
+		parser:     parser,
+		calc:       calc,
+		mapsDir:    mapsDir,
+		outputDir:  download.DownloadsDir(),
+		jobRoutes:  http.NewServeMux(),
+		userAgent:  userAgent,
+		geocodeURL: "https://nominatim.openstreetmap.org/search",
+		policyFor:  policy.ForSource,
 	}
 	h.routeJobs(h.jobRoutes)
 	return h
@@ -393,9 +403,9 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_query", "Query is required")
 		return
 	}
-	apiURL := "https://nominatim.openstreetmap.org/search?q=" + url.QueryEscape(req.Query) + "&format=json&limit=5&addressdetails=1"
+	apiURL := h.geocodeURL + "?q=" + url.QueryEscape(req.Query) + "&format=json&limit=5&addressdetails=1"
 	hr, _ := http.NewRequest("GET", apiURL, nil)
-	hr.Header.Set("User-Agent", "ATAK-Map-Downloader/1.0")
+	hr.Header.Set("User-Agent", h.userAgent)
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(hr)
 	if err != nil {
