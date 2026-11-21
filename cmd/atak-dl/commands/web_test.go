@@ -218,3 +218,44 @@ func TestGeocodeSendsTheUserAgentToNominatim(t *testing.T) {
 		t.Errorf("Nominatim got User-Agent %q, want %q", got, testUserAgent)
 	}
 }
+
+// The browser behavior needs a manual check, so this test proves only that the served files carry the dialog (FR-polite-downloading-20, 21).
+func TestServedAssetsHoldThePolicyWarningDialog(t *testing.T) {
+	h := newTestHandler(t, nil)
+	tests := []struct {
+		path string
+		want []string
+	}{
+		{"/", []string{
+			`<dialog id="policyDialog"`,
+			`id="policyAccept"`,
+			`id="policyStart"`,
+			`id="policyCancel"`,
+			`id="policyLegend"`,
+			"I accept responsibility for this download",
+		}},
+		{"/static/js/app.js", []string{
+			"request.accept_terms = true",
+			"policy_class",
+			"policy_reason",
+			"policy_reference_url",
+			"policy_host",
+			"requests_per_second",
+			".showModal()",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rec := serve(h, http.MethodGet, tt.path, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			body := rec.Body.String()
+			for _, s := range tt.want {
+				if !strings.Contains(body, s) {
+					t.Errorf("%s does not contain %q", tt.path, s)
+				}
+			}
+		})
+	}
+}
