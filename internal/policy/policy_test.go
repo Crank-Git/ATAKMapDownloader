@@ -123,27 +123,13 @@ func TestUnverifiedLicenseSourcesAreConditionalAtTwo(t *testing.T) {
 }
 
 // entryForFile returns the policy entry of a snapshot source file.
-// The parser skips customWmsMapSource files, so for those it looks up the host of the <url> element.
 func entryForFile(t *testing.T, file string) Entry {
 	t.Helper()
-	if src, err := xmlparser.ParseFS(snapshot.FS(), file); err == nil && src != nil {
-		return ForSource(src)
-	}
-	data, err := fs.ReadFile(snapshot.FS(), file)
+	src, err := xmlparser.ParseFS(snapshot.FS(), file)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s: %v", file, err)
 	}
-	var raw struct {
-		URL string `xml:"url"`
-	}
-	if err := xml.Unmarshal(data, &raw); err != nil {
-		t.Fatal(err)
-	}
-	u, err := url.Parse(strings.TrimSpace(raw.URL))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Lookup(u.Hostname())
+	return ForSource(src)
 }
 
 // unmatchedSnapshotHosts holds the snapshot hosts that may get the default entry, each with the reason.
@@ -178,7 +164,7 @@ func TestEverySnapshotHostMatchesATableEntry(t *testing.T) {
 }
 
 // snapshotFileHosts returns the hosts of every <url> element in a snapshot source file.
-// It reads the XML directly, because the parser skips WMS and multi-layer files.
+// It reads the XML directly, because the parser skips multi-layer files.
 func snapshotFileHosts(t *testing.T, file string) []string {
 	t.Helper()
 	data, err := fs.ReadFile(snapshot.FS(), file)

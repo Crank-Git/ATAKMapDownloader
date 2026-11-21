@@ -144,6 +144,7 @@ type Engine struct {
 	calc   *tilecalc.TileCalculator
 	client *http.Client
 	gates  *gateRegistry
+	crs    *crsCache
 	// backoffBase is the first wait of the backoff schedule. A test makes it short.
 	backoffBase time.Duration
 	// blocked is the set of SHA-256 hashes of the tiles that the engine rejects. A test adds a fixture hash.
@@ -171,6 +172,7 @@ func NewEngine(cfg Config) *Engine {
 		calc:        tilecalc.NewTileCalculator(),
 		client:      client,
 		gates:       hostGates,
+		crs:         wmsCRS,
 		backoffBase: time.Second,
 		blocked:     blockedHashes,
 	}
@@ -198,15 +200,21 @@ func (e *Engine) DownloadTiles(
 	if err != nil {
 		return Result{}, err
 	}
+
+	jobCtx, jg := e.newJobGate(ctx, source)
+	defer jg.stop(nil)
+
+	// A WMS job with no usable CRS stops before the first tile request and before the output file opens (FR-source-sync-20).
+	if err := e.checkCRS(jobCtx, jg, source); err != nil {
+		return Result{}, err
+	}
+
 	w, err := output.Open(e.cfg.Format, outputPath, metadata)
 	if err != nil {
 		return Result{}, err
 	}
 
 	c := tileCounters{total: totalTiles, start: time.Now()}
-
-	jobCtx, jg := e.newJobGate(ctx, source)
-	defer jg.stop(nil)
 
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
 	var wg sync.WaitGroup

@@ -2,6 +2,7 @@
 package xmlparser
 
 import (
+	"cmp"
 	"encoding/xml"
 	"errors"
 	"io/fs"
@@ -29,7 +30,7 @@ type MapSource struct {
 	ServerParts     []string
 	// InvertYCoordinate makes FormatURL send the TMS row as {$y} (FR-source-sync-21).
 	InvertYCoordinate bool
-	// Kind is KindTile. Issue #41 adds the WMS kind.
+	// Kind is KindTile or KindWMS.
 	Kind string
 	// Origin is OriginSnapshot or OriginUser.
 	Origin string
@@ -39,10 +40,28 @@ type MapSource struct {
 	// Overlay is true for a snapshot map source under maps/overlays/ (FR-output-formats-10).
 	// A user map source is never an overlay, because only the snapshot layout is known.
 	Overlay bool
+
+	// The WMS fields hold the elements of a customWmsMapSource file. They are empty for KindTile.
+	WMSVersion string
+	// WMSLayers is the comma-separated list of layer names.
+	WMSLayers string
+	WMSStyles string
+	// WMSCRS is the CRS that the source file declares. The GetMap request always sends EPSG:3857 (FR-source-sync-20).
+	WMSCRS string
+	// WMSParams is the text of aditionalparameters, which the GetMap request appends.
+	WMSParams string
 }
 
-// KindTile marks a map source with a tile URL template.
-const KindTile = "tile"
+// The kinds of a map source.
+const (
+	// KindTile marks a map source with a tile URL template.
+	KindTile = "tile"
+	// KindWMS marks a map source with a WMS base URL.
+	KindWMS = "wms"
+)
+
+// CRSWebMercator is the CRS of every WMS GetMap request, because the output tiles are Web Mercator tiles.
+const CRSWebMercator = "EPSG:3857"
 
 // The origins of a map source (FR-source-sync-4).
 const (
@@ -56,11 +75,15 @@ func (m *MapSource) FileExtension() string {
 }
 
 // FormatURL returns the tile URL of the XYZ tile x, y at zoom level z.
+// For a KindWMS map source, it returns the GetMap URL of the tile and ignores serverPart.
 // It puts serverPart in {$serverpart}.
 // An empty serverPart selects the server part of the tile key (FR-source-sync-23).
 // When InvertYCoordinate is true, {$y} is the TMS row (FR-source-sync-21).
 // {$q} always encodes the XYZ row, because a quadkey has its origin at the top left.
 func (m *MapSource) FormatURL(x, y, z int, serverPart string) string {
+	if m.Kind == KindWMS {
+		return m.getMapURL(x, y, z)
+	}
 	row := y
 	if m.InvertYCoordinate {
 		row = (1<<z - 1) - y
@@ -155,11 +178,9 @@ func unknownPlaceholder(url string) string {
 // The skip reasons of a source file (FR-source-sync-27).
 // Issue #42 records SkipUnknownPlaceholder.
 const (
-	SkipParseError  = "parse_error"
-	SkipMissingName = "missing_name"
-	SkipMissingURL  = "missing_url"
-	// SkipUnsupportedCRS has no caller yet. The WMS parser of issue #41 records it, and the API documents it now.
-	SkipUnsupportedCRS     = "unsupported_crs"
+	SkipParseError         = "parse_error"
+	SkipMissingName        = "missing_name"
+	SkipMissingURL         = "missing_url"
 	SkipUnknownPlaceholder = "unknown_placeholder"
 	SkipDuplicateName      = "duplicate_name"
 )
@@ -198,6 +219,14 @@ type customMapSourceXML struct {
 	ServerParts     string `xml:"serverParts"`
 	// InvertYCoordinate is a string, because the XML reference turns the inversion on only for the exact string true.
 	InvertYCoordinate string `xml:"invertYCoordinate"`
+
+	// The elements of a customWmsMapSource file. The ATAK-Maps XML reference accepts both spellings of additionalparameters.
+	Version              string `xml:"version"`
+	Layers               string `xml:"layers"`
+	Styles               string `xml:"styles"`
+	CoordinateSystem     string `xml:"coordinatesystem"`
+	AditionalParameters  string `xml:"aditionalparameters"`
+	AdditionalParameters string `xml:"additionalparameters"`
 }
 
 // XMLParser parses map source XML configuration files.
@@ -363,9 +392,8 @@ func parse(data []byte, origin string) (*MapSource, error) {
 	if err := xml.Unmarshal(data, &raw); err != nil {
 		return nil, &SkipError{Reason: SkipParseError, Detail: err.Error()}
 	}
-	// TODO(#41): Parse the customWmsMapSource root element.
-	if raw.XMLName.Local != "customMapSource" {
-		return nil, &SkipError{Reason: SkipParseError, Detail: "root element <" + raw.XMLName.Local + "> is not <customMapSource>"}
+	if raw.XMLName.Local != "customMapSource" && raw.XMLName.Local != "customWmsMapSource" {
+		return nil, &SkipError{Reason: SkipParseError, Detail: "root element <" + raw.XMLName.Local + "> is not <customMapSource> or <customWmsMapSource>"}
 	}
 
 	raw.Name = strings.TrimSpace(raw.Name)
@@ -384,37 +412,33 @@ func parse(data []byte, origin string) (*MapSource, error) {
 	if raw.MinZoom == 0 && raw.MaxZoom == 0 {
 		raw.MaxZoom = 18
 	}
-	if raw.TileType == "" {
-		raw.TileType = "png"
-	}
-	if raw.TileUpdate == "" {
-		raw.TileUpdate = "None"
-	}
-	if raw.BackgroundColor == "" {
-		raw.BackgroundColor = "#000000"
-	}
-
 	// ATAK splits on white space only, but FR-source-sync-22 also splits on commas, so "a,b,c" gives three parts.
 	serverParts := strings.FieldsFunc(raw.ServerParts, func(r rune) bool { return unicode.IsSpace(r) || r == ',' })
 	if serverParts == nil {
 		serverParts = []string{}
 	}
 
-	return &MapSource{
+	source := &MapSource{
 		Name:            raw.Name,
 		URL:             raw.URL,
 		MinZoom:         raw.MinZoom,
 		MaxZoom:         raw.MaxZoom,
-		TileType:        raw.TileType,
-		TileUpdate:      raw.TileUpdate,
-		BackgroundColor: raw.BackgroundColor,
+		TileType:        cmp.Or(raw.TileType, "png"),
+		TileUpdate:      cmp.Or(raw.TileUpdate, "None"),
+		BackgroundColor: cmp.Or(raw.BackgroundColor, "#000000"),
 		IgnoreErrors:    raw.IgnoreErrors,
 		ServerParts:     serverParts,
 		// A source file can put white space around the value, and the XML decoder keeps it.
 		InvertYCoordinate: strings.TrimSpace(raw.InvertYCoordinate) == "true",
 		Kind:              KindTile,
 		Origin:            origin,
-	}, nil
+	}
+	if raw.XMLName.Local == "customWmsMapSource" {
+		if err := source.readWMS(&raw); err != nil {
+			return nil, err
+		}
+	}
+	return source, nil
 }
 
 // GetSource returns a specific map source by name.
@@ -462,6 +486,13 @@ func (p *XMLParser) ValidateSource(source *MapSource) []string {
 	validTypes := map[string]bool{"png": true, "jpg": true, "jpeg": true, "webp": true}
 	if !validTypes[strings.ToLower(source.TileType)] {
 		errors = append(errors, "unsupported tile type: "+source.TileType)
+	}
+
+	if source.Kind == KindWMS {
+		if source.WMSLayers == "" {
+			errors = append(errors, "a WMS source requires layers")
+		}
+		return errors
 	}
 
 	hasStandard := strings.Contains(source.URL, "{$x}") &&

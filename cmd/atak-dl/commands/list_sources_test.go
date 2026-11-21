@@ -135,7 +135,6 @@ func TestListSourcesSkippedListsEverySnapshotSourceFileThatDidNotLoad(t *testing
 		xmlparser.SkipParseError:         true,
 		xmlparser.SkipMissingName:        true,
 		xmlparser.SkipMissingURL:         true,
-		xmlparser.SkipUnsupportedCRS:     true,
 		xmlparser.SkipUnknownPlaceholder: true,
 		xmlparser.SkipDuplicateName:      true,
 	}
