@@ -143,7 +143,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | Offline web UI | [features/08-offline-web-ui.md](features/08-offline-web-ui.md) | Epic 4: Offline web UI | built | 01-workspace |
 | Source sync and WMS | [features/09-source-sync.md](features/09-source-sync.md) | Epic 5: Source sync and WMS | built, except WMS (#41) | — |
 | Output formats | [features/10-output-formats.md](features/10-output-formats.md) | Epic 6: Output formats | built | 03-export-options |
-| Area selection | [features/11-area-selection.md](features/11-area-selection.md) | Epic 7: Area selection | planned | 02-area-tools |
+| Area selection | [features/11-area-selection.md](features/11-area-selection.md) | Epic 7: Area selection | built | 02-area-tools |
 | Team server | [features/12-team-server.md](features/12-team-server.md) | Epic 8: Team server | planned | 05-jobs |
 
 ## Architecture & stack
