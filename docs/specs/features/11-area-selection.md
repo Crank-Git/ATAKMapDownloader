@@ -149,6 +149,8 @@ Regions: the area toolbar, the import drop zone, the area list and the shaded ti
 - Leaflet-Geoman draw modes `Polygon` and `Line`: https://github.com/geoman-io/leaflet-geoman (vendored in feature 08).
 - `POST /api/estimate` response adds `areas: [{name, tiles}]` and `unique_tiles`.
 - `POST /api/areas/parse` reads an area file for the web UI import, so the web UI has no second parser. The body is a multipart form with the field `file`, or the file itself. The query parameters `min_zoom`, `max_zoom` and `buffer_m` set the values that the file does not set. The response is `{areas, warnings}`, with `areas` in the shape of FR-area-selection-25. A file that does not decode returns 400 `invalid_area_file`.
+- `POST /api/areas/tiles` returns the tiles of one area at one zoom level for the map shading (FR-area-selection-24). The body is `{area, zoom}`, with `area` in the shape of FR-area-selection-25. The response is `{"tiles": [[x, y], …]}`. At 5,000 tiles or more it returns 413 `too_many_tiles`, and the map shows the outline only. A geometry that does not validate returns 400 `invalid_area` (#54).
+- `GET /api/config` adds `max_tiles`, the tile cap of a job. The web UI shows the unique total in red above it (#54).
 
 ## Edge cases & failures
 

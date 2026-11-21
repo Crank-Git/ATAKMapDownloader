@@ -57,21 +57,40 @@
                     </div>
                     <p class="hint">Search for a location to jump to on the map</p>
                 </div>
+                <!-- The area toolbar (FR-area-selection-19). Import is a label, so a click opens the file picker of importFile. -->
+                <div class="area-toolbar" role="group" aria-label="Area tools">
+                    <button id="drawRectangle" class="btn btn-sm" type="button" aria-pressed="false">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="1"/></svg> Rectangle</button>
+                    <button id="drawPolygon" class="btn btn-sm" type="button" aria-pressed="false">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 7-3.5 10h-11L3 10z"/></svg> Polygon</button>
+                    <button id="drawRoute" class="btn btn-sm" type="button" aria-pressed="false">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19c4 0 4-7 9-7s5-7 9-7"/></svg> Route</button>
+                    <label for="importFile" class="btn btn-sm">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg> Import</label>
+                </div>
+                <input type="file" id="importFile" class="visually-hidden" accept=".geojson,.json,.kml,.kmz">
+                <div class="field">
+                    <label for="routeBuffer">Route buffer (m)</label>
+                    <input type="number" id="routeBuffer" value="500" min="10" max="50000" step="50">
+                    <p class="hint">The Route tool selects the tiles within this distance of the line.</p>
+                </div>
+                <p id="drawHint" class="hint" hidden aria-live="polite"></p>
+                <div id="importDrop" class="drop-zone">Drop a GeoJSON, KML or KMZ file here</div>
+
+                <!-- The area list (FR-area-selection-22, 23). app.js fills it, and each row has its own zoom range. -->
+                <p id="areaEmpty" class="hint">Draw or import an area</p>
+                <ul id="areaList" class="area-list"></ul>
+                <p id="areaTotal" class="area-total" hidden aria-live="polite"></p>
                 <div class="button-row">
-                    <button id="drawRectangle" class="btn btn-primary btn-sm" type="button">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="1"/></svg> Draw Rectangle
-                    </button>
                     <button id="clearSelection" class="btn btn-sm" type="button">
                         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg> Clear
                     </button>
-                </div>
-                <div id="selectionInfo" class="card hint">
-                    Click "Draw Rectangle" to select an area on the map
                 </div>
             </section>
 
             <section>
                 <h2>Zoom Levels</h2>
+                <p class="hint">A new area gets this zoom range. Change the range of each area in the area list.</p>
                 <div class="field-row">
                     <div>
                         <label for="minZoom">Min Zoom</label>

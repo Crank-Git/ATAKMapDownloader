@@ -11,9 +11,21 @@ import (
 	"testing"
 )
 
-// TestWebUIDropOfAKMLWithTwoPlacemarksAddsTwoAreaRows runs app.js in Node against the real server routes.
-// The drop sends camps.kml to POST /api/areas/parse, and the counts come from POST /api/estimate.
-func TestWebUIDropOfAKMLWithTwoPlacemarksAddsTwoAreaRows(t *testing.T) {
+// areaDropResult is the area list that area_drop.js prints after the drop.
+type areaDropResult struct {
+	Rows    int      `json:"rows"`
+	Names   []string `json:"names"`
+	Kinds   []string `json:"kinds"`
+	Tiles   []*int   `json:"tiles"`
+	RowText []string `json:"rowText"`
+	Total   string   `json:"total"`
+	Empty   bool     `json:"empty"`
+	Error   string   `json:"error"`
+}
+
+// dropAreaFile runs app.js in Node against a test server, drops the area fixture name, and returns the area list.
+func dropAreaFile(t *testing.T, name string) areaDropResult {
+	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed, so app.js cannot run")
@@ -24,24 +36,22 @@ func TestWebUIDropOfAKMLWithTwoPlacemarksAddsTwoAreaRows(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// #nosec G204 -- the arguments are test fixture paths and the test server URL.
 	cmd := exec.CommandContext(t.Context(), node, filepath.Join("testdata", "area_drop.js"),
-		filepath.Join("..", "..", "..", "web", "static", "js", "app.js"), srv.URL, areaFixture("camps.kml"))
+		filepath.Join("..", "..", "..", "web", "static", "js", "app.js"), srv.URL, areaFixture(name))
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("node area_drop.js: %v\n%s", err, stderr.String())
 	}
-	var got struct {
-		Rows    int      `json:"rows"`
-		Names   []string `json:"names"`
-		Kinds   []string `json:"kinds"`
-		Tiles   []*int   `json:"tiles"`
-		RowText []string `json:"rowText"`
-		Total   string   `json:"total"`
-		Empty   bool     `json:"empty"`
-		Error   string   `json:"error"`
-	}
+	var got areaDropResult
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode %q: %v", stdout.String(), err)
 	}
+	return got
+}
+
+// TestWebUIDropOfAKMLWithTwoPlacemarksAddsTwoAreaRows runs app.js in Node against the real server routes.
+// The drop sends camps.kml to POST /api/areas/parse, and the counts come from POST /api/estimate.
+func TestWebUIDropOfAKMLWithTwoPlacemarksAddsTwoAreaRows(t *testing.T) {
+	got := dropAreaFile(t, "camps.kml")
 	if got.Rows != 2 {
 		t.Fatalf("the area list has %d rows, want 2: %+v", got.Rows, got)
 	}

@@ -339,6 +339,12 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><code>POST /api/estimate</code> response adds <code>areas: [{name, tiles}]</code> and <code>unique_tiles</code>.
 </li>
+<li><code>POST /api/areas/parse</code> reads an area file for the web UI import, so the web UI has no second parser. The body is a multipart form with the field <code>file</code>, or the file itself. The query parameters <code>min_zoom</code>, <code>max_zoom</code> and <code>buffer_m</code> set the values that the file does not set. The response is <code>{areas, warnings}</code>, with <code>areas</code> in the shape of FR-area-selection-25. A file that does not decode returns 400 <code>invalid_area_file</code>.
+</li>
+<li><code>POST /api/areas/tiles</code> returns the tiles of one area at one zoom level for the map shading (FR-area-selection-24). The body is <code>{area, zoom}</code>, with <code>area</code> in the shape of FR-area-selection-25. The response is <code>{"tiles": [[x, y], …]}</code>. At 5,000 tiles or more it returns 413 <code>too_many_tiles</code>, and the map shows the outline only. A geometry that does not validate returns 400 <code>invalid_area</code> (#54).
+</li>
+<li><code>GET /api/config</code> adds <code>max_tiles</code>, the tile cap of a job. The web UI shows the unique total in red above it (#54).
+</li>
 </ul>
 <h3 id="area-selection-edge-cases-failures">Edge cases &amp; failures</h3>
 <ul>

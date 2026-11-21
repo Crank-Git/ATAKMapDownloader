@@ -99,13 +99,16 @@ func TestAppJSImportsThroughTheParseRouteOnly(t *testing.T) {
 
 func TestAppJSSendsTheAreaListToEstimateAndStart(t *testing.T) {
 	app := appJS(t)
-	if strings.Contains(app, "selectedArea") {
+	if regexp.MustCompile(`selectedArea\b`).MatchString(app) {
 		t.Error("app.js still reads selectedArea, which the area list replaces")
 	}
-	payload := methodBody(t, app, "areaPayload")
+	if !strings.Contains(methodBody(t, app, "areaPayload"), "this.areas.map(area => this.areaRequest(area))") {
+		t.Error("areaPayload does not send each area of the list")
+	}
+	request := methodBody(t, app, "areaRequest")
 	for _, want := range []string{"kind:", "geometry:", "min_zoom:", "max_zoom:", "buffer_m", "name:"} {
-		if !strings.Contains(payload, want) {
-			t.Errorf("areaPayload does not contain %q (FR-area-selection-25)", want)
+		if !strings.Contains(request, want) {
+			t.Errorf("areaRequest does not contain %q (FR-area-selection-25)", want)
 		}
 	}
 	for _, method := range []string{"estimateDownload", "startDownload"} {
