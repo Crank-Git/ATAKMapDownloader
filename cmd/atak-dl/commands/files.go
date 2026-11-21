@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/datapackage"
-	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
 	"github.com/crank-git/atak-map-downloader/internal/output"
 )
 
@@ -74,7 +73,7 @@ func (h *WebHandler) serveFiles(w http.ResponseWriter, r *http.Request) {
 // It writes:
 //   - 204 when the output file does not hold the tile (FR-offline-web-ui-14).
 //   - 404 not_found when zxy is not a tile at its zoom level.
-//   - 404 file_not_found when name is not an MBTiles output file in the output directory, for example a data package.
+//   - 404 file_not_found when name is not an output file in the output directory, for example a data package.
 func (h *WebHandler) serveTile(w http.ResponseWriter, name string, zxy []string) {
 	notFound := func() { writeError(w, http.StatusNotFound, "file_not_found", "Output file not found") }
 	if !validOutputFileName(name) {
@@ -110,9 +109,9 @@ func (h *WebHandler) serveTile(w http.ResponseWriter, name string, zxy []string)
 	}
 	defer func() { _ = f.Close() }() // The file is read-only here, so a close error loses nothing.
 	// SQLite opens a file by path, so ReadTile gets the path of the file that openOutputFile checked.
-	data, ok, err := mbtiles.ReadTile(filepath.Join(h.outputDir, name), z, x, y)
+	data, ok, err := output.ReadTile(filepath.Join(h.outputDir, name), z, x, y)
 	if err != nil {
-		slog.Debug("reject a tile request for a file that is not an MBTiles output file", "name", name, "error", err)
+		slog.Debug("reject a tile request for a file that is not an output file", "name", name, "error", err)
 		notFound()
 		return
 	}

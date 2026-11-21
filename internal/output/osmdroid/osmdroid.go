@@ -101,7 +101,7 @@ func init() {
 			return nil, err
 		}
 		return w, nil
-	})
+	}, readTile)
 }
 
 // tileKey returns the OSMDroid key of the tile z, x, y, the same as OSMUtils.getOSMDroidSQLiteIndex (FR-output-formats-12).
@@ -258,6 +258,31 @@ func readInfo(path string) (output.Info, bool, error) {
 	info.MinZoom, _ = strconv.Atoi(meta["minzoom"])
 	info.MaxZoom, _ = strconv.Atoi(meta["maxzoom"])
 	return info, true, nil
+}
+
+// readTile returns the data of the tile z, x, y in the OSMDroid file at path, and true when the file holds the tile.
+// The row y is the XYZ row, and the key of the tile holds the same row.
+// It never writes to the file. It returns an error when the file has no tiles table with a key column.
+func readTile(path string, z, x, y int) ([]byte, bool, error) {
+	// The writer stores no tile above MaxZoom, and the key of zoom level 30 overflows int64.
+	if z > MaxZoom {
+		return nil, false, nil
+	}
+	db, err := sql.Open("sqlite", path+"?_busy_timeout=5000&_query_only=1")
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = db.Close() }() // The file is read-only here, so a close error loses no data.
+
+	var data []byte
+	err = db.QueryRow("SELECT tile FROM tiles WHERE key = ?", tileKey(z, x, y)).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read tile %d/%d/%d: %w", z, x, y, err)
+	}
+	return data, true, nil
 }
 
 // readMetadata returns the rows of atakdl_metadata in db. An OSMDroid file that ATAK wrote has no such table and gives no rows.

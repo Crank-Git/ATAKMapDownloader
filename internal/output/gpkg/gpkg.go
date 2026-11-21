@@ -211,7 +211,7 @@ func init() {
 			return nil, err
 		}
 		return w, nil
-	})
+	}, readTile)
 }
 
 // Open returns a writer for the GeoPackage output file at path, and it creates the file when it does not exist.
@@ -355,10 +355,10 @@ func writeTileRows(tx *sql.Tx, table string, metadata map[string]string) error {
 
 // checkMatrixSet returns an error when the tile pyramid table of an existing file is not in the GoogleMapsCompatible tile matrix set.
 // A GeoPackage from another tool can use another SRS, and an XYZ tile in it would show at the wrong place.
-func checkMatrixSet(tx *sql.Tx, table string) error {
+func checkMatrixSet(q queryer, table string) error {
 	var srs int
 	var minX, maxY float64
-	err := tx.QueryRow("SELECT srs_id, min_x, max_y FROM gpkg_tile_matrix_set WHERE table_name = ?", table).Scan(&srs, &minX, &maxY)
+	err := q.QueryRow("SELECT srs_id, min_x, max_y FROM gpkg_tile_matrix_set WHERE table_name = ?", table).Scan(&srs, &minX, &maxY)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -369,6 +369,11 @@ func checkMatrixSet(tx *sql.Tx, table string) error {
 		return fmt.Errorf("tile pyramid table %s is not in the GoogleMapsCompatible tile matrix set of EPSG:3857", table)
 	}
 	return nil
+}
+
+// queryer is the query method that *sql.DB and *sql.Tx share, so that the writer and the tile reader use one check.
+type queryer interface {
+	QueryRow(query string, args ...any) *sql.Row
 }
 
 // quote returns name as an SQL identifier in double quotes.
@@ -509,6 +514,40 @@ func readInfo(path string) (output.Info, bool, error) {
 	info.MinZoom, _ = strconv.Atoi(meta["minzoom"])
 	info.MaxZoom, _ = strconv.Atoi(meta["maxzoom"])
 	return info, true, nil
+}
+
+// readTile returns the data of the tile z, x, y in the GeoPackage file at path, and true when the file holds the tile.
+// The row y is the XYZ row, and a GeoPackage stores the same row, so readTile does not flip it.
+// It reads the tile pyramid table that gpkg_contents names, the same table that a resume writes to.
+// It never writes to the file. It returns an error when the file is not a GeoPackage in EPSG:3857.
+func readTile(path string, z, x, y int) ([]byte, bool, error) {
+	db, err := sql.Open("sqlite", path+"?_busy_timeout=5000&_query_only=1")
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = db.Close() }() // The file is read-only here, so a close error loses no data.
+
+	var table string
+	err = db.QueryRow("SELECT table_name FROM gpkg_contents WHERE data_type = 'tiles' ORDER BY table_name LIMIT 1").Scan(&table)
+	// The writer adds the gpkg_contents row before the first tile, so a file without the row holds no tile.
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read gpkg_contents: %w", err)
+	}
+	if err := checkMatrixSet(db, table); err != nil {
+		return nil, false, err
+	}
+	var data []byte
+	err = db.QueryRow(fmt.Sprintf("SELECT tile_data FROM %s WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?", quote(table)), z, x, y).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read tile %d/%d/%d: %w", z, x, y, err)
+	}
+	return data, true, nil
 }
 
 // readMetadata returns the rows of atakdl_metadata in db. A GeoPackage from another tool has no such table and gives no rows.

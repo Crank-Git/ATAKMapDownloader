@@ -79,23 +79,28 @@ type Detector func(path string) (Info, bool, error)
 // The writer stores the rows of metadata in the file.
 type Opener func(path string, metadata map[string]string) (Writer, error)
 
+// TileReader returns the data of the tile z, x, y in the output file at path, and true when the file holds the tile.
+// The row y is the XYZ row. A reader never writes to the file, and it reads only committed rows.
+type TileReader func(path string, z, x, y int) ([]byte, bool, error)
+
 // format is one registered output format.
 type format struct {
 	detect Detector
 	open   Opener
+	read   TileReader
 }
 
 // registry holds the registered output formats. Register writes it only from init functions, so it needs no lock.
 var registry = map[string]format{}
 
-// Register adds the output format name with its detector and its opener.
+// Register adds the output format name with its detector, its opener and its tile reader.
 // Call it from an init function of the package of the format.
 // It panics when name is already registered, because two writers for one format are a build error.
-func Register(name string, detect Detector, open Opener) {
+func Register(name string, detect Detector, open Opener, read TileReader) {
 	if _, ok := registry[name]; ok {
 		panic("output: format " + name + " is registered twice")
 	}
-	registry[name] = format{detect: detect, open: open}
+	registry[name] = format{detect: detect, open: open, read: read}
 }
 
 // Registered reports whether the output format name has a registered writer.
@@ -138,4 +143,16 @@ func ReadInfo(path string) (Info, error) {
 		}
 	}
 	return Info{}, errors.Join(append([]error{ErrUnknownFormat}, errs...)...)
+}
+
+// ReadTile returns the data of the tile z, x, y in the output file at path, and true when the file holds the tile.
+// The row y is the XYZ row. ReadTile reads the tile through the reader of the output format that ReadInfo finds.
+// Call it only for a file that exists, because the SQLite driver creates a missing file.
+// It returns the error of ReadInfo when no detector accepts the file, and the error of the reader otherwise.
+func ReadTile(path string, z, x, y int) ([]byte, bool, error) {
+	info, err := ReadInfo(path)
+	if err != nil {
+		return nil, false, err
+	}
+	return registry[info.Format].read(path, z, x, y)
 }

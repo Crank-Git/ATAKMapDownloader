@@ -59,7 +59,8 @@ func init() {
 			w := &memoryWriter{metadata: metadata, tiles: map[[3]int][]byte{}}
 			memoryWriters.Store(path, w)
 			return w, nil
-		})
+		},
+		func(string, int, int, int) ([]byte, bool, error) { return nil, false, nil })
 }
 
 func TestEngineWritesEveryTileThroughTheWriterOfTheOutputFormat(t *testing.T) {
