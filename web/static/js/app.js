@@ -461,13 +461,15 @@ class ATAKDownloader {
     }
     
     async startDownload() {
-        if (!this.selectedArea || !document.getElementById('mapSourceSelect').value) {
+        const sourceName = document.getElementById('mapSourceSelect').value;
+        // An empty select value matches no source, so this one check covers the case with no source selected.
+        const source = this.mapSources.find(s => s.name === sourceName);
+        if (!this.selectedArea || !source) {
             this.logStatus('Select area and map source first', 'error');
             return;
         }
         const bounds = this.selectedArea;
         const concurrency = parseInt(document.getElementById('maxConcurrent').value) || 5;
-        const sourceName = document.getElementById('mapSourceSelect').value;
         const request = {
             source: sourceName,
             bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
@@ -479,7 +481,6 @@ class ATAKDownloader {
             ignore_errors: document.getElementById('ignoreErrors').checked,
             verify_tls: document.getElementById('verifyTLS').checked
         };
-        const source = this.mapSources.find(s => s.name === sourceName);
         // A restricted map source needs the policy warning dialog first (FR-polite-downloading-20, 21).
         if (source.policy_class === 'restricted') {
             const dialog = document.getElementById('policyDialog');
