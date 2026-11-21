@@ -1,7 +1,9 @@
 package download
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
@@ -78,9 +80,19 @@ func TestOutputMetadataTypeAndAttributionFollowTheMapSource(t *testing.T) {
 			"baselayer", "OSM via ATAK-Maps",
 		},
 		{
-			"gives a user map source the type baselayer and its file path as attribution",
+			"gives a user map source the type baselayer and its file name as attribution",
 			xmlparser.MapSource{Name: "Mine", Origin: xmlparser.OriginUser, File: filepath.Join("mapsources", "mine.xml")},
-			"baselayer", filepath.Join("mapsources", "mine.xml"),
+			"baselayer", "mine.xml",
+		},
+		{
+			"escapes the HTML characters of a snapshot map source name",
+			xmlparser.MapSource{Name: `Roads & <Rails> "Test"`, Origin: xmlparser.OriginSnapshot, File: "maps/base/roads.xml"},
+			"baselayer", "Roads &amp; &lt;Rails&gt; &#34;Test&#34; via ATAK-Maps",
+		},
+		{
+			"escapes the HTML characters of a user file name",
+			xmlparser.MapSource{Name: "Mine", Origin: xmlparser.OriginUser, File: filepath.Join("mapsources", "a&b<c>.xml")},
+			"baselayer", "a&amp;b&lt;c&gt;.xml",
 		},
 	}
 	for _, tt := range tests {
@@ -91,5 +103,22 @@ func TestOutputMetadataTypeAndAttributionFollowTheMapSource(t *testing.T) {
 				t.Errorf("type, attribution = %q, %q; want %q, %q", meta["type"], meta["attribution"], tt.wantType, tt.wantAttribution)
 			}
 		})
+	}
+}
+
+func TestOutputMetadataKeepsTheUserSourceDirectoryOutOfTheAttribution(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	file := filepath.Join(home, "atak", "mapsources", "atak-maps", "maps", "overlays", "roads.xml")
+	source := &xmlparser.MapSource{Name: "Roads", TileType: "png", Origin: xmlparser.OriginUser, File: file}
+
+	got := outputMetadata(source, &metadataBounds, []int{10})["attribution"]
+	if got != "roads.xml" {
+		t.Errorf("attribution = %q, want the bare file name %q", got, "roads.xml")
+	}
+	if filepath.IsAbs(got) || strings.Contains(got, home) || strings.ContainsRune(got, filepath.Separator) {
+		t.Errorf("attribution = %q holds a path, and the output file can go to other devices", got)
 	}
 }
