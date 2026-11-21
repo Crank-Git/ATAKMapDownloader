@@ -201,15 +201,21 @@ func (l *failureLimiter) blocked(ip string) bool {
 }
 
 // record adds one failed attempt of ip.
+// It deletes each IP address whose last attempt is older than failureWindow, so the map does not grow with old addresses.
 func (l *failureLimiter) record(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	cutoff := l.now().Add(-failureWindow)
+	for other, times := range l.byIP {
+		if !times[len(times)-1].After(cutoff) {
+			delete(l.byIP, other)
+		}
+	}
 	l.byIP[ip] = append(l.recent(ip), l.now())
 }
 
 // recent drops the attempts of ip that are older than failureWindow, and returns the rest.
-// It deletes an IP address with no recent attempt, so the map does not grow with old addresses.
-// The caller holds l.mu.
+// It deletes an IP address with no recent attempt. The caller holds l.mu.
 func (l *failureLimiter) recent(ip string) []time.Time {
 	cutoff := l.now().Add(-failureWindow)
 	times := l.byIP[ip]
