@@ -462,8 +462,28 @@ class ATAKDownloader {
             verify_tls: document.getElementById('verifyTLS').checked
         };
         const source = this.mapSources.find(s => s.name === sourceName);
+        // A restricted map source needs the policy warning dialog first (FR-polite-downloading-20, 21).
         if (source.policy_class === 'restricted') {
-            if (!await this.confirmPolicy(source)) {
+            const dialog = document.getElementById('policyDialog');
+            const accept = document.getElementById('policyAccept');
+            const start = document.getElementById('policyStart');
+            const link = document.getElementById('policyLink');
+            document.getElementById('policyBadge').textContent = source.policy_class;
+            document.getElementById('policyTitle').textContent = source.name;
+            document.getElementById('policyReason').textContent = source.policy_reason;
+            document.getElementById('policyRate').textContent = source.requests_per_second + ' request/s to ' + source.policy_host;
+            link.hidden = !source.policy_reference_url;
+            link.href = source.policy_reference_url;
+            accept.checked = false;
+            start.disabled = true;
+            accept.onchange = () => { start.disabled = !accept.checked; };
+            // Escape closes the dialog and keeps the previous return value, so the value is cleared first.
+            dialog.returnValue = '';
+            const accepted = await new Promise(resolve => {
+                dialog.addEventListener('close', () => resolve(dialog.returnValue === 'start' && accept.checked), { once: true });
+                dialog.showModal();
+            });
+            if (!accepted) {
                 this.logStatus('Download not started: the policy warning was cancelled', 'warning');
                 return;
             }
@@ -492,30 +512,6 @@ class ATAKDownloader {
             this.logStatus('Download error: ' + error.message, 'error');
             this.resetDownloadUI();
         }
-    }
-
-    // confirmPolicy shows the policy warning dialog for a restricted map source (FR-polite-downloading-20, 21).
-    // It resolves to true only when the user checks the box and presses Start.
-    confirmPolicy(source) {
-        const dialog = document.getElementById('policyDialog');
-        const accept = document.getElementById('policyAccept');
-        const start = document.getElementById('policyStart');
-        const link = document.getElementById('policyLink');
-        document.getElementById('policyBadge').textContent = source.policy_class;
-        document.getElementById('policyTitle').textContent = source.name;
-        document.getElementById('policyReason').textContent = source.policy_reason;
-        document.getElementById('policyRate').textContent = source.requests_per_second + ' request/s to ' + source.policy_host;
-        link.hidden = !source.policy_reference_url;
-        link.href = source.policy_reference_url;
-        accept.checked = false;
-        start.disabled = true;
-        accept.onchange = () => { start.disabled = !accept.checked; };
-        // Escape closes the dialog with the previous return value, so the value is cleared first.
-        dialog.returnValue = '';
-        return new Promise(resolve => {
-            dialog.addEventListener('close', () => resolve(dialog.returnValue === 'start' && accept.checked), { once: true });
-            dialog.showModal();
-        });
     }
 
     updateDownloadProgress(data) {
