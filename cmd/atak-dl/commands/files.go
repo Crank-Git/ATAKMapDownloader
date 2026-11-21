@@ -24,10 +24,13 @@ type outputFileItem struct {
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
 	Format   string    `json:"format"`
-	Source   string    `json:"source"`
-	MinZoom  int       `json:"min_zoom"`
-	MaxZoom  int       `json:"max_zoom"`
-	Bounds   []float64 `json:"bounds"`
+	// OutputFormat is the output format that output.ReadInfo detects. It is empty for a data package.
+	// The web UI reads it to lock the output format of a resumed job.
+	OutputFormat string    `json:"output_format"`
+	Source       string    `json:"source"`
+	MinZoom      int       `json:"min_zoom"`
+	MaxZoom      int       `json:"max_zoom"`
+	Bounds       []float64 `json:"bounds"`
 	// InProgress is true while a job writes the file, so the web UI disables its Download button.
 	InProgress bool `json:"in_progress"`
 }
@@ -207,6 +210,7 @@ func (h *WebHandler) outputFile(root *os.Root, name string, inProgress bool) (ou
 		return item, true
 	}
 	item.Format = meta.TileFormat
+	item.OutputFormat = meta.Format
 	item.Source = meta.Source
 	item.MinZoom = meta.MinZoom
 	item.MaxZoom = meta.MaxZoom

@@ -10,7 +10,16 @@ const OFFLINE_AFTER_FAILURES = 3;
 // With no job and no user action, only a probe request shows that the server is back.
 const PROBE_INTERVAL_MS = 4000;
 // A running job makes these settings read-only (feature 08, downloading state). setJobLocked handles the map source picker.
-const JOB_SETTINGS = ['minZoom', 'maxZoom', 'customName', 'maxConcurrent', 'failureTolerance', 'ignoreErrors', 'verifyTLS', 'ifExists'];
+const JOB_SETTINGS = ['minZoom', 'maxZoom', 'customName', 'maxConcurrent', 'failureTolerance', 'ignoreErrors', 'verifyTLS', 'ifExists',
+    'outputFormat', 'dataPackage', 'includeSource', 'packageName'];
+// The file extension of each output format is the same as output.Extension (FR-output-formats-2).
+const FORMAT_EXTENSIONS = { mbtiles: '.mbtiles', osmdroid: '.sqlite', gpkg: '.gpkg' };
+// The output file list shows these names for the output_format of GET /api/files.
+const FORMAT_NAMES = { mbtiles: 'MBTiles', osmdroid: 'OSMDroid', gpkg: 'GeoPackage' };
+// GET /api/files gives a data package this format, and a data package has no tiles to show.
+const DATA_PACKAGE = 'data_package';
+// The rule of datapackage.ValidName lets the web UI reject a package name before the server does.
+const PACKAGE_NAME = /^[A-Za-z0-9 _-]{1,64}$/;
 const CONNECTION_LOOK = {
     connected: ['ok', 'Connected'],
     reconnecting: ['warn', 'Reconnecting'],
@@ -40,6 +49,8 @@ class ATAKDownloader {
         this.retryRequest = null;
         // startReady is true when the job settings allow Start. The connection state can still disable Start.
         this.startReady = false;
+        // exportBlocked is the message of an export setting that disables Start, or '' when the export panel allows Start.
+        this.exportBlocked = '';
         // outputFiles is the last GET /api/files list, newest first, and null until the first list loads.
         this.outputFiles = null;
         // localBaseMap is the tile layer of the output file that the switcher selects, drawn over the online base map.
@@ -60,6 +71,7 @@ class ATAKDownloader {
         this.loadConfig();
         this.loadOutputFiles().then(() => this.fallBackToLocalBaseMap());
         this.bindEvents();
+        this.updateExportPanel();
         this.logStatus('Application initialized');
     }
     
@@ -213,9 +225,65 @@ class ATAKDownloader {
 
     // setStartEnabled is the one place that sets the disabled state of Start.
     // ready tells whether the job settings allow Start. Start stays disabled while the indicator reads offline or a job runs.
+    // An export setting that the server rejects also keeps Start disabled.
     setStartEnabled(ready) {
         this.startReady = ready;
-        document.getElementById('downloadBtn').disabled = !ready || this.connectionState === 'offline' || this.isDownloading;
+        document.getElementById('downloadBtn').disabled = !ready || this.connectionState === 'offline' || this.isDownloading ||
+            Boolean(this.exportBlocked);
+    }
+
+    // updateExportPanel shows the file name preview, locks the output format of a resumed job and checks the package name.
+    // The name rules are those of download.GenerateOutputFilename and datapackage.FileName, so the preview is the name that the server writes.
+    updateExportPanel() {
+        const safe = s => s.replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/ /g, '_');
+        const zoom = '_z' + parseInt(document.getElementById('minZoom').value) + '-' + parseInt(document.getElementById('maxZoom').value);
+        const customName = document.getElementById('customName').value.trim();
+        const sourceName = document.getElementById('mapSourceSelect').value;
+        let stem = '';
+        if (customName) {
+            stem = safe(customName) + zoom;
+        } else if (sourceName && this.selectedArea) {
+            const b = this.selectedArea;
+            stem = safe(sourceName) + '_' + b.getSouth().toFixed(4) + '_' + b.getWest().toFixed(4) +
+                '_to_' + b.getNorth().toFixed(4) + '_' + b.getEast().toFixed(4) + zoom;
+        }
+
+        // The server resumes the file with the extension of the chosen output format, so a resume keeps the format of that file.
+        const resume = document.getElementById('ifExists').value === 'resume';
+        const existing = resume && stem && this.outputFiles
+            ? this.outputFiles.find(f => FORMAT_EXTENSIONS[f.output_format] && f.name === stem + FORMAT_EXTENSIONS[f.output_format])
+            : undefined;
+        Object.keys(FORMAT_EXTENSIONS).forEach(format => {
+            const radio = document.getElementById('format-' + format);
+            if (existing) radio.checked = format === existing.output_format;
+            radio.disabled = Boolean(existing) && format !== existing.output_format;
+        });
+        const lock = document.getElementById('formatLock');
+        lock.hidden = !existing;
+        lock.textContent = existing ? 'Resume keeps the output format of ' + existing.name + '.' : '';
+        const format = Object.keys(FORMAT_EXTENSIONS).find(f => document.getElementById('format-' + f).checked);
+
+        const dataPackage = document.getElementById('dataPackage').checked;
+        const packageName = document.getElementById('packageName').value.trim();
+        document.getElementById('packageOptions').disabled = !dataPackage;
+        this.exportBlocked = '';
+        if (dataPackage && !packageName) {
+            this.exportBlocked = 'Enter a package name';
+        } else if (dataPackage && !PACKAGE_NAME.test(packageName)) {
+            this.exportBlocked = 'Use 1 to 64 letters, digits, spaces, _ or -';
+        }
+        const message = document.getElementById('packageNameMessage');
+        message.hidden = !this.exportBlocked;
+        message.textContent = this.exportBlocked;
+
+        const file = stem ? stem + FORMAT_EXTENSIONS[format] : '';
+        let preview = file || 'Select an area and a map source';
+        if (dataPackage) preview = this.exportBlocked ? '-' : packageName.replace(/ /g, '_') + '.zip';
+        document.getElementById('exportPreview').textContent = preview;
+        const inner = document.getElementById('exportInner');
+        inner.hidden = !(dataPackage && file && !this.exportBlocked);
+        inner.textContent = inner.hidden ? '' : 'The zip holds ' + file + '.';
+        this.setStartEnabled(this.startReady);
     }
 
     // setJobLocked makes Estimate, Start and the job settings read-only while locked is true.
@@ -245,11 +313,12 @@ class ATAKDownloader {
     }
 
     // renderBaseMaps puts one switcher entry per output file after the online base map (FR-offline-web-ui-15).
-    // GET /api/files lists only files with a metadata table, so a data package gets no entry.
+    // The tile route cannot read a zip, so a data package gets no entry (feature 08, edge cases).
     renderBaseMaps(files) {
         const select = document.getElementById('baseMapSelect');
         const selected = select.value;
         select.replaceChildren(select.options[0]);
+        files = files.filter(f => f.format !== DATA_PACKAGE);
         files.forEach(file => {
             const option = document.createElement('option');
             option.value = file.name;
@@ -271,7 +340,8 @@ class ATAKDownloader {
         const offline = navigator.onLine === false || this.onlineTileFailed;
         if (this.baseMapChosen || !offline || this.outputFiles === null) return;
         this.baseMapChosen = true;
-        const newest = this.outputFiles[0];
+        // The list is newest first, and a data package has no tiles to show.
+        const newest = this.outputFiles.find(f => f.format !== DATA_PACKAGE);
         if (!newest) {
             this.showError('baseMap', 'Offline: no local base map', () => {
                 this.baseMapChosen = false;
@@ -503,6 +573,13 @@ class ATAKDownloader {
         });
         document.getElementById('minZoom').addEventListener('change', () => this.validateZoomLevels());
         document.getElementById('maxZoom').addEventListener('change', () => this.validateZoomLevels());
+        // The file name preview reads each of these settings. These listeners come after the zoom check, so they see its result.
+        ['customName', 'minZoom', 'maxZoom', 'mapSourceSelect', 'ifExists', 'dataPackage', 'packageName',
+            ...Object.keys(FORMAT_EXTENSIONS).map(f => 'format-' + f)].forEach(id => {
+            const control = document.getElementById(id);
+            control.addEventListener('input', () => this.updateExportPanel());
+            control.addEventListener('change', () => this.updateExportPanel());
+        });
     }
     
     clearSelection() {
@@ -538,6 +615,8 @@ class ATAKDownloader {
         } else {
             infoDiv.textContent = 'Click "Draw Rectangle" to select an area on the map';
         }
+        // The area is part of the generated file name.
+        this.updateExportPanel();
     }
     
     calculateArea(bounds) {
@@ -712,11 +791,14 @@ class ATAKDownloader {
             name.textContent = file.name;
             const details = document.createElement('div');
             details.className = 'hint';
+            // A data package holds no tile metadata of its own, so its row has no tile format and no zoom range.
+            const dataPackage = file.format === DATA_PACKAGE;
             details.textContent = [
                 this.formatSize(file.size),
                 file.source,
-                file.format,
-                'Zoom ' + file.min_zoom + '-' + file.max_zoom,
+                dataPackage ? 'Data package' : FORMAT_NAMES[file.output_format],
+                dataPackage ? '' : file.format,
+                dataPackage ? '' : 'Zoom ' + file.min_zoom + '-' + file.max_zoom,
                 new Date(file.modified).toLocaleString()
             ].filter(Boolean).join(' · ');
             info.append(name, details);
@@ -739,6 +821,8 @@ class ATAKDownloader {
             row.append(info, button);
             list.appendChild(row);
         });
+        // A new file can change the format lock of a resumed job.
+        this.updateExportPanel();
     }
 
     formatSize(bytes) {
@@ -855,6 +939,11 @@ class ATAKDownloader {
             this.logStatus('Select area and map source first', 'error');
             return;
         }
+        // Retry in the error banner calls this method with Start disabled, so the export check repeats here.
+        if (this.exportBlocked) {
+            this.logStatus(this.exportBlocked, 'error');
+            return;
+        }
         const bounds = this.selectedArea;
         const concurrency = parseInt(document.getElementById('maxConcurrent').value) || 5;
         const request = {
@@ -868,7 +957,12 @@ class ATAKDownloader {
             ignore_errors: document.getElementById('ignoreErrors').checked,
             verify_tls: document.getElementById('verifyTLS').checked,
             // The server rejects an existing output file with 409 output_exists unless the user picks resume or overwrite (FR-offline-web-ui-22).
-            if_exists: document.getElementById('ifExists').value
+            if_exists: document.getElementById('ifExists').value,
+            output_format: Object.keys(FORMAT_EXTENSIONS).find(f => document.getElementById('format-' + f).checked),
+            // The server ignores include_source and package_name without data_package, so the request sends them always.
+            data_package: document.getElementById('dataPackage').checked,
+            include_source: document.getElementById('includeSource').checked,
+            package_name: document.getElementById('packageName').value.trim()
         };
         // A restricted map source needs the policy warning dialog first (FR-polite-downloading-20, 21).
         if (source.policy_class === 'restricted') {

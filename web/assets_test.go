@@ -300,8 +300,8 @@ func TestAppJSSelectsTheNewestOutputFileWhenOfflineAtLoad(t *testing.T) {
 	for _, want := range []string{
 		"navigator.onLine === false",
 		"this.onlineTileFailed",
-		// GET /api/files sorts newest first, so the first file is the most recent one (FR-offline-web-ui-16).
-		"this.outputFiles[0]",
+		// GET /api/files sorts newest first, so the first file with tiles is the most recent one (FR-offline-web-ui-16).
+		"this.outputFiles.find(f => f.format !== DATA_PACKAGE)",
 		"this.showError('baseMap', 'Offline: no local base map'",
 	} {
 		if !strings.Contains(fallback, want) {
