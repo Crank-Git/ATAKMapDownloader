@@ -1,6 +1,6 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port and checks three endpoints.
-# FR-foundation-13, FR-foundation-14 and FR-security-hardening-9 define the checks.
+# smoke.sh builds atak-dl, starts serve on a free port and checks four responses.
+# FR-foundation-13, FR-foundation-14, FR-security-hardening-3 and FR-security-hardening-9 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -47,6 +47,15 @@ body = json.load(sys.stdin)
 if body.get("error", {}).get("code") != "job_not_found":
     sys.exit("smoke: GET /api/jobs/{id} did not return job_not_found")
 print("smoke: GET /api/jobs/{id} returned job_not_found")
+'
+
+# A browser adds Sec-Fetch-Site: cross-site to a request from another web page.
+curl -s -X POST -H 'Sec-Fetch-Site: cross-site' -H 'Content-Type: application/json' -d '{}' "$base/api/jobs" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("error", {}).get("code") != "cross_origin":
+    sys.exit("smoke: a cross-site POST /api/jobs did not return cross_origin")
+print("smoke: a cross-site POST /api/jobs returned cross_origin")
 '
 
 echo "smoke: pass"

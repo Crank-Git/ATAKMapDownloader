@@ -37,7 +37,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
 
 	calc := tilecalc.NewTileCalculator()
-	handler := NewWebHandler(parser, calc, dir)
+	handler := newServerHandler(NewWebHandler(parser, calc, dir))
 
 	fmt.Printf("ATAK Map Downloader - Web Interface\n")
 	fmt.Printf("Open http://%s in your browser\n", addr)
