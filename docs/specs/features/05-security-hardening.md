@@ -133,7 +133,8 @@ Feature 08 redesigns the screens.
 - `id` is 12 lowercase hex characters from `crypto/rand`.
 - Job states in this feature: `running`, `complete`, `failed` and `cancelled`. Feature 12 adds `queued`.
 - The `delay_between_batches` setting is removed. The engine never read it (`internal/download/download.go:28`). Feature 06 replaces it with rate limits.
-- Error codes: `cross_origin`, `invalid_json`, `invalid_bounds`, `zoom_out_of_range`, `invalid_concurrency`, `unknown_source`, `job_running`, `job_not_found`, `body_too_large`, `internal`.
+- Error codes: `cross_origin`, `invalid_json`, `invalid_bounds`, `zoom_out_of_range`, `invalid_concurrency`, `unknown_source`, `job_running`, `job_not_found`, `body_too_large`, `internal`, `invalid_query`, `not_found`, `method_not_allowed`.
+- `invalid_query` is for an empty `/api/geocode` query, `not_found` is for a route that does not exist, and `method_not_allowed` comes with status 405. The PM accepted these three codes at the #74 gate.
 
 ## Data touched
 

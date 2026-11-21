@@ -132,7 +132,7 @@ This feature has no screen of its own. It shows in three places:
   and `Make sure XML files exist in: <dir>`, with exit code 0.
 - CLI output of `validate-source`. See Flow 2.
 - The source picker `<select id="mapSourceSelect">` in `web/index.html:36`, filled by
-  `populateSourceSelect` in `web/static/js/app.js:200`. Loading state:
+  `populateSourceSelect` in `web/static/js/app.js:186`. Loading state:
   `Loading sources...`. Populated state: one option per map source as
   `name (format) - Zoom min-max`. Error state: a status log line only. See
   `04-web-ui.md`.
@@ -150,7 +150,7 @@ This feature has no screen of its own. It shows in three places:
 - The engine does not read `ignoreErrors` from the source file. Only the job setting
   controls error handling. See `03-tile-download.md`.
 - `tileUpdate` and `backgroundColor` are display values only. No other code reads them.
-- The `serve` command defines its own `--mapsources-dir` flag (`serve.go:21`). That flag
+- The `serve` command defines its own `--mapsources-dir` flag (`serve.go:24`). That flag
   hides the root flag, so `atak-dl --mapsources-dir=X serve` uses `mapsources`.
 - The default slog level is Info. The skip messages for unparsable source files log at
   Debug level, so the solo operator does not see them.
@@ -188,24 +188,28 @@ The shipped `mapsources/` directory holds 33 source files from
 
 ### HTTP
 
-`GET /api/sources` (`cmd/atak-dl/commands/web.go:136`). Any method is accepted.
+`GET /api/sources` (`cmd/atak-dl/commands/web.go:161-175`). Any method is accepted.
 
 ```json
 [{"name": "Google - Satellite Only", "url": "https://...{$x}...", "min_zoom": 0,
   "max_zoom": 20, "format": "jpg"}]
 ```
 
-The response has no `Content-Type: application/json` header. With an empty source
-catalog, the body is `null`.
+The response has the header `Content-Type: application/json`. With an empty source
+catalog, the body is `[]` (#74).
 
-`POST /api/validate-source` (`web.go:231`). Request: `{"source_name": "<name>"}`.
+`POST /api/validate-source` (`web.go:254-279`). Request: `{"source_name": "<name>"}`.
 
 | Status | Body |
 |---|---|
 | 200 | `{"valid": bool, "source_name", "url", "zoom_range": [min, max], "format", "issues": [string] or null}` |
-| 400 | `{"error":"Invalid request"}` as `text/plain` |
-| 404 | `{"error":"Source not found"}` as `text/plain` |
-| 405 | `Method not allowed` as `text/plain` |
+| 400 | `invalid_json` |
+| 404 | `unknown_source` |
+| 405 | `method_not_allowed` |
+| 413 | `body_too_large` (#81) |
+
+Every error body has the error shape `{"error": {"code": "<code>", "message": "<text>"}}`
+and `Content-Type: application/json` (#74).
 
 The web UI does not call this route.
 
@@ -236,7 +240,7 @@ What the code does not handle:
 
 - **WMS source files are dropped with no message.** `xml.Unmarshal` fails on
   `<customWmsMapSource>`. The error text contains `customMapSource`, so the walk does
-  not log it at all (`xmlparser.go:129-132`). Three shipped source files are affected:
+  not log it at all (`xmlparser.go:130-133`). Three shipped source files are affected:
   - `GRG/grg_FEMA_NFHL_Flood_Hazard_Zones.xml`
   - `NaturalResourcesCanada/naturalresourcescanada_cbmt.xml`
   - `NaturalResourcesCanada/naturalresourcescanada_toporama.xml`
@@ -251,8 +255,8 @@ What the code does not handle:
 - **A missing `tileType` defaults to `png` with no check of the URL.**
   `michelin/michelin_osm_michelin.xml` has no `tileType`.
 - **The cache is not safe for concurrent use.** Every server request calls
-  `DiscoverSources`, and the cache map has no lock (`xmlparser.go:93-97`).
-- **`filepath.WalkDir` errors are ignored** (`xmlparser.go:123`). An unreadable
+  `DiscoverSources`, and the cache map has no lock (`xmlparser.go:93-97`, `:116`, `:143-144`).
+- **`filepath.WalkDir` errors are ignored** (`xmlparser.go:124-125`). An unreadable
   directory looks the same as an empty one.
 - **The shipped source files are out of date.** ATAK-Maps v2.3.1 (2026-10-31) has 53
   source files in a new `maps/base/` and `maps/overlays/` layout. It renamed every map

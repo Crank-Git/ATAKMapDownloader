@@ -144,8 +144,8 @@ sequenceDiagram
 
 - CLI output of `tile-info`: `Tile coordinates`, `Tile bounds`, `Resolution`, then up to
   three sample URLs.
-- The web UI estimate panel `#estimationResult` (`web/index.html:179`), filled by
-  `displayEstimation` (`web/static/js/app.js:423`). It shows the tile count, the size in
+- The web UI estimate panel `#estimationResult` (`web/index.html:169`), filled by
+  `displayEstimation` (`web/static/js/app.js:409-434`). It shows the tile count, the size in
   MB or GB, the zoom range and a time at a fixed 10 tiles per second. It adds a warning
   above 10,000 tiles and a stronger warning above 100,000 tiles. Error state: a status
   log line only.
@@ -187,17 +187,21 @@ None on disk. The calculations are pure functions in `internal/tilecalc`.
 
 ### HTTP
 
-`POST /api/estimate` (`cmd/atak-dl/commands/web.go:152`).
+`POST /api/estimate` (`cmd/atak-dl/commands/web.go:177-224`).
 
 Request: `{"bounds": [west, south, east, north], "min_zoom": int, "max_zoom": int}`.
 
 | Status | Body |
 |---|---|
 | 200 | `{"total_tiles", "estimated_size_mb", "zoom_breakdown": {"<z>": count}, "bounds", "zoom_range": [min, max]}` |
-| 400 | `{"error":"Invalid request"}`, `{"error":"Invalid bounds format"}`, or `{"error":"<bounds error>"}` as `text/plain` |
-| 405 | `Method not allowed` |
+| 400 | `invalid_json`, or `invalid_bounds` with the bounds error as the message |
+| 405 | `method_not_allowed` |
+| 413 | `body_too_large` (#81) |
 
-`POST /api/tile-info` (`web.go:202`). Request: `{"lat", "lon", "zoom"}`. A `zoom` of 0
+Every error body has the error shape `{"error": {"code": "<code>", "message": "<text>"}}`
+and `Content-Type: application/json` (#74).
+
+`POST /api/tile-info` (`web.go:226-252`). Request: `{"lat", "lon", "zoom"}`. A `zoom` of 0
 becomes 10. Response:
 `{"tile_x", "tile_y", "zoom", "bounds": [west, south, east, north], "coordinate": [lat, lon]}`.
 The web UI does not call this route.
@@ -229,15 +233,13 @@ What the code does not handle:
 - **Bounds that cross the antimeridian are rejected.** The minimum longitude must be less
   than the maximum.
 - **A bad `--zoom-range` becomes zoom level 0.** `strconv.Atoi` errors are ignored
-  (`estimate.go:70-71`), so `--zoom-range a-b` gives `0-0`.
+  (`estimate.go:55-56`), so `--zoom-range a-b` gives `0-0`.
 - **The size estimate ignores the map source.** It uses a fixed size per tile, and the
   two fixed sizes disagree.
 - **No upper limit on the tile count.** `/api/estimate` accepts any zoom range and any
   bounds.
-- **`/api/estimate` error strings are built by string concatenation**
-  (`web.go:179`), so an error message that holds a quote gives JSON that does not parse.
 - **The time shown in the web UI assumes 10 tiles per second**
-  (`app.js:435`). It does not use the concurrency setting.
+  (`app.js:421`). It does not use the concurrency setting.
 - **The estimate panel colour does not apply.** The JavaScript sets the class `success`,
   `warning` or `error`, but `style.css` defines only `.estimation-success`,
   `.estimation-warning` and `.estimation-danger`.
@@ -248,7 +250,6 @@ Known defects and the planned feature that repairs each:
 |---|---|
 | No tile-count cap and no output file split | `robust-downloads` (07) |
 | Two different fixed sizes per tile | `robust-downloads` (07) |
-| Error JSON built by string concatenation | `security-hardening` (05) |
 | Estimate colour classes and the fixed time rate | `offline-web-ui` (08) |
 | Rectangle bounds only, with no polygon | `area-selection` (11) |
 | Bad `--zoom-range` silently becomes 0 | `robust-downloads` (07) |

@@ -4,7 +4,7 @@
 version: "2"
 
 linters:
-  # The standard set runs, and FR-foundation-6 adds eight linters to it.
+  # The standard set runs and already holds unused, so FR-foundation-6 adds seven linters to it.
   default: standard
   enable:
     - cyclop

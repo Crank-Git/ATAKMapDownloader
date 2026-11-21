@@ -157,7 +157,7 @@ body.rv-open .layout { padding-right:21rem; }
 <h1>Feature: Web UI and server</h1>
 <p class="meta">Existing (built) &nbsp; <span class="badge">built</span></p>
 <h3 id="web-ui-purpose">Purpose</h3>
-<p>The <code>serve</code> command starts a local HTTP server. The server delivers a single-page web UI and a JSON API, plus a websocket that runs one job at a time. The web UI lets the map preparer do these tasks:</p>
+<p>The <code>serve</code> command starts a local HTTP server. The server delivers a single-page web UI and a JSON API. The job API runs one job at a time and sends its progress as an SSE stream (#76). The web UI lets the solo operator do these tasks:</p>
 <ul>
 <li>select bounds on a base map,
 </li>
@@ -168,7 +168,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li>start, follow and cancel a job.
 </li>
 </ul>
-<p>The web UI and the server are embedded in the binary (<code>web/embed.go</code>). This file describes the behavior that exists today.</p>
+<p>The web UI and the server are embedded in the binary (<code>web/embed.go</code>). This file describes the behavior that exists today. A statement that an Epic 0 or Epic 1 pull request changed names that pull request, for example (#76).</p>
 <h3 id="web-ui-user-stories">User stories</h3>
 <ul>
 <li>As a solo operator, I want to draw a rectangle on a map, so that I do not type
@@ -198,26 +198,32 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-web-ui-3 — The server returns embedded files under <code>/static/</code>.
 </li>
-<li>FR-web-ui-4 — The server sends <code>Access-Control-Allow-Origin: *</code> on every response.
+<li>FR-web-ui-4 — The server sends no <code>Access-Control-Allow-*</code> header (#77).
 </li>
-<li>FR-web-ui-5 — The server answers every <code>OPTIONS</code> request with status 204.
-</li>
-<li>FR-web-ui-6 — The server accepts a websocket upgrade on <code>/ws</code> from any origin.
-</li>
-<li>FR-web-ui-7 — The server runs at most one job at a time, for all connections.
-</li>
-<li>FR-web-ui-8 — The server rejects a <code>start_download</code> message while a job runs, with
+<li>FR-web-ui-5 — The server rejects a cross-origin browser request with status 403 and
 </li>
 </ul>
-<p>the <code>download_error</code> message <code>Download already in progress</code>.</p>
+<p>error code <code>cross_origin</code>, unless its method is <code>GET</code>, <code>HEAD</code> or <code>OPTIONS</code> (#77).</p>
 <ul>
-<li>FR-web-ui-9 — Any websocket connection can cancel the running job.
-</li>
-<li>FR-web-ui-10 — The server sends a <code>download_progress</code> message after each processed
+<li>FR-web-ui-6 — The server serves the job API on <code>/api/jobs</code> (#76). See
 </li>
 </ul>
-<p>tile.</p>
+<p><code>05-security-hardening.md</code>.</p>
 <ul>
+<li>FR-web-ui-7 — The server runs at most one job at a time, for all clients (#76).
+</li>
+<li>FR-web-ui-8 — If a job runs, <code>POST /api/jobs</code> returns 409 with error code
+</li>
+</ul>
+<p><code>job_running</code> (#76).</p>
+<ul>
+<li>FR-web-ui-9 — Any client that knows the job id can cancel the job with
+</li>
+</ul>
+<p><code>DELETE /api/jobs/{id}</code> (#76).</p>
+<ul>
+<li>FR-web-ui-10 — The server sends at most 4 <code>progress</code> events per second per job (#76).
+</li>
 <li>FR-web-ui-11 — <code>POST /api/preview</code> returns the URLs of up to 6 × 6 tiles at the
 </li>
 </ul>
@@ -235,10 +241,10 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>FR-web-ui-14 — The web UI lets the solo operator draw one kind of shape, a rectangle.
 </li>
-<li>FR-web-ui-15 — The web UI enables <strong>Estimate Download</strong> and <strong>Preview</strong> after the map
+<li>FR-web-ui-15 — The web UI enables <strong>Estimate Download</strong> and <strong>Preview</strong> after the
 </li>
 </ul>
-<p>preparer draws a rectangle.</p>
+<p>solo operator draws a rectangle.</p>
 <ul>
 <li>FR-web-ui-16 — The web UI enables <strong>Start Download</strong> after a successful estimate.
 </li>
@@ -259,11 +265,22 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>the failed count during a job.</p>
 <ul>
-<li>FR-web-ui-21 — The web UI reconnects 2 seconds after the websocket closes.
-</li>
-<li>FR-web-ui-22 — The web UI saves the light or dark theme in <code>localStorage</code>.
+<li>FR-web-ui-21 — The web UI closes the SSE stream when it receives a final <code>state</code>
 </li>
 </ul>
+<p>event (#78).</p>
+<ul>
+<li>FR-web-ui-22 — The web UI saves the light or dark theme in <code>localStorage</code>.
+</li>
+<li>FR-web-ui-23 — The server rejects a request body larger than 1 MiB with status 413
+</li>
+</ul>
+<p>and error code <code>body_too_large</code> (#81).</p>
+<ul>
+<li>FR-web-ui-24 — If the host in <code>--addr</code> is not a loopback address, <code>serve</code> prints a
+</li>
+</ul>
+<p>warning to stderr that the server has no authentication (#81).</p>
 <h3 id="web-ui-user-flows">User flows</h3>
 <h4 id="web-ui-flow-1-the-solo-operator-starts-and-finishes-a-job">Flow 1 — The solo operator starts and finishes a job</h4>
 <div class="diagram"><pre class="mermaid">sequenceDiagram
@@ -272,54 +289,68 @@ body.rv-open .layout { padding-right:21rem; }
     participant S as Server
     participant E as Engine
     U-&gt;&gt;W: Select Start Download
-    W-&gt;&gt;S: start_download with source, bounds, zoom range, advanced_settings
-    alt parameters missing, source not found, or bounds not valid
-        S--&gt;&gt;W: download_error
+    W-&gt;&gt;S: POST /api/jobs with source, bounds, zoom range and settings
+    alt request not valid
+        S--&gt;&gt;W: 400, 404 or 413 error shape
+        W-&gt;&gt;U: Status log line Download error and the message
     else a job already runs
-        S--&gt;&gt;W: download_error Download already in progress
+        S--&gt;&gt;W: 409 job_running
     else accepted
-        S--&gt;&gt;W: download_started with output_file
+        S--&gt;&gt;W: 202 job record
+        W-&gt;&gt;S: GET /api/jobs/{id}/events
+        S--&gt;&gt;W: event state running
         S-&gt;&gt;E: DownloadTiles
-        loop each processed tile
-            E--&gt;&gt;S: progress callback
-            S--&gt;&gt;W: download_progress
+        loop at most 4 times per second
+            E--&gt;&gt;S: progress through a channel
+            S--&gt;&gt;W: event progress
         end
         alt success
-            S--&gt;&gt;W: download_progress at 100
-            S--&gt;&gt;W: download_complete with filename and path
+            S--&gt;&gt;W: event state complete
             W-&gt;&gt;U: Download Complete panel with the file name
         else failure
-            S--&gt;&gt;W: download_error Download failed - too many tile errors
+            S--&gt;&gt;W: event log with level error
+            S--&gt;&gt;W: event state failed
         end
+        W-&gt;&gt;W: Close the SSE stream
     end</pre></div>
 <ol>
 <li>The solo operator selects <strong>Start Download</strong>.
 </li>
-<li>The web UI sends <code>start_download</code> on the websocket.
+<li>The web UI sends <code>POST /api/jobs</code> (<code>web/static/js/app.js:455</code>).
 </li>
-<li>If a parameter is missing, the map source is not found, or the bounds are not valid,
+<li>If the request is not valid, the server returns 400, 404 or 413 with the error shape.
 </li>
 </ol>
-<p>the server sends <code>download_error</code>.</p>
+<p>The web UI logs <code>Download error: &lt;message&gt;</code> and resets the job controls.</p>
 <ol>
-<li>If a job already runs, the server sends <code>download_error</code> with
+<li>If a job already runs, the server returns 409 with <code>job_running</code>.
+</li>
+<li>The server starts the job and returns 202 with the job record. The web UI logs
 </li>
 </ol>
-<p><code>Download already in progress</code>.</p>
+<p><code>Output file: &lt;name&gt;</code>.</p>
 <ol>
-<li>The server sends <code>download_started</code> with the output file name.
-</li>
-<li>The engine processes the tiles. The server sends <code>download_progress</code> after each tile.
-</li>
-<li>If the job succeeds, the server sends a final <code>download_progress</code> at 100 and then
+<li>The web UI opens <code>GET /api/jobs/{id}/events</code> with <code>EventSource</code> (<code>app.js:114</code>). The
 </li>
 </ol>
-<p><code>download_complete</code>. The web UI shows the <strong>Download Complete!</strong> panel.</p>
+<p>first event is a <code>state</code> event.</p>
 <ol>
-<li>If the job fails, the server sends <code>download_error</code> with
+<li>The server sends <code>progress</code> events, at most 4 per second (<code>jobs.go:135</code>).
+</li>
+<li>If the job succeeds, the server sends <code>state</code> with <code>complete</code>. The web UI shows the
 </li>
 </ol>
-<p><code>Download failed - too many tile errors. Try reducing concurrent downloads or enabling Ignore Errors.</code></p>
+<p><strong>Download Complete!</strong> panel with <code>Downloaded N of M tiles.</code> and the file name.</p>
+<ol>
+<li>If the job fails, the server sends a <code>log</code> event with level <code>error</code>, then <code>state</code>
+</li>
+</ol>
+<p>with <code>failed</code>. The web UI logs the engine error, for example <code>failure rate 35.0% exceeds threshold 30.0%</code> (#76, #78).</p>
+<ol>
+<li>The server ends the stream after the final <code>state</code> event. The web UI closes its
+</li>
+</ol>
+<p><code>EventSource</code> (<code>app.js:132-138</code>), because <code>EventSource</code> reconnects to an ended stream (#78).</p>
 <h4 id="web-ui-flow-2-the-solo-operator-cancels-a-job">Flow 2 — The solo operator cancels a job</h4>
 <div class="diagram"><pre class="mermaid">sequenceDiagram
     participant U as Solo operator
@@ -327,29 +358,39 @@ body.rv-open .layout { padding-right:21rem; }
     participant S as Server
     participant E as Engine
     U-&gt;&gt;W: Select Cancel
-    W-&gt;&gt;S: cancel_download
-    S-&gt;&gt;E: cancel the context
-    S--&gt;&gt;W: download_cancelled Cancellation requested.
-    W-&gt;&gt;U: Reset the job controls
+    W-&gt;&gt;W: Show Cancelling...
+    W-&gt;&gt;S: DELETE /api/jobs/{id}
+    S-&gt;&gt;E: Cancel the context
+    S--&gt;&gt;W: 202 job record, state still running
     E--&gt;&gt;S: DownloadTiles returns
-    S-&gt;&gt;S: Delete the output file
-    S--&gt;&gt;W: download_cancelled Download cancelled by user.</pre></div>
+    E-&gt;&gt;E: Delete the output file
+    S--&gt;&gt;W: event state cancelled
+    W-&gt;&gt;U: Status log line Download cancelled, reset the job controls</pre></div>
 <ol>
 <li>The solo operator selects <strong>Cancel</strong>.
 </li>
-<li>The web UI sends <code>cancel_download</code>.
+<li>The web UI logs <code>Cancelling download...</code> and shows <code>Cancelling...</code> on the button.
 </li>
-<li>The server cancels the context of the job.
+<li>The web UI sends <code>DELETE /api/jobs/{id}</code> (<code>app.js:578</code>).
 </li>
-<li>The server sends <code>download_cancelled</code> with <code>Cancellation requested.</code>
-</li>
-<li>The web UI resets the job controls at once. The job is still stopping.
-</li>
-<li>When the engine returns, the server deletes the output file.
-</li>
-<li>The server sends <code>download_cancelled</code> with <code>Download cancelled by user.</code>
+<li>The server cancels the context of the job. It returns 202 with the job record, which
 </li>
 </ol>
+<p>still shows <code>running</code> (#76).</p>
+<ol>
+<li>When the engine returns, the engine deletes the output file.
+</li>
+<li>The server sends <code>state</code> with <code>cancelled</code> and ends the stream.
+</li>
+<li>The web UI closes the stream, logs <code>Download cancelled</code> and resets the job controls
+</li>
+</ol>
+<p>(#78).</p>
+<ol>
+<li>If the <code>DELETE</code> request fails, the web UI logs <code>Cancel error: &lt;message&gt;</code> and shows
+</li>
+</ol>
+<p><strong>Cancel</strong> again.</p>
 <h4 id="web-ui-flow-3-the-solo-operator-selects-bounds-and-checks-them">Flow 3 — The solo operator selects bounds and checks them</h4>
 <div class="diagram"><pre class="mermaid">flowchart TD
     A[Page loads] --&gt; B[GET /api/sources fills the source picker]
@@ -410,26 +451,33 @@ body.rv-open .layout { padding-right:21rem; }
 </ol>
 <p>a zoom guide.</p>
 <ol>
-<li><strong>Download Options</strong>: <code>#customName</code> and the collapsed <strong>Advanced Settings</strong>:
+<li><strong>Download Options</strong>: <code>#customName</code> and the collapsed <strong>Advanced Settings</strong>
+</li>
+</ol>
+<p>(<code>web/index.html:115-152</code>):</p>
 <ul>
 <li><strong>Concurrent Downloads</strong>: 1, 3, 5, 8 or 10. The default is 5.
+<ul>
+<li><strong>Failure Tolerance</strong>: 10 %, 20 %, 30 % or 50 %. The default is 30 %.
 </li>
-<li><strong>Batch Delay (seconds)</strong>: 0.1 to 1.0. The engine does not use this value.
+<li><strong>Ignore Errors &amp; Continue</strong>, unchecked.
 </li>
-<li><strong>Failure Tolerance</strong>: 10 % to 50 %. The default is 30 %.
-</li>
-<li><strong>Ignore Errors &amp; Continue</strong>.
-</li>
-<li><strong>Verify SSL Certificates</strong>, unchecked.
+<li><strong>Verify TLS</strong>, checked (#75, #78).
 </li>
 </ul>
 </li>
+</ul>
+<p>The <strong>Batch Delay</strong> control is removed (#78).</p>
+<ol>
 <li><strong>Estimate Download</strong> and <strong>Preview</strong>, then <code>#estimationResult</code>.
 </li>
 <li><strong>Start Download</strong> and <strong>Cancel</strong>, then <code>#downloadProgress</code>.
 </li>
-<li><code>#downloadResults</code>, which shows the file name and the fixed text <code>downloads/ folder</code>.
+<li><code>#downloadResults</code>, which shows <code>Downloaded N of M tiles.</code>, the file name and the fixed
 </li>
+</ol>
+<p>text <code>downloads/ folder</code>.</p>
+<ol>
 <li><strong>Status</strong>: <code>#statusLog</code>, at most 50 lines and 200 px high.
 </li>
 </ol>
@@ -437,15 +485,15 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><th>State</th><th>What the web UI shows today</th></tr>
 <tr><td>Sources loading</td><td>The option <code>Loading sources...</code></td></tr>
 <tr><td>Sources failed</td><td>A status log line only</td></tr>
-<tr><td>Empty source catalog</td><td>The server returns <code>null</code>. The JavaScript fails on <code>sources.length</code> and logs an error line</td></tr>
+<tr><td>Empty source catalog</td><td>The server returns <code>[]</code> (#74). The web UI logs <code>Loaded 0 map sources</code> and shows only the placeholder option</td></tr>
 <tr><td>No bounds</td><td><code>Click "Draw Rectangle" to select an area on the map</code>. Estimate and Preview disabled</td></tr>
-<tr><td>Estimate or preview error</td><td>A status log line only</td></tr>
+<tr><td>Estimate or preview error</td><td>A status log line with the <code>message</code> of the error shape (#74)</td></tr>
 <tr><td>Request in flight</td><td>Nothing. <code>#loadingModal</code> exists but no code shows it</td></tr>
 <tr><td>Job running</td><td>Spinner text <code>Downloading...</code>, progress bar, <strong>Cancel</strong> visible</td></tr>
-<tr><td>Job failed</td><td>A status log line, and the controls reset</td></tr>
-<tr><td>Job cancelled</td><td>A status log line, and the controls reset</td></tr>
-<tr><td>Job complete</td><td><strong>Download Complete!</strong> panel with the file name</td></tr>
-<tr><td>Websocket closed</td><td>The status log line <code>Disconnected - reconnecting...</code> only</td></tr>
+<tr><td>Job failed</td><td>A status log line with the engine error, and the controls reset (#78)</td></tr>
+<tr><td>Job cancelled</td><td>The status log line <code>Download cancelled</code>, and the controls reset (#78)</td></tr>
+<tr><td>Job complete</td><td><strong>Download Complete!</strong> panel with the tile counts and the file name</td></tr>
+<tr><td>SSE stream lost</td><td>The status log line <code>Lost the job event stream</code>, and the controls reset (#78)</td></tr>
 </table></div>
 <p>Accessibility signals:</p>
 <ul>
@@ -494,7 +542,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li>One breakpoint at 768 px stacks the sidebar and the map.
 </li>
 </ul>
-<p>External dependencies, all loaded at run time (<code>web/index.html:9-16</code>, <code>:241-243</code>):</p>
+<p>External dependencies, all loaded at run time (<code>web/index.html:9-16</code>, <code>:231-233</code>):</p>
 <div class="table-wrap"><table>
 <tr><th>Asset</th><th>Version</th><th>Host</th></tr>
 <tr><td>Leaflet</td><td>1.9.4</td><td>unpkg.com</td></tr>
@@ -507,24 +555,64 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>The server has no authentication.
 </li>
-<li>The server has no read, write or idle timeouts (<code>http.ListenAndServe</code>, <code>serve.go:45</code>).
+<li>The server sets these timeouts (<code>serve.go:91-99</code>, #81):
+<ul>
+<li><code>ReadHeaderTimeout</code> 10 s,
 </li>
+<li><code>ReadTimeout</code> 30 s,
+</li>
+<li><code>IdleTimeout</code> 120 s.
+</li>
+</ul>
+</li>
+</ul>
+<p>It sets no <code>WriteTimeout</code>, because an SSE stream stays open for the full job.</p>
+<ul>
+<li>The server limits every request body to 1 MiB (<code>web.go:64-79</code>, #81). It returns 413
+</li>
+</ul>
+<p><code>body_too_large</code> at once when <code>Content-Length</code> is larger. It returns the same error when a body with no <code>Content-Length</code> grows past the limit.</p>
+<ul>
+<li><code>newServerHandler</code> applies the cross-origin check first and the body limit second
+</li>
+</ul>
+<p>(<code>web.go:56-62</code>, #77, #81).</p>
+<ul>
 <li>The server creates <code>./downloads</code> at start and writes every output file there.
 </li>
-<li>In <code>start_download</code>, a value of 0 means "use the default". So the web UI cannot set
+<li>In <code>POST /api/jobs</code>, an optional setting that the client does not send gets the engine
 </li>
 </ul>
-<p>0 for:</p>
+<p>default (<code>jobs.go:20-50</code>, #76):</p>
 <ul>
-<li><code>min_zoom</code> (default 1) or <code>max_zoom</code> (default 15),
+<li><code>concurrency</code> 5,
 <ul>
-<li><code>max_concurrent</code> (default 5),
+<li><code>failure_tolerance</code> 0.2,
 </li>
-<li><code>delay_between_batches</code> (default 0.2),
+<li><code>ignore_errors</code> false,
 </li>
-<li><code>failure_tolerance</code> (default 0.3).
+<li><code>verify_tls</code> true.
 </li>
 </ul>
+</li>
+</ul>
+<p>The web UI always sends all four settings. Its failure tolerance default is 0.3.</p>
+<ul>
+<li><code>POST /api/jobs</code> and the <code>download</code> command check the zoom range and the concurrency
+</li>
+</ul>
+<p>with the same function, <code>checkJobLimits</code> (<code>jobs.go:320-337</code>, #81):</p>
+<ul>
+<li>If <code>min_zoom</code> is above <code>max_zoom</code>, the error code is <code>zoom_out_of_range</code>.
+<ul>
+<li>If the zoom range is outside the zoom range of the map source, the error code is
+</li>
+</ul>
+</li>
+</ul>
+<p><code>zoom_out_of_range</code>.</p>
+<ul>
+<li>If the concurrency is below 1 or above 32, the error code is <code>invalid_concurrency</code>.
 </li>
 <li><code>POST /api/preview</code> replaces a <code>min_zoom</code> of 0 with 1 and a <code>max_zoom</code> of 0 with 18.
 </li>
@@ -557,126 +645,144 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 </ul>
 <p><code>https://nominatim.openstreetmap.org/search</code> with <code>limit=5</code>, the User-Agent <code>ATAK-Map-Downloader/1.0</code> and a 10-second timeout. The server does not limit the request rate.</p>
+<ul>
+<li>If a geocode result has a <code>lat</code> or <code>lon</code> that is not a number, the server returns 500
+</li>
+</ul>
+<p><code>internal</code> (<code>web.go:398-404</code>, #81).</p>
 <h3 id="web-ui-data-touched">Data touched</h3>
 <ul>
 <li>Writes output files under <code>./downloads</code>. See <code>03-tile-download.md</code>.
 </li>
-<li>In memory: one <code>dlState</code> per server, holding <code>downloading bool</code> and <code>cancel</code>, behind a
+<li>In memory: one <code>dlState</code> per server, behind a mutex (<code>web.go:29-35</code>, #76). It holds
 </li>
 </ul>
-<p>mutex (<code>web.go:30-34</code>). Nothing survives a restart.</p>
+<p><code>downloading bool</code> and <code>job</code>, the last job that the job API started. The last job stays after it ends, so <code>GET /api/jobs/{id}</code> can read its result. Nothing survives a restart.</p>
 <ul>
 <li>Browser: <code>localStorage.theme</code>.
 </li>
 </ul>
 <h3 id="web-ui-interfaces">Interfaces</h3>
 <h4 id="web-ui-http-routes">HTTP routes</h4>
-<p>All routes are in <code>cmd/atak-dl/commands/web.go:52-134</code>. Success responses do not set <code>Content-Type: application/json</code>. Error responses come from <code>http.Error</code>, so their <code>Content-Type</code> is <code>text/plain</code>, and their JSON is built by string concatenation.</p>
+<p>The router is in <code>cmd/atak-dl/commands/web.go:87-100</code>. The job routes use method and path patterns on a separate <code>http.ServeMux</code> (<code>jobs.go:244-258</code>, #76).</p>
+<p>Every JSON success response sets <code>Content-Type: application/json</code> (<code>web.go:423-426</code>, #74). Every error response uses the error shape from <code>writeError</code> (#74):</p>
+<pre class="code"><code>{"error": {"code": "&lt;code&gt;", "message": "&lt;text&gt;"}}</code></pre>
 <div class="table-wrap"><table>
 <tr><th>Method</th><th>Path</th><th>Request</th><th>Success response</th><th>Errors</th></tr>
 <tr><td>GET</td><td><code>/</code></td><td>—</td><td><code>index.html</code></td><td>—</td></tr>
-<tr><td>GET</td><td><code>/static/*</code></td><td>—</td><td>Embedded file</td><td>404</td></tr>
+<tr><td>GET</td><td><code>/static/*</code></td><td>—</td><td>Embedded file</td><td>404 <code>not_found</code></td></tr>
 <tr><td>any</td><td><code>/api/sources</code></td><td>—</td><td>See <code>01-map-sources.md</code></td><td>—</td></tr>
-<tr><td>POST</td><td><code>/api/estimate</code></td><td>See <code>02-area-estimate.md</code></td><td></td><td>400, 405</td></tr>
-<tr><td>POST</td><td><code>/api/tile-info</code></td><td>See <code>02-area-estimate.md</code></td><td></td><td>400, 405</td></tr>
-<tr><td>POST</td><td><code>/api/validate-source</code></td><td>See <code>01-map-sources.md</code></td><td></td><td>400, 404, 405</td></tr>
-<tr><td>POST</td><td><code>/api/preview</code></td><td><code>{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}</code></td><td><code>{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}</code></td><td>400, 404, 405</td></tr>
-<tr><td>POST</td><td><code>/api/geocode</code></td><td><code>{"query"}</code></td><td><code>{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}</code></td><td>400, 405, 500</td></tr>
-<tr><td>GET</td><td><code>/ws</code></td><td>Websocket upgrade</td><td>See below</td><td>—</td></tr>
-<tr><td>OPTIONS</td><td>any</td><td>—</td><td>204</td><td>—</td></tr>
+<tr><td>POST</td><td><code>/api/estimate</code></td><td>See <code>02-area-estimate.md</code></td><td></td><td>400 <code>invalid_json</code>, <code>invalid_bounds</code>; 405 <code>method_not_allowed</code>; 413</td></tr>
+<tr><td>POST</td><td><code>/api/tile-info</code></td><td>See <code>02-area-estimate.md</code></td><td></td><td>400 <code>invalid_json</code>; 405; 413</td></tr>
+<tr><td>POST</td><td><code>/api/validate-source</code></td><td>See <code>01-map-sources.md</code></td><td></td><td>400 <code>invalid_json</code>; 404 <code>unknown_source</code>; 405; 413</td></tr>
+<tr><td>POST</td><td><code>/api/preview</code></td><td><code>{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}</code></td><td><code>{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}</code></td><td>400 <code>invalid_json</code>, <code>unknown_source</code>, <code>invalid_bounds</code>; 404 <code>unknown_source</code>; 405; 413</td></tr>
+<tr><td>POST</td><td><code>/api/geocode</code></td><td><code>{"query"}</code></td><td><code>{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}</code></td><td>400 <code>invalid_json</code>, <code>invalid_query</code>; 405; 413; 500 <code>internal</code></td></tr>
+<tr><td>POST</td><td><code>/api/jobs</code></td><td>See Job API</td><td>202 job record</td><td>400, 404 <code>unknown_source</code>, 409 <code>job_running</code>, 413</td></tr>
+<tr><td>GET</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>200 job record</td><td>404 <code>job_not_found</code></td></tr>
+<tr><td>GET</td><td><code>/api/jobs/{id}/events</code></td><td>—</td><td>200 <code>text/event-stream</code></td><td>404 <code>job_not_found</code></td></tr>
+<tr><td>DELETE</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>202 job record</td><td>404 <code>job_not_found</code></td></tr>
+<tr><td>any other</td><td>any other <code>/api/</code> path</td><td>—</td><td>—</td><td>404 <code>not_found</code>, or 405 <code>method_not_allowed</code> for a job path</td></tr>
 </table></div>
-<p>The web UI calls <code>/api/sources</code>, <code>/api/estimate</code>, <code>/api/preview</code>, <code>/api/geocode</code> and <code>/ws</code>. It does not call <code>/api/tile-info</code> or <code>/api/validate-source</code>.</p>
-<h4 id="web-ui-websocket-protocol">Websocket protocol</h4>
-<p>Messages are JSON. Each client message has the form <code>{"type", "data"}</code>.</p>
-<p>Client to server:</p>
+<p>Any route returns 403 <code>cross_origin</code> for a cross-origin browser request that is not <code>GET</code>, <code>HEAD</code> or <code>OPTIONS</code> (#77). A path that matches no route returns 404 <code>not_found</code> (#74).</p>
+<p>The web UI calls <code>/api/sources</code>, <code>/api/estimate</code>, <code>/api/preview</code>, <code>/api/geocode</code> and the job API. It does not call <code>/api/tile-info</code>, <code>/api/validate-source</code> or <code>GET /api/jobs/{id}</code>.</p>
+<h4 id="web-ui-job-api">Job API</h4>
+<p>The job API replaces the websocket protocol and the <code>/ws</code> route (#76, #78). <code>05-security-hardening.md</code> holds the requirements. This section records what is built.</p>
+<p><code>POST /api/jobs</code> request (<code>jobs.go:20-32</code>):</p>
+<pre class="code"><code>{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom", "name",
+ "concurrency", "failure_tolerance", "ignore_errors", "verify_tls"}</code></pre>
+<p>The job record (<code>jobs.go:62-78</code>):</p>
+<pre class="code"><code>{"id", "source", "bounds", "min_zoom", "max_zoom", "state", "output_file",
+ "total", "downloaded", "skipped", "failed", "created_at", "error"}</code></pre>
+<ul>
+<li><code>id</code> is 12 lowercase hex characters from <code>crypto/rand</code>.
+</li>
+<li><code>state</code> is <code>running</code>, <code>complete</code>, <code>failed</code> or <code>cancelled</code>.
+</li>
+<li><code>skipped</code> is always 0, because only resume skips a tile.
+</li>
+</ul>
+<p>SSE events on <code>GET /api/jobs/{id}/events</code>:</p>
 <div class="table-wrap"><table>
-<tr><th><code>type</code></th><th><code>data</code></th></tr>
-<tr><td><code>start_download</code></td><td><code>{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom", "custom_name", "advanced_settings": {"max_concurrent", "delay_between_batches", "failure_tolerance", "ignore_errors", "verify_ssl"}}</code></td></tr>
-<tr><td><code>cancel_download</code></td><td>none</td></tr>
-<tr><td><code>get_download_status</code></td><td>none</td></tr>
+<tr><th><code>event</code></th><th><code>data</code></th><th>When</th></tr>
+<tr><td><code>state</code></td><td>The job record</td><td>First on every stream, and once at the end of the job</td></tr>
+<tr><td><code>progress</code></td><td><code>{"downloaded", "skipped", "failed", "total", "rate", "eta_seconds"}</code></td><td>At most 4 per second</td></tr>
+<tr><td><code>log</code></td><td><code>{"level", "message"}</code></td><td>Before the final <code>state</code> of a failed job, with level <code>error</code></td></tr>
 </table></div>
-<p>Server to client:</p>
-<div class="table-wrap"><table>
-<tr><th><code>type</code></th><th>Fields</th><th>When</th></tr>
-<tr><td><code>status</code></td><td><code>message</code></td><td>On connect: <code>Connected to ATAK Downloader</code>. Reply to <code>get_download_status</code>: <code>Download in progress</code> or <code>No active download</code></td></tr>
-<tr><td><code>download_started</code></td><td><code>message</code>, <code>output_file</code></td><td>The job starts</td></tr>
-<tr><td><code>download_progress</code></td><td><code>progress</code>, <code>downloaded</code>, <code>total</code>, <code>failed</code>, <code>rate</code>, <code>eta</code>, <code>message</code></td><td>After each processed tile, and once at 100 on success</td></tr>
-<tr><td><code>download_complete</code></td><td><code>message</code>, <code>filename</code>, <code>path</code></td><td>The job succeeds. <code>path</code> is the path on the server</td></tr>
-<tr><td><code>download_error</code></td><td><code>message</code></td><td>Rejected request, or failed job</td></tr>
-<tr><td><code>download_cancelled</code></td><td><code>message</code></td><td><code>Cancellation requested.</code>, <code>No active download.</code>, or <code>Download cancelled by user.</code></td></tr>
-</table></div>
+<p>One goroutine per job sends the events (<code>jobs.go:145-176</code>). Engine goroutines send progress to it through a channel.</p>
 <h3 id="web-ui-edge-cases-failures">Edge cases &amp; failures</h3>
 <p>What the code handles:</p>
 <ul>
-<li>A second <code>start_download</code> while a job runs gets a clear error.
+<li>A second <code>POST /api/jobs</code> while a job runs gets 409 <code>job_running</code> (#76).
 </li>
-<li>A closed websocket makes the web UI reconnect.
+<li>If the browser closes the SSE stream, the job continues. A new stream gets a <code>state</code>
+</li>
+</ul>
+<p>event with the current job record first (#76).</p>
+<ul>
+<li>A stream for a job that ended gets one <code>state</code> event, and then the stream ends (#76).
+</li>
+<li>The web UI waits for the final <code>state</code> event before it resets the job controls (#78).
+</li>
+<li>A cross-origin <code>POST</code> or <code>DELETE</code> from a browser gets 403 <code>cross_origin</code> (#77).
+</li>
+<li>A request with no <code>Sec-Fetch-Site</code> header and no <code>Origin</code> header passes the
+</li>
+</ul>
+<p>cross-origin check, so <code>curl</code> works (#77).</p>
+<ul>
+<li><code>/api/preview</code> with bounds that are not valid returns 400 <code>invalid_bounds</code>
+</li>
+</ul>
+<p>(<code>web.go:315-319</code>, #74).</p>
+<ul>
+<li>A request body larger than 1 MiB gets 413 <code>body_too_large</code> (#81).
 </li>
 <li>The <code>/static/</code> route uses <code>fs.Sub</code> on an <code>embed.FS</code>, which rejects <code>..</code> paths.
 </li>
-<li>The output file name keeps only safe characters, so <code>custom_name</code> cannot leave
+<li>The output file name keeps only safe characters, so <code>name</code> cannot leave <code>./downloads</code>.
+</li>
+<li>The status log writes text through <code>textContent</code> (<code>app.js:545</code>, #78).
 </li>
 </ul>
-<p><code>./downloads</code>.</p>
 <p>What the code does not handle:</p>
-<ul>
-<li><strong>Any web page can drive the server.</strong> CORS is <code>*</code> and <code>CheckOrigin</code> returns true
-</li>
-</ul>
-<p>(<code>web.go:44</code>, <code>:54</code>). A page the solo operator visits can start jobs that write files to disk, or use the geocode route.</p>
 <ul>
 <li><strong><code>--addr 0.0.0.0:5000</code> exposes the server to the network</strong> with no authentication.
 </li>
-<li><strong>Concurrent websocket writes.</strong> Every engine goroutine calls <code>conn.WriteJSON</code> through
-</li>
 </ul>
-<p>the progress callback, and the read loop writes too. gorilla/websocket allows only one concurrent writer, so frames can break or the server can panic.</p>
+<p><code>serve</code> prints a warning, but it still starts (<code>serve.go:49-54</code>, #81).</p>
 <ul>
 <li><strong>The finished output file cannot be fetched from the browser.</strong> No route serves
 </li>
 </ul>
 <p><code>./downloads</code>. The web UI shows only the file name.</p>
 <ul>
-<li><strong>A closed websocket orphans the job.</strong> The job keeps running and writes to the dead
+<li><strong>The server keeps only the last job.</strong> <code>GET /api/jobs/{id}</code> for an earlier job returns
 </li>
 </ul>
-<p>connection. A new connection cannot see its progress. <code>get_download_status</code> returns only text.</p>
+<p>404 <code>job_not_found</code> (<code>jobs.go:400-409</code>).</p>
 <ul>
-<li><strong>The first <code>download_cancelled</code> resets the web UI before the job stops.</strong> An
+<li><strong>A restart loses the job.</strong> The output file stays on disk. The <code>EventSource</code> then gets
 </li>
 </ul>
-<p>immediate <strong>Start Download</strong> then gets <code>Download already in progress</code>.</p>
+<p>404, and the web UI logs <code>Lost the job event stream</code>.</p>
 <ul>
-<li><strong><code>sendWS</code> drops a message when the socket is not open.</strong> <strong>Start Download</strong> then
+<li><strong>A late cancel keeps the output file.</strong> If the cancel arrives after the progress
 </li>
 </ul>
-<p>stays on <code>Downloading...</code> with no job.</p>
-<ul>
-<li><strong>Every failed job reports "too many tile errors"</strong>, including a failure to create the
-</li>
-</ul>
-<p>output file and <code>no tiles processed</code>.</p>
-<ul>
-<li><strong><code>/api/preview</code> ignores the bounds error</strong> (<code>web.go:290</code>). Bounds that are not valid
-</li>
-</ul>
-<p>give a nil pointer, and the handler panics. <code>net/http</code> recovers it and drops the connection.</p>
+<p>callback of the last tile, the engine does not see it. The job state is <code>cancelled</code>, but the output file stays (<code>jobs.go:369-397</code>).</p>
 <ul>
 <li><strong>Preview tiles can fail to show.</strong> The overlays set <code>crossOrigin: 'anonymous'</code>
 </li>
 </ul>
-<p>(<code>app.js:363</code>), so a tile server that sends no CORS header blocks the image.</p>
+<p>(<code>app.js:349</code>), so a tile server that sends no CORS header blocks the image.</p>
 <ul>
 <li><strong>The web UI needs the internet.</strong> Every library and the base map come from public
 </li>
 </ul>
 <p>hosts, so the page does not work on a disconnected machine.</p>
 <ul>
-<li><strong><code>logStatus</code> writes server and user text through <code>innerHTML</code></strong> (<code>app.js:559</code>). The
+<li><strong>The geocode popup writes <code>display_name</code> as HTML</strong> (<code>app.js:398</code>).
 </li>
-</ul>
-<p>geocode popup does the same with <code>display_name</code> (<code>app.js:412</code>).</p>
-<ul>
 <li><strong>The geocode route breaks the Nominatim usage policy.</strong> It has no rate limit, no cache
 </li>
 </ul>
@@ -687,24 +793,20 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p>identifying User-Agent and forbids offline bulk use (<a href="https://operations.osmfoundation.org/policies/tiles/">OSM tile usage policy</a>, retrieved 2026-11-21). The browser sends its own User-Agent.</p>
 <ul>
-<li><strong>gorilla/websocket v1.5.3 is the last release</strong>, from June 2024
+<li><strong>Unused code:</strong> the <code>mapsDir</code> field (<code>web.go:25</code>) and the <code>loadingModal</code> object
 </li>
 </ul>
-<p>(<a href="https://pkg.go.dev/github.com/gorilla/websocket?tab=versions">pkg.go.dev versions</a>, retrieved 2026-11-21).</p>
-<ul>
-<li><strong>Unused code:</strong> <code>safeFilename</code>, <code>safeNameRe</code> and the <code>mapsDir</code> field (<code>web.go:28</code>,
-</li>
-</ul>
-<p><code>:577-581</code>), and the <code>loadingModal</code> object (<code>app.js:576-581</code>).</p>
+<p>(<code>app.js:562-567</code>).</p>
 <p>Known defects and the planned feature that repairs each:</p>
 <div class="table-wrap"><table>
 <tr><th>Defect</th><th>Repaired by</th></tr>
-<tr><td>CORS <code>*</code>, any-origin websocket, no auth on a non-loopback bind, no server timeouts, <code>innerHTML</code> writes, preview panic</td><td><code>security-hardening</code> (05)</td></tr>
-<tr><td>Concurrent websocket writes, gorilla/websocket</td><td><code>security-hardening</code> (05)</td></tr>
+<tr><td>No authentication on a non-loopback bind</td><td><code>team-server</code> (12)</td></tr>
+<tr><td>The geocode popup HTML</td><td><code>security-hardening</code> (05)</td></tr>
 <tr><td>Geocode route that breaks the Nominatim policy</td><td><code>polite-downloading</code> (06)</td></tr>
-<tr><td>CDN dependencies, OSM base map, no fetch of the output file, missing loading and error states, accessibility gaps, unused Batch Delay control</td><td><code>offline-web-ui</code> (08)</td></tr>
+<tr><td>Late cancel that keeps the output file</td><td><code>robust-downloads</code> (07)</td></tr>
+<tr><td>CDN dependencies, OSM base map, no fetch of the output file, missing loading and error states, accessibility gaps</td><td><code>offline-web-ui</code> (08)</td></tr>
 <tr><td>Rectangle only</td><td><code>area-selection</code> (11)</td></tr>
-<tr><td>One global job, orphaned jobs, no job history</td><td><code>team-server</code> (12)</td></tr>
+<tr><td>One global job, only the last job in memory, no job history</td><td><code>team-server</code> (12)</td></tr>
 </table></div>
 <h3 id="web-ui-acceptance-criteria">Acceptance criteria</h3>
 <ul>
@@ -715,23 +817,28 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>[ ] <code>GET /</code> returns HTML whose <code>&lt;title&gt;</code> is <code>ATAK Tile Downloader</code>.
 </li>
-<li>[ ] Every response carries <code>Access-Control-Allow-Origin: *</code>.
+<li>[ ] No response carries an <code>Access-Control-Allow-Origin</code> header.
 </li>
-<li>[ ] A websocket connection to <code>/ws</code> receives
-</li>
-</ul>
-<p><code>{"type":"status","message":"Connected to ATAK Downloader"}</code> first.</p>
-<ul>
-<li>[ ] A second <code>start_download</code> while a job runs receives a <code>download_error</code> with
+<li>[ ] A <code>POST /api/jobs</code> with <code>Sec-Fetch-Site: cross-site</code> returns 403 with code
 </li>
 </ul>
-<p><code>Download already in progress</code>.</p>
+<p><code>cross_origin</code>.</p>
 <ul>
+<li>[ ] <code>GET /api/jobs/{id}/events</code> for a running job sends a <code>state</code> event first.
+</li>
+<li>[ ] A second <code>POST /api/jobs</code> while a job runs returns 409 with code <code>job_running</code>.
+</li>
+<li>[ ] A 2 MiB request body returns 413 with code <code>body_too_large</code>.
+</li>
+<li>[ ] <code>atak-dl serve --addr 0.0.0.0:5000</code> prints the no-authentication warning.
+</li>
 <li>[ ] <code>POST /api/preview</code> with valid bounds and <code>max_zoom</code> 16 returns at most 9 tiles.
 </li>
 <li>[ ] After a rectangle is drawn, <strong>Estimate Download</strong> and <strong>Preview</strong> are enabled.
 </li>
 <li>[ ] After a successful estimate, <strong>Start Download</strong> is enabled.
+</li>
+<li>[ ] On page load, <strong>Verify TLS</strong> is checked.
 </li>
 </ul>
 <h3 id="web-ui-out-of-scope">Out of scope</h3>
@@ -744,11 +851,6 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 </ul>
 <h3 id="web-ui-open-questions" class="callout-h">Open questions</h3>
-<ul>
-<li>The <strong>Batch Delay</strong> control and <code>delay_between_batches</code> reach the engine, which does not
-</li>
-</ul>
-<p>use them. The code does not show whether a delay was ever planned.</p>
 <ul>
 <li>The code does not show whether <code>/api/tile-info</code> and <code>/api/validate-source</code> were meant
 </li>
