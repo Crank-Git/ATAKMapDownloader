@@ -203,7 +203,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <h4 id="offline-web-ui-local-base-map">Local base map</h4>
 <ul>
-<li>FR-offline-web-ui-13 — <code>GET /api/files/{name}/tiles/{z}/{x}/{y}</code> returns one tile from an output file, with the TMS row converted from the XYZ request.
+<li>FR-offline-web-ui-13 — <code>GET /api/files/{name}/tiles/{z}/{x}/{y}</code> returns one tile from an output file through the tile reader of its output format, which reads the rows of that format (#126).
 </li>
 <li>FR-offline-web-ui-14 — The tile route returns 204 for a tile that the output file does not hold.
 </li>

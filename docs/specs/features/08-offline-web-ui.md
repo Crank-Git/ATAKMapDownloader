@@ -42,7 +42,7 @@ This feature vendors every asset, removes Bootstrap and Font Awesome, and adds a
 
 ### Local base map
 
-- FR-offline-web-ui-13 — `GET /api/files/{name}/tiles/{z}/{x}/{y}` returns one tile from an output file, with the TMS row converted from the XYZ request.
+- FR-offline-web-ui-13 — `GET /api/files/{name}/tiles/{z}/{x}/{y}` returns one tile from an output file through the tile reader of its output format, which reads the rows of that format (#126).
 - FR-offline-web-ui-14 — The tile route returns 204 for a tile that the output file does not hold.
 - FR-offline-web-ui-15 — The base map switcher offers "Online (OpenStreetMap)" and one entry per output file.
 - FR-offline-web-ui-16 — If the browser is offline at load time, the web UI selects the most recent output file as the base map.
