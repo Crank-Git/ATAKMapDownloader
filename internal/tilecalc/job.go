@@ -34,13 +34,15 @@ func JobTiles(ctx context.Context, areas []JobArea) <-chan Tile {
 	ch := make(chan Tile)
 	go func() {
 		defer close(ch)
-		walkJob(ctx, areas, func(_, z, y int, _, unique []span) bool {
-			for _, s := range unique {
-				for x := s.lo; x <= s.hi; x++ {
-					select {
-					case ch <- Tile{Z: z, X: x, Y: y}:
-					case <-ctx.Done():
-						return false
+		walkJob(ctx, areas, func(_, z, y0, y1 int, _, unique []span) bool {
+			for y := y0; y <= y1; y++ {
+				for _, s := range unique {
+					for x := s.lo; x <= s.hi; x++ {
+						select {
+						case ch <- Tile{Z: z, X: x, Y: y}:
+						case <-ctx.Done():
+							return false
+						}
 					}
 				}
 			}
@@ -62,12 +64,14 @@ type JobCount struct {
 
 // CountJobTiles returns the tile counts of the areas.
 // It counts runs of columns, not single tiles, so a large area costs time per tile row only.
+// A bounds area that shares no zoom level with an earlier area costs one step per zoom level.
 // CountJobTiles does not validate the areas, so call Validate on each area first.
 func CountJobTiles(areas []JobArea) JobCount {
 	c := JobCount{Areas: make([]int, len(areas)), Zooms: map[int]int{}}
-	walkJob(context.Background(), areas, func(i, z, _ int, own, unique []span) bool {
-		c.Areas[i] += spanWidth(own)
-		n := spanWidth(unique)
+	walkJob(context.Background(), areas, func(i, z, y0, y1 int, own, unique []span) bool {
+		rows := y1 - y0 + 1
+		c.Areas[i] += rows * spanWidth(own)
+		n := rows * spanWidth(unique)
 		c.Zooms[z] += n
 		c.Unique += n
 		return true
@@ -75,26 +79,41 @@ func CountJobTiles(areas []JobArea) JobCount {
 	return c
 }
 
-// walkJob calls fn for each tile row of each zoom level of each area, in the order of JobTiles.
-// own holds the columns of area i in row y, and unique holds the columns that no earlier area selects.
+// walkJob calls fn for the tile rows y0 to y1 of each zoom level of each area, in the order of JobTiles.
+// own holds the columns of area i in each of the rows, and unique holds the columns that no earlier area selects.
+// fn gets one row per call, except for a bounds area with no earlier area at the zoom level, which gets all its rows in one call.
 // The walk stops when fn returns false or when ctx ends.
-func walkJob(ctx context.Context, areas []JobArea, fn func(i, z, y int, own, unique []span) bool) {
+func walkJob(ctx context.Context, areas []JobArea, fn func(i, z, y0, y1 int, own, unique []span) bool) {
 	for i, a := range areas {
 		for z := a.MinZoom; z <= a.MaxZoom; z++ {
-			n := 1 << z
-			c := a.cover(z)
-			earlier := earlierCovers(areas[:i], z)
-			for y := max(c.minY, 0); y <= min(c.maxY, n-1); y++ {
-				if ctx.Err() != nil {
-					return
-				}
-				own := mergeSpans(c.spans(y), n)
-				if !fn(i, z, y, own, subtractSpans(own, rowSpans(earlier, y, n))) {
-					return
-				}
+			if !walkZoom(ctx, areas, i, z, fn) {
+				return
 			}
 		}
 	}
+}
+
+// walkZoom calls fn for the tile rows of area i at zoom level z, as walkJob does.
+// It returns false when the walk stops.
+func walkZoom(ctx context.Context, areas []JobArea, i, z int, fn func(i, z, y0, y1 int, own, unique []span) bool) bool {
+	n := 1 << z
+	c := areas[i].cover(z)
+	earlier := earlierCovers(areas[:i], z)
+	y0, y1 := max(c.minY, 0), min(c.maxY, n-1)
+	if c.sameRows && len(earlier) == 0 && y0 <= y1 {
+		own := mergeSpans(c.spans(y0), n)
+		return fn(i, z, y0, y1, own, own)
+	}
+	for y := y0; y <= y1; y++ {
+		if ctx.Err() != nil {
+			return false
+		}
+		own := mergeSpans(c.spans(y), n)
+		if !fn(i, z, y, y, own, subtractSpans(own, rowSpans(earlier, y, n))) {
+			return false
+		}
+	}
+	return true
 }
 
 // earlierCovers returns the covers at zoom level z of the areas whose zoom range holds z.

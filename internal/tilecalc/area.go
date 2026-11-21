@@ -102,7 +102,7 @@ func (a Area) cover(z int) cover {
 		b := a.Geometry.Bound()
 		geo := &GeographicBounds{MinLat: b.Min[1], MaxLat: b.Max[1], MinLon: b.Min[0], MaxLon: b.Max[0]}
 		tb := NewTileCalculator().CalculateTileBounds(geo, z)
-		return cover{minY: tb.MinY, maxY: tb.MaxY, spans: func(int) []span { return []span{{tb.MinX, tb.MaxX}} }}
+		return cover{minY: tb.MinY, maxY: tb.MaxY, spans: func(int) []span { return []span{{tb.MinX, tb.MaxX}} }, sameRows: true}
 	case AreaPolygon:
 		polygons, _ := areaPolygons(a.Geometry) // Validate checked the type, and a wrong type gives no polygons.
 		return newPolygonCover(polygons, n)
@@ -266,6 +266,8 @@ type span struct{ lo, hi int }
 type cover struct {
 	minY, maxY int
 	spans      func(y int) []span
+	// sameRows is true when every row has the same columns, as in a bounds area.
+	sameRows bool
 }
 
 func emitCover(ctx context.Context, c cover, n int) <-chan [2]int {
