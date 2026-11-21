@@ -185,7 +185,7 @@ The project loads the snapshot first. Then it loads the user source directory, w
 - each `.xml` file under `maps/` in the release, in the upstream layout, for example `atak-maps/maps/base/osm/osm.xml`
 - `VERSION`, with the tag and the commit of the release
 
-The command replaces only `atak-maps/`, so your own source files beside it stay. It prints `<tag>: N added, N changed, N removed`. If a request fails, or the archive has a path with `..` or no `maps/` directory, the command keeps the existing source files and exits with code 1. A GitHub rate-limit response gives a message with the time to try again.
+The command replaces only `atak-maps/`, so your own source files beside it stay. It also removes the hidden `.atak-maps-new-*` and `.atak-maps-old-*` directories that an interrupted sync can leave. It prints `<tag>: N added, N changed, N removed`. If a request fails, or the archive has a path with `..` or no `maps/` directory, the command keeps the existing source files and exits with code 1. A GitHub rate-limit response gives a message with the time to try again.
 
 A map source in the user source directory replaces the snapshot map source with the same name. `list-sources` shows the origin of each map source: `snapshot` or `user`. With `--no-snapshot`, the project loads only the user source directory.
 

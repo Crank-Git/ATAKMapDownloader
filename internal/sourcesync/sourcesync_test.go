@@ -389,3 +389,34 @@ func TestSyncKeepsTheSourceFilesWhenTheTarballFails(t *testing.T) {
 	}
 	equalTrees(t, tree(t, dir), before)
 }
+
+func TestSyncRemovesTheTemporaryDirectoriesOfAnUnfinishedSync(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".atak-maps-new-123/maps/a.xml", "<a/>")
+	writeFile(t, dir, ".atak-maps-old-456/atak-maps/maps/b.xml", "<b/>")
+	writeFile(t, dir, ".atak-maps-mine/c.xml", "<c/>")
+	f := newFakeGitHub(t, "v2.4.0", archive(t, entry{"top/maps/a.xml", "<a/>"}))
+
+	if _, err := Sync(t.Context(), options(f.Server, dir)); err != nil {
+		t.Fatalf("Sync() returned %v", err)
+	}
+	equalTrees(t, tree(t, dir), map[string]string{
+		".atak-maps-mine/c.xml": "<c/>",
+		"atak-maps/maps/a.xml":  "<a/>",
+		"atak-maps/VERSION":     "tag: v2.4.0\ncommit: " + testCommit + "\n",
+	})
+}
+
+func TestSyncCountsAnArchivePathWithADotElementAsTheCleanPath(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "atak-maps/maps/a.xml", "<a/>")
+	f := newFakeGitHub(t, "v2.4.0", archive(t, entry{"top/maps/./a.xml", "<a/>"}))
+
+	res, err := Sync(t.Context(), options(f.Server, dir))
+	if err != nil {
+		t.Fatalf("Sync() returned %v", err)
+	}
+	if res.Added != 0 || res.Changed != 0 || res.Removed != 0 {
+		t.Errorf("Sync() = %+v, want 0 added, 0 changed and 0 removed", res)
+	}
+}

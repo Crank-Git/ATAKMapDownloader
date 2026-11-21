@@ -150,6 +150,7 @@ func get(ctx context.Context, opts Options, endpoint, accept string) ([]byte, er
 	if err != nil {
 		return nil, fmt.Errorf("get %s: %w", endpoint, err)
 	}
+	// The body is read to the end or not needed, so a close error changes no result.
 	defer func() { _ = resp.Body.Close() }()
 	if err := checkStatus(resp, endpoint); err != nil {
 		return nil, err
@@ -196,7 +197,8 @@ func extract(data []byte) (map[string][]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("read the archive: %w", err)
 	}
-	tr := tar.NewReader(io.LimitReader(gz, maxExtractBytes))
+	limited := &io.LimitedReader{R: gz, N: maxExtractBytes}
+	tr := tar.NewReader(limited)
 	files := map[string][]byte{}
 	commit := "unknown"
 	for {
@@ -208,7 +210,7 @@ func extract(data []byte) (map[string][]byte, string, error) {
 			return nil, "", fmt.Errorf("read the archive: %w", err)
 		}
 		if hdr.Typeflag == tar.TypeXGlobalHeader {
-			if c := hdr.PAXRecords["comment"]; c != "" {
+			if c := hdr.PAXRecords["comment"]; isHex(c) {
 				commit = c
 			}
 			continue
@@ -226,10 +228,28 @@ func extract(data []byte) (map[string][]byte, string, error) {
 		}
 		files[name] = body
 	}
+	// The limit can end the stream on an entry boundary, and then the tar reader sees a clean end.
+	if limited.N == 0 {
+		return nil, "", fmt.Errorf("the archive is larger than %d MiB", maxExtractBytes>>20)
+	}
 	if len(files) == 0 {
 		return nil, "", errors.New("the archive has no .xml file under maps/, so the upstream layout changed")
 	}
 	return files, commit, nil
+}
+
+// isHex reports whether s is a non-empty string of lowercase hexadecimal digits.
+// A commit with another character could add lines to VERSION.
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // mapsPath returns the path of an archive entry without its top directory, or "" when the entry is not under maps/.
@@ -250,7 +270,8 @@ func mapsPath(name string) (string, error) {
 	if !filepath.IsLocal(filepath.FromSlash(rest)) {
 		return "", fmt.Errorf("the archive path %q leaves the target directory", name)
 	}
-	return rest, nil
+	// hashTree keys are clean paths, so a key such as maps/./a.xml must be clean too, or the counts are wrong.
+	return path.Clean(rest), nil
 }
 
 // hashTree returns the SHA-256 of each .xml file under dir, keyed by slash path.
@@ -264,7 +285,7 @@ func hashTree(dir string) (map[string][32]byte, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(strings.ToLower(p), ".xml") {
+		if !d.Type().IsRegular() || !strings.HasSuffix(strings.ToLower(p), ".xml") {
 			return nil
 		}
 		data, err := os.ReadFile(p) //nolint:gosec // p is under the user source directory that the operator chooses.
@@ -291,10 +312,14 @@ func replace(dir string, files map[string][]byte, version string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("make the user source directory: %w", err)
 	}
+	if err := removeLeftovers(dir); err != nil {
+		return err
+	}
 	tmp, err := os.MkdirTemp(dir, ".atak-maps-new-")
 	if err != nil {
 		return fmt.Errorf("make a temporary directory: %w", err)
 	}
+	// A failed removal leaves only a hidden directory that the next sync removes.
 	defer func() { _ = os.RemoveAll(tmp) }()
 	if err := writeAll(tmp, files, version); err != nil {
 		return err
@@ -305,18 +330,43 @@ func replace(dir string, files map[string][]byte, version string) error {
 	if err != nil {
 		return fmt.Errorf("make a temporary directory: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(aside) }()
+	keepAside := false
+	defer func() {
+		if !keepAside {
+			// A failed removal leaves only a hidden directory that the next sync removes.
+			_ = os.RemoveAll(aside)
+		}
+	}()
 	old := filepath.Join(aside, Subdir)
 	if err := os.Rename(target, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("move the old synced source files aside: %w", err)
 	}
 	if err := os.Rename(tmp, target); err != nil {
 		err = fmt.Errorf("move the new synced source files into place: %w", err)
-		// The old files go back, so a failed swap changes nothing.
 		if restoreErr := os.Rename(old, target); restoreErr != nil && !errors.Is(restoreErr, fs.ErrNotExist) {
-			return errors.Join(err, fmt.Errorf("restore the old synced source files: %w", restoreErr))
+			// The old files are then only in aside, so aside must stay for the user.
+			keepAside = true
+			return errors.Join(err, fmt.Errorf("move the old synced source files back from %s: %w", old, restoreErr))
 		}
 		return err
+	}
+	return nil
+}
+
+// removeLeftovers removes the temporary directories of an earlier sync that the process did not finish.
+// The parser reads every subdirectory, so a leftover directory would load its source files a second time.
+func removeLeftovers(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read the user source directory: %w", err)
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() && (strings.HasPrefix(name, ".atak-maps-new-") || strings.HasPrefix(name, ".atak-maps-old-")) {
+			if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
+				return fmt.Errorf("remove the leftover directory %s: %w", name, err)
+			}
+		}
 	}
 	return nil
 }
@@ -327,6 +377,7 @@ func writeAll(tmp string, files map[string][]byte, version string) error {
 	if err != nil {
 		return fmt.Errorf("open the temporary directory: %w", err)
 	}
+	// Each write reports its own error, so a close error changes no result.
 	defer func() { _ = root.Close() }()
 	for name, body := range files {
 		if err := root.MkdirAll(path.Dir(name), 0o750); err != nil {
