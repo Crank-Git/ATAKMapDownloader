@@ -34,6 +34,12 @@ archives:
       - goos: windows
         formats:
           - zip
+    # A list here replaces the default files, so README.md and LICENSE are named again.
+    # The binary embeds no source files until Epic 5, so the archive carries mapsources/.
+    files:
+      - LICENSE
+      - README.md
+      - mapsources/**/*.xml
 
 checksum:
   name_template: checksums.txt

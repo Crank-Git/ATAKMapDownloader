@@ -31,8 +31,8 @@ You can install the project in two ways: a release archive or the Docker image.
 
 1. Open the [GitHub Releases](https://github.com/Crank-Git/ATAKMapDownloader/releases) page.
 2. Download the archive for your operating system and architecture. The Windows archive is a `.zip` file. The other archives are `.tar.gz` files.
-3. Extract the `atak-dl` binary from the archive.
-4. Copy the `mapsources/` directory from this repository next to the binary. The binary reads its map sources from that directory.
+3. Extract the archive into a new directory. The archive contains the `atak-dl` binary and the `mapsources/` directory.
+4. Run `./atak-dl` from that directory. The binary reads its map sources from `mapsources/` in the current directory.
 
 Each release also has a `checksums.txt` file. Use it to verify the archive.
 
