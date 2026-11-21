@@ -78,6 +78,10 @@ The project exists because ATAK users often work with no network. Examples are s
 | output file | noun | The SQLite or zip file that a job writes. | tileset, database, map file, archive |
 | output format | noun | The schema of the output file: `mbtiles`, `osmdroid` or `gpkg` (built, feature 10). | file type |
 | data package | noun | An ATAK zip file with a `MANIFEST/manifest.xml` and the output file (built, feature 10). | mission package (except in ATAK quotes) |
+| data directory | noun | The directory of `serve` that holds the output files and the job store. It comes from `--data-dir`, else `ATAKDL_DATA_DIR`, else `./downloads` (built, feature 12). | output folder, volume |
+| job store | noun | The file `jobs.jsonl` in the data directory. Each line holds one state of one job, with its request (built, feature 12). | database, history, log |
+| queue | noun | The ordered list of the queued jobs that wait for a worker of `serve` (built, feature 12). | backlog, waiting list |
+| position | noun | The place of a queued job in the queue. Position 1 is the next job (built, feature 12). | rank, index |
 | package name | noun | The name of a data package: 1 to 64 characters of `A-Z`, `a-z`, `0-9`, space, `_` and `-`, after the spaces around it are trimmed. It gives the zip file name (feature 10). | zip name, bundle name |
 | retry | verb | To send a tile request again after it fails. | re-fetch |
 | resume | verb | To continue a job into an existing output file and skip the tiles it already holds (feature 07). | restart, continue |
@@ -92,7 +96,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | CLI | noun | Command-line interface: the `atak-dl` subcommands. | terminal mode |
 | base map | noun | The background map that the web UI draws under the area. | basemap layer |
 | geocode | verb | To find coordinates for a place name through Nominatim. | search (as a verb for this) |
-| token | noun | The shared secret that a client sends to a server that is not bound to loopback (planned, feature 12). | password, API key |
+| token | noun | The shared secret that a client sends to a server that is not bound to loopback (built, feature 12). | password, API key |
 | TMS | noun | Tile Map Service row order: row 0 is at the south edge. | — |
 | XYZ | noun | Slippy-map row order: row 0 is at the north edge. | — |
 | WMS | noun | OGC Web Map Service. A map source that the project requests with bounds instead of a tile column and row. | — |
@@ -202,8 +206,8 @@ internal/mbtiles/       MBTiles writer (built)
 internal/output/        output format registry, and the osmdroid and gpkg writers (built)
 internal/output/sqlitequeue/  writer core that the three output formats share (built)
 internal/datapackage/   ATAK data package zip and manifest (built)
-internal/policy/        planned: source policy table and rate limits
-internal/jobs/          planned: job queue and job store
+internal/policy/        source policy table and rate limits (built)
+internal/jobs/          queue and job store (built)
 internal/server/        planned: HTTP handlers moved out of commands/web.go
 web/                    embedded web UI
 internal/snapshot/      embedded ATAK-Maps source files, VERSION and name aliases (built)
@@ -305,8 +309,8 @@ Per entity:
 - **MAP_SOURCE** (built, `internal/xmlparser/xmlparser.go:16-26`). The parser loads it from a `<customMapSource>` source file. `name` is the key. A map source of a later layer replaces one of the same name: the snapshot, then `atak-maps/`, then the user's own files (FR-source-sync-5). Defaults: if both zooms are 0, `max_zoom` is 18. `tile_type` is `png`, `tile_update` is `None` and `background_color` is `#000000`. It has `kind` (`tile`, and `wms` when #41 lands) and `invert_y` (feature 09).
 - **SOURCE_FILE** (built). A MOBAC XML file in the snapshot or in the user source directory. `origin` is `snapshot` or `user` (feature 09).
 - **SKIPPED_SOURCE** (built, feature 09). An in-memory record of a source file that did not load, with its path, reason and detail (#38).
-- **SOURCE_POLICY** (planned, feature 06). A table embedded in the binary, keyed by a host pattern such as `*.google.com`. `policy_class` is `open`, `conditional` or `restricted`. `requests_per_second` is the rate limit for that host.
-- **JOB** (built as one in-memory record, `cmd/atak-dl/commands/jobs.go:62-78`, #76). It has an `id`, and its state is `running`, `complete`, `failed` or `cancelled`. The server keeps only the last job (`web.go:29-35`). Planned (feature 12): the `queued` state and a persistent record in the data directory.
+- **SOURCE_POLICY** (built, feature 06). A table embedded in the binary, keyed by a host pattern such as `*.google.com`. `policy_class` is `open`, `conditional` or `restricted`. `requests_per_second` is the rate limit for that host.
+- **JOB** (built, feature 12, `cmd/atak-dl/commands/jobs.go:101-128`). It has an `id`, and its state is `queued`, `running`, `complete`, `failed` or `cancelled`. The server keeps every job in the job store of the data directory (`jobstore.go:71-84`). Each line of the job store holds the job record and the job request. A queued job has a position in the queue. After a restart, a queued job goes back in the queue, and a running job becomes `failed` with the reason `server_restarted`.
 - **AREA** (built, feature 11). Its kind is `bounds`, `polygon` or `route_buffer`, with GeoJSON geometry and a zoom range for each area. A job holds 1 to 20 areas, and the output file metadata `atakdl_areas` stores them.
 - **OUTPUT_FILE** (built). Path: `./downloads/<name>_z<min>-<max>.sqlite`. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row `atakdl_source` names the map source. Planned: an extension per output format (feature 10).
 - **TILE** (built, `internal/mbtiles/mbtiles.go:20,22`). `UNIQUE (zoom_level, tile_column, tile_row)`. `tile_row` is TMS: `(1<<z)-1-y`. `tile_data` holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
@@ -331,7 +335,7 @@ stateDiagram-v2
 
 ## Cross-cutting concerns
 
-- **Authentication and authorization.** Today there is none, and that is acceptable only on loopback. If the host in `--addr` is not a loopback address, `serve` prints a warning to stderr that the server has no authentication (`serve.go:49-54`, #81). Planned (feature 12): if the server binds to an address that is not loopback, every request must carry the token. The token comes from `--token` or `ATAKDL_TOKEN`. If neither is set, the server generates one and prints it once at start.
+- **Authentication and authorization.** A server on loopback needs no token. If the server binds to an address that is not loopback, every request must carry the token, except the health route and the sign-in page (built, feature 12, `cmd/atak-dl/commands/auth.go:111-145`). The token comes from `--token`, else from `ATAKDL_TOKEN`. If neither is set, the server generates one and prints it once to stderr at start (`serve.go:128-145`). A client sends the token in the `Authorization` header or in the `atakdl_token` cookie. An IP address with 10 failed attempts in one minute gets 429 `too_many_attempts`.
 - **Cross-origin requests.** The server sends no CORS header (#77). `newServerHandler` wraps every route with `http.CrossOriginProtection` (`cmd/atak-dl/commands/web.go:56-62`). A cross-origin browser request that is not `GET`, `HEAD` or `OPTIONS` gets 403 `cross_origin`. The websocket and `/ws` are removed (#78).
 - **TLS.** The engine verifies TLS certificates by default (`internal/download/download.go:43`, #75). `download --insecure` turns verification off for one job and prints a warning to stderr. The web UI shows **Verify TLS** checked by default (#78).
 - **Error handling.** Every error response is `application/json` with the shape `{"error": {"code": "<snake_case>", "message": "<text>"}}` (`writeError`, `web.go:443-447`, #74). Every JSON success response sets `Content-Type: application/json`. The error codes are in `05-security-hardening.md`. The CLI prints a limit error as `Error: <code>: <message>`. It exits with code 4 for `too_many_tiles` and with code 1 for the other limit errors (#81, #29).

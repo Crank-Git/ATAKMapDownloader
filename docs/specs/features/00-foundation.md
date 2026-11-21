@@ -114,7 +114,7 @@ No screen. The CLI adds `--version`.
 
 - CI uses `actions/setup-go` with `go-version-file: go.mod`.
 - The release workflow has the permissions `contents: write`, `packages: write`, `id-token: write` and `attestations: write`.
-- The Docker image runs as a non-root user. It exposes port 5000 and starts `atak-dl serve --addr 0.0.0.0:5000`.
+- The Docker image runs as a non-root user. It exposes port 5000 and starts `atak-dl serve --addr 0.0.0.0:5000 --data-dir /data`.
 
 ## Data touched
 

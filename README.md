@@ -97,6 +97,8 @@ A release binary shows its release version, commit and build date. A local build
 
 Then open http://localhost:5000 in your browser.
 
+The Jobs page at http://localhost:5000/jobs lists the queued jobs and the job history, newest first. Each job row shows the map source, the label or area name, the zoom range, the state and the progress. A row offers the actions that the job state allows: Cancel, Download and Resume. Select a row to see the job record and the live event log.
+
 ### CLI Commands
 
 ```bash
@@ -136,6 +138,7 @@ Then open http://localhost:5000 in your browser.
 | `serve` | `--max-tiles` | `500000` | Tile cap of a job. `POST /api/jobs` for a job above the cap returns 400 `too_many_tiles`, and the job sends no request. |
 | `serve` | (job store) | - | The server appends each state of each job to `<data dir>/jobs.jsonl`, with the job request and with no token. At start, a `running` job becomes `failed` with `reason` `server_restarted`, and a `queued` job runs. The server skips a corrupt line and logs its line number. `GET /api/jobs?page=N` returns `{"jobs": [...], "page": N, "pages": P}`, newest first, 50 per page, and 400 `invalid_query` for a page that is not a whole number of 1 or more. `POST /api/jobs` accepts `label`, 1 to 80 characters, and returns 400 `invalid_label` for another length. If a queued or running job writes the same output file name or data package name, the new job gets the suffix `-2`, `-3` and so on. The suffix shortens a long package name, so the name stays inside 64 characters. `POST /api/jobs/{id}/resume` returns 409 `output_in_use` when a queued or running job writes the output file of the job. |
 | `serve` | (health route) | - | `GET /healthz` returns 200 with `{"status":"ok","version":"<version>"}`. It needs no token, so a monitor can read it. Another method returns 405 `method_not_allowed`. |
+| `serve` | `--workers` | `1` | Number of jobs that run at the same time, 1 to 8. Another job waits in the queue with the state `queued`. The queue holds at most 50 jobs, and `POST /api/jobs` returns 429 `queue_full` above that. A value outside 1 to 8 fails at start. |
 | `serve` | `--token` | `ATAKDL_TOKEN`, else generated | Token of a server that is not on loopback. A client sends it as `Authorization: Bearer <token>`, or signs in at `/signin` to get the `atakdl_token` cookie. With no token set, `serve` generates a 32-character token and prints it once to stderr. A server on loopback needs no token. 10 failed token attempts in one minute from one IP address give 429 `too_many_attempts`. |
 | `download` | `--source` | - | Map source name (required) |
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon. It is required, except with `--area` or `--resume --output <file>`. |

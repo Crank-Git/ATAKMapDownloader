@@ -17,7 +17,10 @@ Design lives in `docs/specs/`. Read `docs/specs/spec.md` and the relevant `docs/
 | `internal/mbtiles/` | The MBTiles writer |
 | `internal/output/` | The output format registry, and the `gpkg` and `osmdroid` writers. `sqlitequeue/` holds the writer core that the three formats share |
 | `internal/datapackage/` | The ATAK data package zip and manifest |
-| `internal/policy/`, `internal/jobs/`, `internal/server/`, `internal/testtiles/` | Planned packages. See `spec.md` § Architecture & stack |
+| `internal/jobs/` | The job queue and the job store |
+| `internal/policy/` | The embedded source policy table and its host match |
+| `internal/testtiles/` | The `httptest` tile server for tests |
+| `internal/server/` | Planned package. See `spec.md` § Architecture & stack |
 | `web/` | The embedded web UI. Vendor every asset here. Load nothing from a CDN |
 | `internal/snapshot/` | The embedded ATAK-Maps v2.3.1 source files, `VERSION`, `LICENSE` and `NOTICE.md` |
 | `docs/specs/`, `docs/adr/` | The spec and the decision records |
