@@ -47,7 +47,10 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 
 	minZoom, _ := cmd.Flags().GetInt("min-zoom")
 	maxZoom, _ := cmd.Flags().GetInt("max-zoom")
-	concurrent, _ := cmd.Flags().GetInt("concurrent")
+	concurrent, err := cmd.Flags().GetInt("concurrent")
+	if err != nil {
+		return fmt.Errorf("read --concurrent: %w", err)
+	}
 	if code, message := checkJobLimits(source, minZoom, maxZoom, concurrent); code != "" {
 		// The flags are valid in form, so the usage text does not help the user.
 		cmd.SilenceUsage = true
@@ -67,7 +70,10 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 	cfg := download.DefaultConfig()
 	cfg.MaxConcurrent = concurrent
 	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
-	insecure, _ := cmd.Flags().GetBool("insecure")
+	insecure, err := cmd.Flags().GetBool("insecure")
+	if err != nil {
+		return fmt.Errorf("read --insecure: %w", err)
+	}
 	cfg.VerifyTLS = !insecure
 	if insecure {
 		// The job does not start without the warning, because FR-security-hardening-6 requires it.

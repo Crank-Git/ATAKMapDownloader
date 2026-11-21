@@ -126,6 +126,7 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--max-zoom` | 15 | Maximum zoom level. It must not be above the map source's maximum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--output` | `downloads/<name>.sqlite` | Output file path |
 | `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
+| `download` | `--insecure` | `false` | Do not verify the TLS certificates of the tile server. The command prints a warning to stderr when this flag is set. |
 
 ## Map Sources
 

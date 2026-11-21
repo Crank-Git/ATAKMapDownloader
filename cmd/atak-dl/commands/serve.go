@@ -29,10 +29,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	dir, _ := cmd.Flags().GetString("mapsources-dir")
 	addr, _ := cmd.Flags().GetString("addr")
 
-	loopback, err := isLoopbackAddr(addr)
+	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("read --addr %q: %w", addr, err)
 	}
+	// An empty host listens on every interface, so it is not loopback.
+	ip := net.ParseIP(host)
+	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
 
 	parser := xmlparser.New(dir)
 	sources := parser.DiscoverSources(false)
@@ -69,21 +72,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
-}
-
-// isLoopbackAddr reports whether the host of addr is a loopback address or "localhost".
-// An empty host listens on every interface, so it is not loopback.
-// It returns an error when addr does not have the form host:port.
-func isLoopbackAddr(addr string) (bool, error) {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return false, fmt.Errorf("read --addr %q: %w", addr, err)
-	}
-	if host == "localhost" {
-		return true, nil
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback(), nil
 }
 
 // newServer returns the HTTP server for handler on addr, with the timeouts of FR-security-hardening-18.
