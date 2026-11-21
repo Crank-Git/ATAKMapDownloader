@@ -82,6 +82,8 @@ The project exists because ATAK users often work with no network. Examples are s
 | failure rate | noun | Failed tiles divided by processed tiles in one job. | error rate |
 | failure tolerance | noun | The highest failure rate at which a job still succeeds. Code: `MaxFailureRate`. | error budget |
 | failure reason | noun | The word that names why one tile failed, for example `not_image` or `http_404`. Code: `download.Reason`. | error code, cause |
+| URL placeholder | noun | A `{$…}` string in the `url` of a source file that the engine replaces for each tile, for example `{$x}` (feature 09). | variable, template field |
+| server part | noun | One value of `serverParts` that the engine puts in `{$serverpart}`. The tile column plus the tile row selects it (feature 09). | subdomain, mirror |
 | placeholder image | noun | One image that a map source sends for many tiles in place of real map data. | dummy tile, filler |
 | server | noun | The HTTP process that `atak-dl serve` starts. | backend, daemon |
 | web UI | noun | The browser page that the server sends from the binary. | frontend, dashboard, web app |

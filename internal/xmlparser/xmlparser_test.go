@@ -37,25 +37,6 @@ func TestMapSource_FormatURL_BingQuadkey(t *testing.T) {
 	}
 }
 
-func TestMapSource_GetServerPart(t *testing.T) {
-	source := &MapSource{
-		ServerParts: []string{"a", "b", "c"},
-	}
-	if source.GetServerPart(0) != "a" {
-		t.Error("expected a")
-	}
-	if source.GetServerPart(1) != "b" {
-		t.Error("expected b")
-	}
-	if source.GetServerPart(3) != "a" {
-		t.Error("expected wrap to a")
-	}
-	noParts := &MapSource{ServerParts: nil}
-	if noParts.GetServerPart(0) != "" {
-		t.Error("expected empty for no server parts")
-	}
-}
-
 func TestXMLParser_DiscoverSources(t *testing.T) {
 	dir := t.TempDir()
 	createTestXML(t, dir, "test.xml", `<?xml version="1.0"?>

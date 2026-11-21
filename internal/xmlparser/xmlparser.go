@@ -10,8 +10,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // MapSource represents a map tile source configuration.
@@ -25,6 +27,8 @@ type MapSource struct {
 	BackgroundColor string
 	IgnoreErrors    bool
 	ServerParts     []string
+	// InvertYCoordinate makes FormatURL send the TMS row as {$y} (FR-source-sync-21).
+	InvertYCoordinate bool
 	// Kind is KindTile. Issue #41 adds the WMS kind.
 	Kind string
 	// Origin is OriginSnapshot or OriginUser.
@@ -45,24 +49,27 @@ func (m *MapSource) FileExtension() string {
 	return strings.ToLower(m.TileType)
 }
 
-// FormatURL formats the URL template with tile coordinates.
+// FormatURL returns the tile URL of the XYZ tile x, y at zoom level z.
+// It puts serverPart in {$serverpart}.
+// An empty serverPart selects the server part of the tile key (FR-source-sync-23).
+// When InvertYCoordinate is true, {$y} is the TMS row (FR-source-sync-21).
+// {$q} always encodes the XYZ row, because a quadkey has its origin at the top left.
 func (m *MapSource) FormatURL(x, y, z int, serverPart string) string {
+	row := y
+	if m.InvertYCoordinate {
+		row = (1<<z - 1) - y
+	}
+	if serverPart == "" {
+		serverPart = m.GetServerPart(x, y)
+	}
 	url := m.URL
 	url = strings.ReplaceAll(url, "{$x}", strconv.Itoa(x))
-	url = strings.ReplaceAll(url, "{$y}", strconv.Itoa(y))
+	url = strings.ReplaceAll(url, "{$y}", strconv.Itoa(row))
 	url = strings.ReplaceAll(url, "{$z}", strconv.Itoa(z))
-
 	if strings.Contains(url, "{$q}") {
 		url = strings.ReplaceAll(url, "{$q}", m.tileToQuadkey(x, y, z))
 	}
-
-	if serverPart != "" && strings.Contains(url, "{$serverpart}") {
-		url = strings.ReplaceAll(url, "{$serverpart}", serverPart)
-	} else if len(m.ServerParts) > 0 && strings.Contains(url, "{$serverpart}") {
-		url = strings.ReplaceAll(url, "{$serverpart}", m.ServerParts[0])
-	}
-
-	return url
+	return strings.ReplaceAll(url, "{$serverpart}", serverPart)
 }
 
 // Hosts returns the distinct hosts of the tile URLs, in lower case and with no port.
@@ -106,12 +113,37 @@ func (m *MapSource) tileToQuadkey(x, y, z int) string {
 	return quadkey.String()
 }
 
-// GetServerPart returns a server part for load balancing.
-func (m *MapSource) GetServerPart(tileIndex int) string {
+// GetServerPart returns the server part of the XYZ tile x, y, which is (x + y) mod len(ServerParts) (FR-source-sync-23).
+// A tile thus always uses the same part, whatever the order of the requests is.
+// It returns an empty string when the map source has no server parts.
+func (m *MapSource) GetServerPart(x, y int) string {
 	if len(m.ServerParts) == 0 {
 		return ""
 	}
-	return m.ServerParts[tileIndex%len(m.ServerParts)]
+	return m.ServerParts[(x+y)%len(m.ServerParts)]
+}
+
+// knownPlaceholders are the placeholders of the ATAK-Maps XML reference v2.3.1, section "URL Placeholders" (FR-source-sync-24).
+// ATAK replaces them with exact string matches, so the letter case must match.
+var knownPlaceholders = map[string]bool{
+	"{$z}":          true,
+	"{$x}":          true,
+	"{$y}":          true,
+	"{$q}":          true,
+	"{$serverpart}": true,
+}
+
+var placeholderPattern = regexp.MustCompile(`\{\$[^}]*\}`)
+
+// unknownPlaceholder returns the first placeholder in url that the XML reference does not document.
+// It returns an empty string when url holds only known placeholders.
+func unknownPlaceholder(url string) string {
+	for _, p := range placeholderPattern.FindAllString(url, -1) {
+		if !knownPlaceholders[p] {
+			return p
+		}
+	}
+	return ""
 }
 
 // The skip reasons of a source file (FR-source-sync-27).
@@ -157,6 +189,8 @@ type customMapSourceXML struct {
 	BackgroundColor string `xml:"backgroundColor"`
 	IgnoreErrors    bool   `xml:"ignoreErrors"`
 	ServerParts     string `xml:"serverParts"`
+	// InvertYCoordinate is a string, because the XML reference turns the inversion on only for the exact string true.
+	InvertYCoordinate string `xml:"invertYCoordinate"`
 }
 
 // XMLParser parses map source XML configuration files.
@@ -300,6 +334,10 @@ func parse(data []byte, origin string) (*MapSource, error) {
 		return nil, &SkipError{Reason: SkipMissingURL, Detail: "the <url> element is empty or missing"}
 	}
 
+	if p := unknownPlaceholder(raw.URL); p != "" {
+		return nil, &SkipError{Reason: SkipUnknownPlaceholder, Detail: "the <url> element holds the unknown placeholder " + p}
+	}
+
 	if raw.MinZoom == 0 && raw.MaxZoom == 0 {
 		raw.MaxZoom = 18
 	}
@@ -313,13 +351,10 @@ func parse(data []byte, origin string) (*MapSource, error) {
 		raw.BackgroundColor = "#000000"
 	}
 
-	serverParts := []string{}
-	if raw.ServerParts != "" {
-		for _, part := range strings.Fields(raw.ServerParts) {
-			if s := strings.TrimSpace(part); s != "" {
-				serverParts = append(serverParts, s)
-			}
-		}
+	// ATAK splits on white space only, but FR-source-sync-22 also splits on commas, so "a,b,c" gives three parts.
+	serverParts := strings.FieldsFunc(raw.ServerParts, func(r rune) bool { return unicode.IsSpace(r) || r == ',' })
+	if serverParts == nil {
+		serverParts = []string{}
 	}
 
 	return &MapSource{
@@ -332,8 +367,10 @@ func parse(data []byte, origin string) (*MapSource, error) {
 		BackgroundColor: raw.BackgroundColor,
 		IgnoreErrors:    raw.IgnoreErrors,
 		ServerParts:     serverParts,
-		Kind:            KindTile,
-		Origin:          origin,
+		// A source file can put white space around the value, and the XML decoder keeps it.
+		InvertYCoordinate: strings.TrimSpace(raw.InvertYCoordinate) == "true",
+		Kind:              KindTile,
+		Origin:            origin,
 	}, nil
 }
 
