@@ -182,8 +182,11 @@ func multipartBody(t *testing.T, filename string, data []byte) (*bytes.Buffer, s
 	return &buf, mw.FormDataContentType()
 }
 
-func TestParseRouteReturnsTheAreasOfAFile(t *testing.T) {
-	h := newServerHandler(newTestHandler(t, map[string]string{"test.xml": testSourceXML}))
+// parseRouteFixtures returns the server handler, the trail.kml file, and mixed.geojson after 2 MiB of white space.
+// The white space makes the body larger than the 1 MiB limit of the other routes.
+func parseRouteFixtures(t *testing.T) (h http.Handler, trail, padded []byte) {
+	t.Helper()
+	h = newServerHandler(newTestHandler(t, map[string]string{"test.xml": testSourceXML}))
 	trail, err := os.ReadFile(areaFixture("trail.kml"))
 	if err != nil {
 		t.Fatal(err)
@@ -192,36 +195,40 @@ func TestParseRouteReturnsTheAreasOfAFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The padding makes the body larger than the 1 MiB limit of the other routes.
-	padded := append(bytes.Repeat([]byte(" "), 2<<20), mixed...)
+	return h, trail, append(bytes.Repeat([]byte(" "), 2<<20), mixed...)
+}
 
-	t.Run("reads a multipart KML file with the query defaults", func(t *testing.T) {
-		body, contentType := multipartBody(t, "trail.kml", trail)
-		req := httptest.NewRequest(http.MethodPost, "/api/areas/parse?min_zoom=12&max_zoom=17&buffer_m=300", body)
-		req.Header.Set("Content-Type", contentType)
-		got := serveParse(t, h, req)
-		if len(got.Areas) != 1 {
-			t.Fatalf("areas = %+v, want 1", got.Areas)
-		}
-		a := got.Areas[0]
-		if a.Kind != "route_buffer" || a.Name != "Summit trail" || a.MinZoom != 12 || a.MaxZoom != 17 || a.BufferM != 300 {
-			t.Errorf("area = %+v, want the route_buffer Summit trail, zoom 12-17, buffer_m 300", a)
-		}
-		if want := `{"type":"LineString","coordinates":[[-121.7,46.8],[-121.7,46.82]]}`; string(a.Geometry) != want {
-			t.Errorf("geometry = %s, want %s", a.Geometry, want)
-		}
-		if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "1 Point feature") {
-			t.Errorf("warnings = %q, want the Point warning", got.Warnings)
-		}
-	})
-	t.Run("reads a raw GeoJSON body larger than 1 MiB", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/api/areas/parse", bytes.NewReader(padded))
-		got := serveParse(t, h, req)
-		if len(got.Areas) != 3 || got.Areas[0].Name != "County" || got.Areas[0].MaxZoom != 12 {
-			t.Errorf("areas = %+v, want County, Ridge and the unnamed line", got.Areas)
-		}
-	})
+func TestParseRouteReadsAMultipartKMLFileWithTheQueryDefaults(t *testing.T) {
+	h, trail, _ := parseRouteFixtures(t)
+	body, contentType := multipartBody(t, "trail.kml", trail)
+	req := httptest.NewRequest(http.MethodPost, "/api/areas/parse?min_zoom=12&max_zoom=17&buffer_m=300", body)
+	req.Header.Set("Content-Type", contentType)
+	got := serveParse(t, h, req)
+	if len(got.Areas) != 1 {
+		t.Fatalf("areas = %+v, want 1", got.Areas)
+	}
+	a := got.Areas[0]
+	if a.Kind != "route_buffer" || a.Name != "Summit trail" || a.MinZoom != 12 || a.MaxZoom != 17 || a.BufferM != 300 {
+		t.Errorf("area = %+v, want the route_buffer Summit trail, zoom 12-17, buffer_m 300", a)
+	}
+	if want := `{"type":"LineString","coordinates":[[-121.7,46.8],[-121.7,46.82]]}`; string(a.Geometry) != want {
+		t.Errorf("geometry = %s, want %s", a.Geometry, want)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "1 Point feature") {
+		t.Errorf("warnings = %q, want the Point warning", got.Warnings)
+	}
+}
 
+func TestParseRouteReadsARawGeoJSONBodyLargerThan1MiB(t *testing.T) {
+	h, _, padded := parseRouteFixtures(t)
+	got := serveParse(t, h, httptest.NewRequest(http.MethodPost, "/api/areas/parse", bytes.NewReader(padded)))
+	if len(got.Areas) != 3 || got.Areas[0].Name != "County" || got.Areas[0].MaxZoom != 12 {
+		t.Errorf("areas = %+v, want County, Ridge and the unnamed line", got.Areas)
+	}
+}
+
+func TestParseRouteErrors(t *testing.T) {
+	h, trail, padded := parseRouteFixtures(t)
 	tests := []struct {
 		name   string
 		path   string
@@ -232,7 +239,7 @@ func TestParseRouteReturnsTheAreasOfAFile(t *testing.T) {
 		{"rejects a KML that is not XML", "/api/areas/parse", []byte("<kml><Placemark></kml>"), http.StatusBadRequest, "invalid_area_file"},
 		{"rejects a body that is no area file", "/api/areas/parse", []byte("lon,lat"), http.StatusBadRequest, "invalid_area_file"},
 		{"rejects a zoom default that is not a number", "/api/areas/parse?max_zoom=x", trail, http.StatusBadRequest, "invalid_query"},
-		{"rejects a body larger than 5 MiB", "/api/areas/parse", append(bytes.Repeat([]byte(" "), 6<<20), mixed...),
+		{"rejects a body larger than 5 MiB", "/api/areas/parse", append(bytes.Repeat([]byte(" "), 6<<20), padded...),
 			http.StatusRequestEntityTooLarge, "body_too_large"},
 		{"keeps the 1 MiB limit of the estimate route", "/api/estimate", padded, http.StatusRequestEntityTooLarge, "body_too_large"},
 	}

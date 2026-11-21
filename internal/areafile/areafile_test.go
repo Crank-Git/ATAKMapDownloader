@@ -115,25 +115,6 @@ func TestParseReadsTheAreasOfAFile(t *testing.T) {
 			data:   []byte(`{"type":"LineString","coordinates":[[-121.70,46.80],[-121.70,46.82]]}`),
 			want:   []tilecalc.JobArea{lineArea("", summitTrail, 500, 10, 14)},
 		},
-		{
-			name:   "reads doc.kml of a KMZ that holds more than one KML",
-			format: KMZ,
-			data: zipOf(t,
-				[2]string{"files/lake.kml", string(readFixture(t, "multi.kml"))},
-				[2]string{"doc.kml", string(readFixture(t, "trail.kml"))}),
-			want:   []tilecalc.JobArea{lineArea("Summit trail", summitTrail, 500, 10, 14)},
-			points: 1,
-		},
-		{
-			name:   "reads the first KML of a KMZ with no doc.kml",
-			format: KMZ,
-			data: zipOf(t,
-				[2]string{"images/readme.txt", "not a KML"},
-				[2]string{"a/trail.KML", string(readFixture(t, "trail.kml"))},
-				[2]string{"b/multi.kml", string(readFixture(t, "multi.kml"))}),
-			want:   []tilecalc.JobArea{lineArea("Summit trail", summitTrail, 500, 10, 14)},
-			points: 1,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -146,6 +127,33 @@ func TestParseReadsTheAreasOfAFile(t *testing.T) {
 			}
 			if got.Points != tt.points {
 				t.Errorf("points = %d, want %d", got.Points, tt.points)
+			}
+		})
+	}
+}
+
+func TestParseReadsOneKMLOfAKMZ(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{"reads doc.kml of a KMZ that holds more than one KML", zipOf(t,
+			[2]string{"files/lake.kml", string(readFixture(t, "multi.kml"))},
+			[2]string{"doc.kml", string(readFixture(t, "trail.kml"))})},
+		{"reads the first KML of a KMZ with no doc.kml", zipOf(t,
+			[2]string{"images/readme.txt", "not a KML"},
+			[2]string{"a/trail.KML", string(readFixture(t, "trail.kml"))},
+			[2]string{"b/multi.kml", string(readFixture(t, "multi.kml"))})},
+	}
+	want := []tilecalc.JobArea{lineArea("Summit trail", summitTrail, 500, 10, 14)}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Parse(KMZ, tt.data, defaults)
+			if err != nil {
+				t.Fatalf("Parse() = %v", err)
+			}
+			if !reflect.DeepEqual(got.Areas, want) || got.Points != 1 {
+				t.Errorf("result = %+v, want %+v and 1 point", got, want)
 			}
 		})
 	}

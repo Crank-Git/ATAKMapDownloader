@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -18,12 +20,13 @@ func NewEstimateCmd() *cobra.Command {
 		RunE:  runEstimate,
 	}
 	cmd.Flags().String("source", "", "Map source name (required)")
-	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required)")
+	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required, except with --area)")
+	cmd.Flags().String("area", "", "GeoJSON, KML or KMZ file of the areas, in place of --bbox")
+	cmd.Flags().Float64("buffer", 0, "Buffer in metres for each line of the --area file with no buffer_m property")
 	cmd.Flags().Int("zoom", 0, "Single zoom level")
 	cmd.Flags().String("zoom-range", "", "Zoom range as min-max")
 	cmd.Flags().Int("max-tiles", 10000, "Maximum tiles for auto zoom")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
-	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
 }
 
@@ -31,14 +34,23 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	parser := getParser(cmd)
 	calc := tilecalc.NewTileCalculator()
 
-	bboxStr, _ := cmd.Flags().GetString("bbox")
-	bounds, coords := parseBBox(bboxStr)
+	areaFile, bboxStr, err := areaOrBBox(cmd)
+	if err != nil {
+		return err
+	}
+	if areaFile == "" && bboxStr == "" {
+		return errors.New("--bbox or --area is required")
+	}
 
 	sourceName, _ := cmd.Flags().GetString("source")
 	source := parser.GetSource(sourceName)
 	if source == nil {
 		exitErr("Source '" + sourceName + "' not found")
 	}
+	if areaFile != "" {
+		return estimateAreaFile(cmd, areaFile, sourceName, source.TileType)
+	}
+	bounds, coords := parseBBox(bboxStr)
 
 	zoom, _ := cmd.Flags().GetInt("zoom")
 	zoomRange, _ := cmd.Flags().GetString("zoom-range")
@@ -96,6 +108,58 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	clat, clon := bounds.Center()
 	fmt.Printf("Center: %.4f, %.4f\n", clat, clon)
 	fmt.Printf("Area: %.6f square degrees\n", bounds.AreaDegrees())
+	return nil
+}
+
+// estimateAreaFile prints the tile count of each area of the --area file at path and the unique tile count (FR-area-selection-17).
+// A feature with no zoom property gets the zoom range of --zoom or --zoom-range.
+// It returns an error when a feature has no zoom property and the command has neither flag, or when an area is not valid.
+func estimateAreaFile(cmd *cobra.Command, path, sourceName, tileType string) error {
+	zoom, err := cmd.Flags().GetInt("zoom")
+	if err != nil {
+		return fmt.Errorf("read --zoom: %w", err)
+	}
+	zoomRange, err := cmd.Flags().GetString("zoom-range")
+	if err != nil {
+		return fmt.Errorf("read --zoom-range: %w", err)
+	}
+	// A zoom level of -1 marks a feature that needs the zoom range of a flag, because no valid area has it.
+	minZoom, maxZoom := -1, -1
+	switch {
+	case zoom > 0:
+		minZoom, maxZoom = zoom, zoom
+	case zoomRange != "":
+		if _, err := fmt.Sscanf(zoomRange, "%d-%d", &minZoom, &maxZoom); err != nil {
+			return fmt.Errorf("--zoom-range %q is not min-max: %w", zoomRange, err)
+		}
+	}
+	areas, err := readAreaFile(cmd, path, minZoom, maxZoom)
+	if err != nil {
+		return err
+	}
+	for i, a := range areas {
+		if a.MinZoom < 0 || a.MaxZoom < 0 {
+			return fmt.Errorf("area %d of %s has no zoom property: set --zoom or --zoom-range", i+1, path)
+		}
+	}
+	if code, message := checkAreas(areas); code != "" {
+		return fmt.Errorf("%s: %s", code, message)
+	}
+	count := tilecalc.CountJobTiles(areas)
+	sizeKB := tilecalc.TileSizeKB(tileType)
+	var b strings.Builder
+	fmt.Fprintf(&b, "\nDownload Estimate for '%s'\n-----------------------------------\n", sourceName)
+	for i, a := range areas {
+		name := a.Name
+		if name == "" {
+			name = fmt.Sprintf("area %d", i+1)
+		}
+		fmt.Fprintf(&b, "  %s (%s, zoom %d-%d): %s tiles\n", name, a.Kind, a.MinZoom, a.MaxZoom, formatInt(count.Areas[i]))
+	}
+	fmt.Fprintf(&b, "\nUnique tiles: %s, %s\n", formatInt(count.Unique), tilecalc.FormatSize(float64(count.Unique)*sizeKB*1024))
+	if _, err := io.WriteString(cmd.OutOrStdout(), b.String()); err != nil {
+		return fmt.Errorf("print the estimate: %w", err)
+	}
 	return nil
 }
 

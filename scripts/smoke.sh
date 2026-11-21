@@ -1,8 +1,8 @@
 #!/bin/sh
 # smoke.sh builds atak-dl, starts serve on a free port, and checks ten responses and the bind warning.
-# It also checks the terms exit code, the output file exit code, the tile cap and --no-geocode.
+# It also checks the terms exit code, the output file exit code, the tile cap, --no-geocode and the area file parser.
 # FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
-# and FR-robust-downloads-6, -26 and -27 define the checks.
+# FR-robust-downloads-6, -26 and -27, and FR-area-selection-16 and -18 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -110,6 +110,16 @@ if [ "$status" != "413" ]; then
 fi
 echo "smoke: POST /api/jobs with a 2 MiB body returned 413"
 
+# The parse route reads a KML file into areas, and it warns about the Point (FR-area-selection-18).
+curl -sf --data-binary @testdata/areas/trail.kml "$base/api/areas/parse?min_zoom=12&max_zoom=17&buffer_m=300" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+areas = body.get("areas") or []
+if len(areas) != 1 or areas[0].get("kind") != "route_buffer" or len(body.get("warnings") or []) != 1:
+    sys.exit("smoke: POST /api/areas/parse did not return one route_buffer area and one warning")
+print("smoke: POST /api/areas/parse returned one route_buffer area and one warning")
+'
+
 # A server on an address that is not loopback prints the warning of FR-security-hardening-25.
 stderr_file=$(mktemp)
 ./atak-dl serve --addr "0.0.0.0:0" >/dev/null 2>"$stderr_file" &
@@ -138,6 +148,15 @@ if [ "$status" != "2" ] || ! grep -q "https://developers.google.com/maps/documen
 	exit 1
 fi
 echo "smoke: download of a Google map source without --accept-terms exited 2"
+
+# --area together with --bbox exits with code 1 (FR-area-selection-16).
+status=0
+./atak-dl estimate --source "Google - Satellite Only" --area testdata/areas/trail.kml --bbox 40.7,-74.1,40.8,-74.0 >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q -- "--area and --bbox" "$stderr_file"; then
+	echo "smoke: estimate with --area and --bbox exited $status, want 1" >&2
+	exit 1
+fi
+echo "smoke: estimate with --area and --bbox exited 1"
 
 # An existing output file without --resume or --overwrite exits with code 3 and stays unchanged (FR-robust-downloads-6).
 # The file is not SQLite, so a build without the check fails when it opens the file, before a request.
