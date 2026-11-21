@@ -95,6 +95,16 @@
   },
   {
     "host_patterns": [
+      "*.openrailwaymap.org"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "Volunteers run this tile server. Its usage policy forbids bulk requests and publishes no numeric limit.",
+    "reference_url": "https://wiki.openstreetmap.org/wiki/OpenRailwayMap/API",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
       "*.nationalmap.gov",
       "*.usgs.gov"
     ],
@@ -112,6 +122,46 @@
     "requests_per_second": 8,
     "reason": "NAIP imagery is in the public domain.",
     "reference_url": "https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "*.blm.gov"
+    ],
+    "policy_class": "open",
+    "requests_per_second": 8,
+    "reason": "BLM data that the BLM makes available to the public is in the public domain, with no access constraint.",
+    "reference_url": "https://blm.gov/sites/blm.gov/files/uploads/IM2014-029_att1.pdf",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "sgx.geodatenzentrum.de"
+    ],
+    "policy_class": "open",
+    "requests_per_second": 8,
+    "reason": "The BKG provides basemap.de Web Raster free of charge under CC BY 4.0.",
+    "reference_url": "https://sgx.geodatenzentrum.de/public/gdz/lizenz/deu/nutzungsbedingungen_basemapde.pdf",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "openmaps.gov.bc.ca"
+    ],
+    "policy_class": "open",
+    "requests_per_second": 8,
+    "reason": "The BC Wildfire Fire Perimeters dataset is under the Open Government Licence - British Columbia, which allows copy and distribution.",
+    "reference_url": "https://catalogue.data.gov.bc.ca/dataset/bc-wildfire-fire-perimeters-current",
+    "retrieved": "2026-11-21"
+  },
+  {
+    "host_patterns": [
+      "api.os.uk"
+    ],
+    "policy_class": "conditional",
+    "requests_per_second": 2,
+    "reason": "The license of this service is not verified. The OS Maps API needs an API key and allows 600 requests per minute for one key.",
+    "reference_url": "https://docs.os.uk/os-apis/core-concepts/rate-limiting-policy",
     "retrieved": "2026-11-21"
   },
   {

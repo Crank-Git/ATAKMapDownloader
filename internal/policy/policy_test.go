@@ -1,10 +1,7 @@
 package policy
 
 import (
-	"bytes"
 	"encoding/xml"
-	"errors"
-	"io"
 	"io/fs"
 	"net/url"
 	"path"
@@ -189,29 +186,24 @@ func snapshotFileHosts(t *testing.T, file string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A multi-layer file holds its <url> and <serverParts> elements in each layer.
+	type layer struct {
+		URL         string `xml:"url"`
+		ServerParts string `xml:"serverParts"`
+	}
+	var raw struct {
+		layer
+		Layers []layer `xml:"layers>customMapSource"`
+	}
+	if err := xml.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("%s: %v", file, err)
+	}
 	var urls, parts []string
-	dec := xml.NewDecoder(bytes.NewReader(data))
-	for {
-		tok, err := dec.Token()
-		if errors.Is(err, io.EOF) {
-			break
+	for _, l := range append(raw.Layers, raw.layer) {
+		if u := strings.TrimSpace(l.URL); u != "" {
+			urls = append(urls, u)
 		}
-		if err != nil {
-			t.Fatalf("%s: %v", file, err)
-		}
-		start, ok := tok.(xml.StartElement)
-		if !ok || (start.Name.Local != "url" && start.Name.Local != "serverParts") {
-			continue
-		}
-		var text string
-		if err := dec.DecodeElement(&text, &start); err != nil {
-			t.Fatalf("%s: %v", file, err)
-		}
-		if start.Name.Local == "url" {
-			urls = append(urls, strings.TrimSpace(text))
-		} else {
-			parts = append(parts, strings.Fields(text)...)
-		}
+		parts = append(parts, strings.Fields(l.ServerParts)...)
 	}
 	if len(urls) == 0 {
 		t.Errorf("%s has no <url> element", file)
