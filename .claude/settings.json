@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go run ./cmd/atak-dl:*)",
+      "Bash(go mod tidy)",
+      "Bash(go mod download)",
+      "Bash(go tool golangci-lint:*)",
+      "Bash(gofmt:*)",
+      "Bash(./scripts/smoke.sh)",
+      "Bash(./atak-dl:*)",
+      "Bash(goreleaser check)",
+      "Bash(goreleaser release --snapshot --clean)",
+      "Bash(python3 docs/specs/render-spec.py)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v gofmt >/dev/null || exit 0; for f in $CLAUDE_FILE_PATHS; do case \"$f\" in *.go) gofmt -w \"$f\" ;; esac; done; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

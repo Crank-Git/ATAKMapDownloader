@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATAK Map Downloader — Feature: Tile download and output file</title>
+<style>
+:root { --bg:#ffffff; --fg:#1a1a24; --muted:#5a5a68; --line:#e3e3ea; --accent:#3452c8;
+        --card:#f6f6f9; --warn-bg:#fff7e8; --warn-line:#e8b34a; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14141b; --fg:#e8e8ee; --muted:#9a9aa8; --line:#2c2c38; --accent:#8ea6ff;
+          --card:#1c1c26; --warn-bg:#2a2318; --warn-line:#a87c2a; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+       font:16px/1.6 system-ui,-apple-system,sans-serif; }
+.layout { display:flex; min-height:100vh; }
+aside.site { width:17rem; flex:none; border-right:1px solid var(--line);
+             padding:1.2rem 1rem 3rem; position:sticky; top:0; height:100vh;
+             overflow-y:auto; background:var(--card); }
+aside.site h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em;
+                color:var(--muted); margin:1.2rem 0 .3rem; border:none; padding:0; }
+aside.site ul { list-style:none; margin:0; padding:0; }
+aside.site li { margin:.15rem 0; }
+aside.site a { text-decoration:none; color:var(--fg); font-size:.92rem;
+               display:block; padding:.15rem .5rem; border-radius:6px; }
+aside.site a:hover { background:var(--bg); }
+aside.site a.current { background:var(--accent); color:#fff; }
+aside.site a.sub { padding-left:1.3rem; font-size:.84rem; color:var(--muted); }
+aside.site .brand { font-weight:700; font-size:1.05rem; }
+main { max-width:60rem; margin:0 auto; padding:2rem 1.5rem 6rem; min-width:0; flex:1; }
+h1,h2,h3,h4 { line-height:1.25; }
+h1 { font-size:2rem; margin:.2rem 0; }
+h2 { border-bottom:1px solid var(--line); padding-bottom:.3rem; margin-top:2.5rem; }
+a { color:var(--accent); }
+code { background:var(--card); padding:.1em .35em; border-radius:4px; font-size:.9em; }
+pre.code { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; overflow-x:auto; }
+pre.code code { background:none; padding:0; }
+.table-wrap { overflow-x:auto; }
+table { border-collapse:collapse; margin:1rem 0; min-width:50%; }
+th,td { border:1px solid var(--line); padding:.4rem .7rem; text-align:left; }
+th { background:var(--card); }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 1rem;
+             color:var(--muted); }
+.meta { color:var(--muted); margin-bottom:2rem; }
+.badge { display:inline-block; padding:.1rem .6rem; border-radius:999px;
+         border:1px solid var(--accent); color:var(--accent); font-size:.85rem; }
+.diagram { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; margin:1rem 0; overflow-x:auto; }
+.diagram pre.mermaid { margin:0; }
+.diagram.raw::before { content:"diagram source (assets/mermaid.min.js not vendored)";
+                       display:block; color:var(--muted); font-size:.8rem;
+                       margin-bottom:.5rem; }
+.callout-h, .callout-h ~ p, .callout-h ~ ul { background:var(--warn-bg); }
+.callout-h { border-left:4px solid var(--warn-line); padding:.3rem .8rem; }
+.mockup { margin:1.5rem 0; }
+.mockup iframe { width:100%; height:32rem; border:1px solid var(--line);
+                 border-radius:8px; background:#fff; }
+nav.pager { display:flex; justify-content:space-between; margin-top:3rem;
+            border-top:1px solid var(--line); padding-top:1rem; }
+@media (max-width: 900px) {
+  .layout { display:block; }
+  aside.site { width:auto; height:auto; position:static; border-right:none;
+               border-bottom:1px solid var(--line); }
+}
+h1[id]:hover .rv-add, h2[id]:hover .rv-add, h3[id]:hover .rv-add,
+h4[id]:hover .rv-add { opacity:1; }
+.rv-add { opacity:0; margin-left:.5rem; font-size:.75rem; cursor:pointer;
+          border:1px solid var(--accent); color:var(--accent); background:none;
+          border-radius:6px; padding:0 .45rem; vertical-align:middle;
+          transition:opacity .15s; }
+.rv-comment { border:1px solid var(--warn-line); border-left-width:4px;
+              background:var(--warn-bg); border-radius:8px; padding:.6rem .9rem;
+              margin:.8rem 0; font-size:.92rem; }
+.rv-comment.rv-resolved { opacity:.6; border-left-color:var(--line); }
+.rv-comment .rv-head { display:flex; gap:.6rem; align-items:center;
+                       color:var(--muted); font-size:.8rem; margin-bottom:.3rem; }
+.rv-comment .rv-head button { font-size:.75rem; cursor:pointer; background:none;
+                              border:1px solid var(--line); border-radius:6px;
+                              color:var(--muted); padding:0 .4rem; }
+.rv-comment .rv-body { white-space:pre-wrap; }
+.rv-editor textarea { width:100%; min-height:5rem; background:var(--bg);
+                      color:var(--fg); border:1px solid var(--line);
+                      border-radius:6px; padding:.5rem; font:inherit; }
+.rv-editor .rv-actions { margin-top:.4rem; display:flex; gap:.5rem; }
+.rv-editor button { cursor:pointer; border-radius:6px; padding:.2rem .8rem;
+                    border:1px solid var(--accent); background:var(--accent);
+                    color:#fff; }
+.rv-editor button.rv-cancel { background:none; color:var(--accent); }
+#rv-toggle { position:fixed; right:1rem; bottom:1rem; z-index:60;
+             background:var(--accent); color:#fff; border:none; cursor:pointer;
+             border-radius:999px; padding:.5rem 1rem; font-size:.85rem;
+             box-shadow:0 2px 10px rgba(0,0,0,.2); }
+#rv-drawer { position:fixed; top:0; right:0; bottom:0; width:21rem; z-index:55;
+             background:var(--card); border-left:1px solid var(--line);
+             display:flex; flex-direction:column; transform:translateX(100%);
+             transition:transform .2s ease; box-shadow:-4px 0 16px rgba(0,0,0,.12); }
+body.rv-open #rv-drawer { transform:none; }
+body.rv-open .layout { padding-right:21rem; }
+#rv-drawer header { padding:.8rem 1rem .5rem; border-bottom:1px solid var(--line); }
+#rv-drawer header .rv-count { color:var(--muted); font-size:.8rem; }
+#rv-drawer .rv-compose { padding:.8rem 1rem; border-bottom:1px solid var(--line); }
+#rv-drawer .rv-compose label { display:block; font-size:.75rem;
+                               color:var(--muted); margin-bottom:.25rem; }
+#rv-drawer .rv-compose select { width:100%; margin-bottom:.4rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.3rem; font:inherit; font-size:.85rem; }
+#rv-drawer .rv-compose textarea { width:100%; min-height:5.5rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.5rem; font:inherit; font-size:.9rem; }
+#rv-drawer .rv-compose .rv-live { font-size:.72rem; color:var(--muted); }
+#rv-drawer .rv-list { flex:1; overflow-y:auto; padding:.6rem 1rem; }
+#rv-drawer .rv-item { border:1px solid var(--line); border-left:3px solid
+             var(--warn-line); border-radius:8px; padding:.45rem .6rem;
+             margin-bottom:.6rem; font-size:.82rem; cursor:pointer; }
+#rv-drawer .rv-item.rv-resolved { opacity:.55; border-left-color:var(--line); }
+#rv-drawer .rv-item .rv-where { color:var(--accent); font-size:.72rem; }
+#rv-drawer .rv-item .rv-meta { color:var(--muted); font-size:.72rem;
+                               display:flex; gap:.5rem; align-items:center; }
+#rv-drawer .rv-item .rv-meta button { font-size:.7rem; cursor:pointer;
+             background:none; border:1px solid var(--line); border-radius:5px;
+             color:var(--muted); padding:0 .35rem; }
+#rv-drawer .rv-item .rv-text { white-space:pre-wrap; margin:.15rem 0; }
+#rv-drawer footer { padding:.6rem 1rem; border-top:1px solid var(--line);
+                    display:flex; gap:.5rem; flex-wrap:wrap; }
+#rv-drawer footer button, #rv-drawer .rv-compose button {
+  cursor:pointer; border:1px solid var(--accent); background:none;
+  color:var(--accent); border-radius:6px; padding:.2rem .7rem; font-size:.8rem; }
+#rv-drawer .rv-compose button.rv-primary { background:var(--accent); color:#fff; }
+#rv-drawer .rv-otherpages { color:var(--muted); font-size:.75rem;
+                            margin:.4rem 0 0; }
+@media (max-width: 1200px) { body.rv-open .layout { padding-right:0; } }
+</style>
+</head>
+<body data-page="feature-tile-download" data-rvkey="atak-map-downloader">
+<div class="layout">
+<aside class="site"><a class="brand" href="../spec.html">ATAK Map Downloader</a>
+<h2>Spec</h2><ul>
+<li><a href="../spec.html">Overview &amp; index</a></li>
+</ul>
+<h2>Features</h2><ul>
+<li><a href="feature-foundation.html">Foundation</a></li>
+<li><a href="feature-map-sources.html">Map source catalog</a></li>
+<li><a href="feature-area-estimate.html">Area estimate and tile info</a></li>
+<li><a class="current" href="feature-tile-download.html">Tile download and output file</a></li>
+<li><a href="feature-web-ui.html">Web UI and server</a></li>
+<li><a href="feature-security-hardening.html">Security hardening</a></li>
+<li><a href="feature-polite-downloading.html">Polite downloading</a></li>
+<li><a href="feature-robust-downloads.html">Robust downloads</a></li>
+<li><a href="feature-offline-web-ui.html">Offline web UI</a></li>
+<li><a href="feature-source-sync.html">Source sync and WMS</a></li>
+<li><a href="feature-output-formats.html">Output formats</a></li>
+<li><a href="feature-area-selection.html">Area selection</a></li>
+<li><a href="feature-team-server.html">Team server</a></li>
+</ul></aside>
+<main>
+<h1>Feature: Tile download and output file</h1>
+<p class="meta">Existing (built) &nbsp; <span class="badge">built</span></p>
+<h3 id="tile-download-purpose">Purpose</h3>
+<p>The engine downloads every tile for the bounds and the zoom range from one map source. It writes the tiles into one SQLite output file that ATAK can import. The CLI <code>download</code> command and the web UI both start a job through the same engine (<code>internal/download/download.go</code>).</p>
+<p>This file describes the behavior that exists today. It records the defects plainly and points each defect at the planned feature that repairs it.</p>
+<h3 id="tile-download-user-stories">User stories</h3>
+<ul>
+<li>As a solo operator, I want to download tiles from the CLI, so that a script
+</li>
+</ul>
+<p>can prepare offline maps.</p>
+<ul>
+<li>As a solo operator, I want to see progress and an ETA, so that I know when the job
+</li>
+</ul>
+<p>ends.</p>
+<ul>
+<li>As a solo operator, I want to stop a job with Ctrl-C, so that a wrong request does not
+</li>
+</ul>
+<p>run for hours.</p>
+<ul>
+<li>As an ATAK user, I want a single output file, so that I can copy it to the device.
+</li>
+</ul>
+<h3 id="tile-download-functional-requirements">Functional requirements</h3>
+<ul>
+<li>FR-tile-download-1 — The engine requests each tile in the bounds for every zoom level
+</li>
+</ul>
+<p>in the zoom range.</p>
+<ul>
+<li>FR-tile-download-2 — The engine runs at most <code>MaxConcurrent</code> tile requests at the same
+</li>
+</ul>
+<p>time. The default is 5.</p>
+<ul>
+<li>FR-tile-download-3 — The engine sends the header <code>User-Agent: ATAK-Map-Downloader/1.0</code>
+</li>
+</ul>
+<p>with each tile request.</p>
+<ul>
+<li>FR-tile-download-4 — The engine stops each tile request after 30 seconds.
+</li>
+<li>FR-tile-download-5 — The engine skips TLS certificate verification unless <code>VerifySSL</code>
+</li>
+</ul>
+<p>is true. The default is false.</p>
+<ul>
+<li>FR-tile-download-6 — The engine makes at most 3 attempts per tile.
+</li>
+<li>FR-tile-download-7 — The engine waits 1 second after the first failed attempt and
+</li>
+</ul>
+<p>2 seconds after the second.</p>
+<ul>
+<li>FR-tile-download-8 — The engine retries a tile after a network error or after HTTP
+</li>
+</ul>
+<p>status 403, 429 or 503.</p>
+<ul>
+<li>FR-tile-download-9 — The engine marks a tile as failed after any other HTTP status
+</li>
+</ul>
+<p>that is not 200, with no retry.</p>
+<ul>
+<li>FR-tile-download-10 — The engine stores the response body of an HTTP 200 response as
+</li>
+</ul>
+<p>the tile data, unchanged.</p>
+<ul>
+<li>FR-tile-download-11 — The engine writes the tile row in TMS order:
+</li>
+</ul>
+<p><code>tile_row = 2^z − 1 − y</code>.</p>
+<ul>
+<li>FR-tile-download-12 — The engine deletes an output file that already exists at the
+</li>
+</ul>
+<p>output path before it creates the new one.</p>
+<ul>
+<li>FR-tile-download-13 — The engine writes the metadata keys <code>name</code>, <code>type</code>, <code>version</code>,
+</li>
+</ul>
+<p><code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code> and <code>maxzoom</code>.</p>
+<ul>
+<li>FR-tile-download-14 — When the job is cancelled, the engine deletes the output file.
+</li>
+<li>FR-tile-download-15 — If <code>IgnoreErrors</code> is false, the engine reports failure when the
+</li>
+</ul>
+<p>failure rate is greater than the failure tolerance.</p>
+<ul>
+<li>FR-tile-download-16 — The engine reports failure when it processed no tile.
+</li>
+<li>FR-tile-download-17 — If <code>IgnoreErrors</code> is true, the engine reports success for a job
+</li>
+</ul>
+<p>that was not cancelled.</p>
+<ul>
+<li>FR-tile-download-18 — The <code>download</code> command writes the output file to the
+</li>
+</ul>
+<p><code>./downloads</code> directory unless <code>--output</code> names a path.</p>
+<ul>
+<li>FR-tile-download-19 — The <code>download</code> command prints progress on one line each time the
+</li>
+</ul>
+<p>percentage grows by 1 or more.</p>
+<ul>
+<li>FR-tile-download-20 — The <code>download</code> command cancels the job on SIGINT or SIGTERM.
+</li>
+</ul>
+<h3 id="tile-download-user-flows">User flows</h3>
+<h4 id="tile-download-flow-1-the-solo-operator-runs-the-download-command">Flow 1 — The solo operator runs the <code>download</code> command</h4>
+<div class="diagram"><pre class="mermaid">flowchart TD
+    A[atak-dl download --source --bbox --min-zoom --max-zoom] --&gt; B{Map source found?}
+    B -- no --&gt; X1[Print Source not found, exit 1]
+    B -- yes --&gt; C{bounds valid?}
+    C -- no --&gt; X2[Print the bounds error, exit 1]
+    C -- yes --&gt; D{min-zoom not greater than max-zoom?}
+    D -- no --&gt; X3[Print min-zoom cannot be greater than max-zoom, exit 1]
+    D -- yes --&gt; E[Choose the output path]
+    E --&gt; F[Delete an old output file at that path]
+    F --&gt; G[Create the output file and write the metadata]
+    G --&gt; H[Request the tiles and print progress]
+    H --&gt; I{Result}
+    I -- SIGINT or SIGTERM --&gt; J[Delete the output file, print Download cancelled., exit 1]
+    I -- failure rate above tolerance --&gt; K[Keep the output file, print Download failed, exit 1]
+    I -- success --&gt; L[Print Download complete. Saved to PATH, exit 0]</pre></div>
+<ol>
+<li>The solo operator runs <code>atak-dl download</code> with <code>--source</code> and <code>--bbox</code>.
+</li>
+<li>If the map source is not in the source catalog, the CLI prints
+</li>
+</ol>
+<p><code>Source 'NAME' not found</code> and exits with code 1.</p>
+<ol>
+<li>If the bounds are not valid, the CLI prints the error and exits with code 1.
+</li>
+<li>If <code>--min-zoom</code> is greater than <code>--max-zoom</code>, the CLI prints
+</li>
+</ol>
+<p><code>min-zoom cannot be greater than max-zoom</code> and exits with code 1.</p>
+<ol>
+<li>The CLI uses <code>--output</code>, or builds a file name in <code>./downloads</code>.
+</li>
+<li>The engine deletes any file at the output path.
+</li>
+<li>The engine creates the output file and writes the metadata.
+</li>
+<li>The engine requests the tiles. The CLI prints progress.
+</li>
+<li>If the solo operator presses Ctrl-C, the engine deletes the output file. The CLI
+</li>
+</ol>
+<p>prints <code>Download cancelled.</code>, then <code>Error: context canceled</code> and the usage text, and exits with code 1.</p>
+<ol>
+<li>If the failure rate is above the failure tolerance, the CLI prints
+</li>
+</ol>
+<p><code>Download failed: failure rate N% exceeds threshold 20.0%</code> and exits with code 1. The output file stays on disk.</p>
+<ol>
+<li>If the job succeeds, the CLI prints <code>Download complete. Saved to PATH</code> and exits with
+</li>
+</ol>
+<p>code 0.</p>
+<h4 id="tile-download-flow-2-the-engine-processes-one-tile">Flow 2 — The engine processes one tile</h4>
+<div class="diagram"><pre class="mermaid">flowchart TD
+    A[Take a slot from the semaphore] --&gt; B{Job cancelled?}
+    B -- yes --&gt; Z[Release the slot]
+    B -- no --&gt; C[Build the URL from the template]
+    C --&gt; D[GET the URL]
+    D --&gt; E{Result}
+    E -- HTTP 200 --&gt; F[Insert the tile with the TMS row]
+    E -- network error, or 403, 429, 503 --&gt; G{Attempts left?}
+    G -- yes --&gt; H[Wait 1 s, then 2 s] --&gt; D
+    G -- no --&gt; I[Count the tile as failed]
+    E -- other status --&gt; I
+    F --&gt; J{Insert succeeded?}
+    J -- yes --&gt; K[Count the tile as downloaded and call the progress callback]
+    J -- no --&gt; I
+    I --&gt; L[Call the progress callback]
+    K --&gt; Z
+    L --&gt; Z</pre></div>
+<ol>
+<li>The engine takes a slot from the semaphore.
+</li>
+<li>If the job is cancelled, the engine releases the slot and stops.
+</li>
+<li>The engine builds the URL from the URL template of the map source.
+</li>
+<li>The engine sends a GET request.
+</li>
+<li>If the status is 200, the engine inserts the tile with the TMS row.
+</li>
+<li>If a network error or status 403, 429 or 503 occurs, the engine waits and tries again.
+</li>
+</ol>
+<p>It makes at most 3 attempts.</p>
+<ol>
+<li>If any other status occurs, or the attempts run out, the engine counts the tile as
+</li>
+</ol>
+<p>failed.</p>
+<ol>
+<li>If the insert fails, the engine counts the tile as failed.
+</li>
+<li>The engine calls the progress callback and releases the slot.
+</li>
+</ol>
+<h3 id="tile-download-screens-states">Screens &amp; states</h3>
+<p>CLI output of <code>download</code>:</p>
+<ul>
+<li>Running: <code>\r12.0% (605/5044) - 31.2 tiles/s - ETA: 142s</code>, written over itself.
+</li>
+<li>Success: <code>Download complete. Saved to downloads/&lt;file&gt;.sqlite</code>.
+</li>
+<li>Failure: <code>Download failed: failure rate 35.0% exceeds threshold 20.0%</code>.
+</li>
+<li>Cancelled: <code>Download cancelled.</code>, then cobra prints <code>Error: context canceled</code> and the
+</li>
+</ul>
+<p>usage text.</p>
+<ul>
+<li>The engine logs <code>starting download</code>, <code>download complete</code> and each retry through slog
+</li>
+</ul>
+<p>to stderr.</p>
+<p>For the web UI screens of a job, see <code>04-web-ui.md</code>.</p>
+<h3 id="tile-download-behaviour-rules">Behaviour rules</h3>
+<ul>
+<li>The engine processes the zoom levels in order. Within one zoom level, it walks the
+</li>
+</ul>
+<p>tiles row by row.</p>
+<ul>
+<li>The <code>download</code> command defaults are <code>--min-zoom</code> 1, <code>--max-zoom</code> 15 and
+</li>
+</ul>
+<p><code>--concurrent</code> 5.</p>
+<ul>
+<li>The CLI failure tolerance is fixed at 0.2. The web UI default is 0.3.
+</li>
+<li>The engine does not check the zoom range against the zoom range of the map source.
+</li>
+<li>The engine does not limit the total tile count.
+</li>
+<li>The engine does not skip tiles that an earlier job already wrote. Every job starts a
+</li>
+</ul>
+<p>new output file.</p>
+<ul>
+<li><code>DelayBetweenBatches</code> (default 200 ms) is set in <code>Config</code>, but the engine never reads
+</li>
+</ul>
+<p>it.</p>
+<ul>
+<li>The engine chooses the server part from the count of downloaded tiles at that moment.
+</li>
+</ul>
+<p>Concurrent tile requests often read the same count.</p>
+<ul>
+<li><code>metadata.minzoom</code> is the first zoom level of the request, and <code>metadata.maxzoom</code> is
+</li>
+</ul>
+<p>the last.</p>
+<h3 id="tile-download-data-touched">Data touched</h3>
+<p>The output file is a SQLite file. The schema is from <code>internal/mbtiles/mbtiles.go:29-34</code>:</p>
+<pre class="code"><code>CREATE TABLE metadata (name text, value text);
+CREATE TABLE tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob);
+CREATE UNIQUE INDEX name ON metadata (name);
+CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);</code></pre>
+<p>Metadata rows (<code>internal/download/download.go:139-148</code>):</p>
+<div class="table-wrap"><table>
+<tr><th>Key</th><th>Value</th></tr>
+<tr><td><code>name</code></td><td><code>&lt;source&gt; - minLat,minLon to maxLat,maxLon</code> at 4 decimals</td></tr>
+<tr><td><code>type</code></td><td><code>baselayer</code></td></tr>
+<tr><td><code>version</code></td><td><code>1.0</code></td></tr>
+<tr><td><code>description</code></td><td><code>Downloaded from &lt;source&gt;</code></td></tr>
+<tr><td><code>format</code></td><td>the <code>tileType</code> of the map source, in its original letter case</td></tr>
+<tr><td><code>bounds</code></td><td><code>minLon,minLat,maxLon,maxLat</code> at 4 decimals</td></tr>
+<tr><td><code>minzoom</code></td><td>the first zoom level of the request</td></tr>
+<tr><td><code>maxzoom</code></td><td>the last zoom level of the request</td></tr>
+</table></div>
+<p>The metadata has no <code>center</code> key.</p>
+<p>File name (<code>download.go:304-321</code>):</p>
+<ul>
+<li>With no custom name:
+</li>
+</ul>
+<p><code>&lt;source&gt;_&lt;minLat&gt;_&lt;minLon&gt;_to_&lt;maxLat&gt;_&lt;maxLon&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>, coordinates at 4 decimals.</p>
+<ul>
+<li>With a custom name: <code>&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>.
+</li>
+<li>The project keeps only <code>A–Z</code>, <code>a–z</code>, <code>0–9</code>, space, <code>-</code> and <code>_</code>, then changes spaces to
+</li>
+</ul>
+<p><code>_</code>.</p>
+<p>The engine writes one autocommit <code>INSERT OR REPLACE</code> per tile. It uses one <code>*sql.DB</code> for all goroutines, with no PRAGMA settings.</p>
+<h4 id="tile-download-how-atak-reads-the-output-file">How ATAK reads the output file</h4>
+<p>ATAK detects an imagery SQLite file by the columns of its <code>tiles</code> table, not by its extension. In ATAK-CIV, a <code>tiles</code> table with exactly <code>zoom_level</code>, <code>tile_column</code>, <code>tile_row</code> and <code>tile_data</code> is the "momap" type. That type reads TMS rows and the <code>minzoom</code>, <code>maxzoom</code> and <code>format</code> keys (<a href="https://github.com/deptofdefense/AndroidTacticalAssaultKit-CIV/blob/main/takkernel/engine/src/main/java/com/atakmap/android/maps/tilesets/TilesetInfo.java">TilesetInfo.java</a>, ATAK-CIV 4.6.0.5, retrieved 2026-11-21). The output file matches that path.</p>
+<p>This conclusion comes from the archived ATAK-CIV 4.6 source code. No one has imported an output file on a device to confirm it. Current ATAK 5.x, iTAK and WinTAK behavior is not known.</p>
+<h3 id="tile-download-interfaces">Interfaces</h3>
+<h4 id="tile-download-cli">CLI</h4>
+<div class="table-wrap"><table>
+<tr><th>Flag</th><th>Default</th><th>Notes</th></tr>
+<tr><td><code>--source</code></td><td>—</td><td>Required</td></tr>
+<tr><td><code>--bbox</code></td><td>—</td><td>Required. <code>min_lat,min_lon,max_lat,max_lon</code></td></tr>
+<tr><td><code>--min-zoom</code></td><td>1</td><td></td></tr>
+<tr><td><code>--max-zoom</code></td><td>15</td><td></td></tr>
+<tr><td><code>--output</code></td><td>—</td><td>Full output path. Overrides the generated name</td></tr>
+<tr><td><code>--name</code></td><td>—</td><td>Custom file name without extension</td></tr>
+<tr><td><code>--concurrent</code></td><td>5</td><td>Not validated</td></tr>
+<tr><td><code>--ignore-errors</code></td><td>false</td><td></td></tr>
+</table></div>
+<p>Exit codes: 0 on success, 1 on any error, failure or cancel.</p>
+<h4 id="tile-download-module-contract">Module contract</h4>
+<p><code>internal/download</code>:</p>
+<ul>
+<li><code>DefaultConfig() Config</code>
+</li>
+<li><code>NewEngine(Config) *Engine</code>
+</li>
+<li>`(<em>Engine).DownloadTiles(ctx, </em>MapSource, *GeographicBounds, zoomLevels []int,
+</li>
+</ul>
+<p>outputPath string, cb ProgressCallback) (bool, error)`. The callback returns false to cancel the job.</p>
+<ul>
+<li><code>GenerateOutputFilename(source, bounds, minZoom, maxZoom, customName) string</code>
+</li>
+<li><code>DownloadsDir() string</code>, which returns <code>./downloads</code> relative to the working directory.
+</li>
+</ul>
+<p><code>DownloadTiles</code> returns <code>(false, err)</code> for every failure. It never returns <code>(false, nil)</code>.</p>
+<p><code>internal/mbtiles</code>:</p>
+<ul>
+<li><code>Create(path, metadata) (*sql.DB, error)</code>
+</li>
+<li><code>InsertTile(db, z, x, tmsY, data) error</code>
+</li>
+</ul>
+<p>The driver is <code>github.com/mattn/go-sqlite3</code> v1.14.24, which needs CGO.</p>
+<h3 id="tile-download-edge-cases-failures">Edge cases &amp; failures</h3>
+<p>What the code handles:</p>
+<ul>
+<li>Rate-limit statuses (403, 429, 503) get two retries.
+</li>
+<li>SIGINT and SIGTERM stop new tile requests and delete the partial output file.
+</li>
+<li>A failed tile insert counts as a failed tile.
+</li>
+</ul>
+<p>What the code does not handle:</p>
+<ul>
+<li><strong>TLS verification is off by default.</strong> <code>InsecureSkipVerify = true</code> unless
+</li>
+</ul>
+<p><code>VerifySSL</code> is set (<code>download.go:100-103</code>). The CLI has no flag to turn it on.</p>
+<ul>
+<li><strong>The engine stores any HTTP 200 body as a tile.</strong> It does not check the content type
+</li>
+</ul>
+<p>or decode the image. An HTML error page or a "blocked" image goes into the output file.</p>
+<ul>
+<li><strong>The engine logs no detail for a failed tile.</strong> It counts the tile and drops the
+</li>
+</ul>
+<p>error (<code>download.go:194-200</code>).</p>
+<ul>
+<li><strong>Progress uses only the downloaded count.</strong> With any failed tile, the percentage never
+</li>
+</ul>
+<p>reaches 100, and the ETA is too long.</p>
+<ul>
+<li><strong>Data races.</strong> Many goroutines write <code>progress.CurrentTile</code>, <code>progress.CurrentURL</code>,
+</li>
+</ul>
+<p><code>progress.Downloaded</code> and <code>progress.Failed</code> with no lock (<code>download.go:191-212</code>). The CLI callback updates <code>lastPercent</code> with no lock (<code>commands/download.go:92-99</code>).</p>
+<ul>
+<li><strong>The failure path calls the callback before it updates <code>progress.Failed</code></strong>
+</li>
+</ul>
+<p>(<code>download.go:196-198</code>).</p>
+<ul>
+<li><strong>The retry waits ignore cancel.</strong> <code>time.Sleep</code> does not watch the context, and the
+</li>
+</ul>
+<p>request does not use <code>NewRequestWithContext</code>. A cancel can wait for running requests.</p>
+<ul>
+<li><strong>Retries do not read <code>Retry-After</code> and have no jitter.</strong>
+</li>
+<li><strong>A cancel leaves the tile producer goroutine blocked</strong> after <code>goto wait</code>
+</li>
+</ul>
+<p>(<code>download.go:174</code>).</p>
+<ul>
+<li><strong>A late cancel is lost.</strong> The engine checks the context only in the loop that starts
+</li>
+</ul>
+<p>tile requests (<code>download.go:171-176</code>). If the signal arrives after the last tile request starts, the job ends as a normal job. The CLI callback always returns true.</p>
+<ul>
+<li><strong>The engine deletes an existing output file with no warning</strong> (<code>mbtiles.go:18-22</code>).
+</li>
+</ul>
+<p>The generated name has no time stamp, so a repeat of the same request replaces the earlier output file.</p>
+<ul>
+<li><strong>A cancel throws away every tile already fetched.</strong> There is no resume.
+</li>
+<li><strong><code>--concurrent 0</code> blocks forever.</strong> The semaphore has no capacity. A negative value
+</li>
+</ul>
+<p>makes <code>make(chan)</code> panic.</p>
+<ul>
+<li><strong>No limit on the tile count or the zoom range.</strong>
+</li>
+<li><strong><code>os.MkdirAll</code> errors are ignored</strong> (<code>commands/download.go:79</code>).
+</li>
+<li><strong>The CLI prints <code>Error: context canceled</code> and the usage text after a cancel</strong>, because
+</li>
+</ul>
+<p><code>SilenceUsage</code> is not set.</p>
+<ul>
+<li><strong>The CGO dependency breaks cross-compiles.</strong> The README shows plain <code>GOOS</code>/<code>GOARCH</code>
+</li>
+</ul>
+<p>builds, which fail or produce a binary with no SQLite. On the maintainer's macOS 27 machine, <code>go run ./cmd/atak-dl</code> fails to link today: <code>ld: multiple errors: tapi error: malformed file ... unknown architecture</code>.</p>
+<ul>
+<li><strong>Rate limits do not exist.</strong> The engine sends requests as fast as the semaphore
+</li>
+</ul>
+<p>allows.</p>
+<p>Known defects and the planned feature that repairs each:</p>
+<div class="table-wrap"><table>
+<tr><th>Defect</th><th>Repaired by</th></tr>
+<tr><td>TLS off by default</td><td><code>security-hardening</code> (05)</td></tr>
+<tr><td>No rate limit, no <code>Retry-After</code>, fixed User-Agent, unused <code>DelayBetweenBatches</code></td><td><code>polite-downloading</code> (06)</td></tr>
+<tr><td>No check of tile content, no failed-tile log, no resume, no tile cap</td><td><code>robust-downloads</code> (07)</td></tr>
+<tr><td>Silent delete of an existing output file, delete on cancel</td><td><code>robust-downloads</code> (07)</td></tr>
+<tr><td>Data races, cancel that ignores retry waits, <code>--concurrent 0</code></td><td><code>robust-downloads</code> (07)</td></tr>
+<tr><td>Progress that never reaches 100 with failures</td><td><code>robust-downloads</code> (07)</td></tr>
+<tr><td>CGO driver and broken cross-compiles</td><td><code>foundation</code> (00)</td></tr>
+<tr><td>No <code>center</code> key, no other output formats</td><td><code>output-formats</code> (10)</td></tr>
+</table></div>
+<h3 id="tile-download-acceptance-criteria">Acceptance criteria</h3>
+<ul>
+<li>[ ] <code>atak-dl download --source="USGS - Usgsbasemap" --bbox=40.75,-74.0,40.76,-73.99 --min-zoom=10 --max-zoom=12</code>
+</li>
+</ul>
+<p>writes an output file under <code>./downloads/</code> whose name ends in <code>_z10-12.sqlite</code>.</p>
+<ul>
+<li>[ ] The output file has the tables <code>metadata</code> and <code>tiles</code> with the columns above.
+</li>
+<li>[ ] For each tile, <code>tile_row</code> equals <code>2^zoom_level − 1 − y</code>, where <code>y</code> is the XYZ row.
+</li>
+<li>[ ] The <code>metadata</code> table holds the keys <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>,
+</li>
+</ul>
+<p><code>format</code>, <code>bounds</code>, <code>minzoom</code> and <code>maxzoom</code>.</p>
+<ul>
+<li>[ ] Ctrl-C during a job prints <code>Download cancelled.</code>, leaves no output file and exits
+</li>
+</ul>
+<p>with code 1.</p>
+<ul>
+<li>[ ] <code>atak-dl download --source="USGS - Usgsbasemap" --bbox=40.75,-74.0,40.76,-73.99 --min-zoom=12 --max-zoom=10</code>
+</li>
+</ul>
+<p>prints <code>min-zoom cannot be greater than max-zoom</code> and exits with code 1.</p>
+<h3 id="tile-download-out-of-scope">Out of scope</h3>
+<ul>
+<li>WMS map sources.
+</li>
+<li>Output formats other than the four-column TMS SQLite file.
+</li>
+<li>Image conversion.
+</li>
+</ul>
+<h3 id="tile-download-open-questions" class="callout-h">Open questions</h3>
+<ul>
+<li>No one has confirmed on a device that ATAK 5.x imports the output file. The momap
+</li>
+</ul>
+<p>conclusion comes from archived 4.6 source code.</p>
+<ul>
+<li>The code does not show why the metadata <code>type</code> is always <code>baselayer</code>, including for
+</li>
+</ul>
+<p>overlay map sources such as the <code>GRG</code> overlays.</p><nav class="pager">
+<a href="feature-area-estimate.html">&larr; Feature: Area estimate and tile info</a>
+<a href="feature-web-ui.html">Feature: Web UI and server &rarr;</a>
+</nav>
+</main>
+</div>
+<script src="../assets/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+<script type="application/json" id="rv-embedded">[]</script>
+<script>
+(function(){
+  'use strict';
+  var PAGE = document.body.getAttribute('data-page');
+  // storage key carries the spec's slug: file:// pages can share one
+  // localStorage pool, and two specs must never share a comment store
+  var RVKEY = 'spec-review:' + (document.body.getAttribute('data-rvkey') || 'spec');
+  var EMBED = [];
+  var embedEl = document.getElementById('rv-embedded');
+  if (embedEl) { try { EMBED = JSON.parse(embedEl.textContent); } catch(e){} }
+  function loadLocal(){ try { return JSON.parse(localStorage.getItem(RVKEY)) || {comments:[], deleted:[]}; } catch(e){ return {comments:[], deleted:[]}; } }
+  function saveLocal(s){ try { localStorage.setItem(RVKEY, JSON.stringify(s)); } catch(e){} }
+  function cid(c){ return c.page + '|' + c.section + '|' + (c.date||'') + '|' + c.body.slice(0,24); }
+  function allComments(){
+    var s = loadLocal(), map = {};
+    EMBED.forEach(function(c){ map[cid(c)] = c; });
+    s.comments.forEach(function(c){ map[cid(c)] = c; });
+    s.deleted.forEach(function(id){ delete map[id]; });
+    return Object.keys(map).map(function(k){ return map[k]; });
+  }
+  function upsert(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    s.comments.push(c);
+    s.deleted = s.deleted.filter(function(x){ return x !== id; });
+    saveLocal(s); refresh();
+  }
+  function remove(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    if (EMBED.some(function(x){ return cid(x) === id; })) s.deleted.push(id);
+    saveLocal(s); refresh();
+  }
+  function today(){ return new Date().toISOString().slice(0,10); }
+  function exportMd(){
+    var lines = ['# Review comments', '',
+      '<!-- Exported from the spec review layer. Save this file as',
+      '     docs/specs/review-comments.md and re-run render-spec.py to embed',
+      '     every comment under its section for the next review round. -->', ''];
+    allComments().sort(function(a,b){
+      return (a.page+a.section).localeCompare(b.page+b.section);
+    }).forEach(function(c){
+      lines.push('## [' + c.page + '] ' + (c.section||''));
+      lines.push('status: ' + (c.status||'open'));
+      lines.push('date: ' + (c.date||today()));
+      lines.push(c.body); lines.push('');
+    });
+    var blob = new Blob([lines.join('\n')], {type:'text/markdown'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'review-comments.md';
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+  function importMd(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      var text = String(reader.result);
+      var blocks = text.split(/^## /m).slice(1);
+      blocks.forEach(function(b){
+        var head = b.match(/^\[([^\]]+)\]\s*(\S*)/);
+        if (!head) return;
+        var status = (b.match(/^status:\s*(\S+)/m)||[])[1] || 'open';
+        var date = (b.match(/^date:\s*(\S+)/m)||[])[1] || today();
+        var body = b.replace(/^\[[^\]]*\]\s*\S*\s*\n/, '')
+                    .replace(/^status:.*\n?/m,'').replace(/^date:.*\n?/m,'').trim();
+        if (body) upsert({page:head[1], section:head[2]||'', status:status, date:date, body:body});
+      });
+      refresh();
+    };
+    reader.readAsText(file);
+  }
+  function commentBox(c){
+    var div = document.createElement('div');
+    div.className = 'rv-comment' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var head = document.createElement('div'); head.className = 'rv-head';
+    head.textContent = '💬 ' + (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(){ remove(c); c = Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'}); upsert(c); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(){ if (confirm('Delete this comment?')) remove(c); };
+    head.appendChild(tog); head.appendChild(del);
+    var body = document.createElement('div'); body.className = 'rv-body';
+    body.textContent = c.body;
+    div.appendChild(head); div.appendChild(body);
+    return div;
+  }
+  function editor(section, after){
+    var wrap = document.createElement('div');
+    wrap.className = 'rv-comment rv-editor';
+    var ta = document.createElement('textarea');
+    ta.placeholder = 'Comment on this section…';
+    var actions = document.createElement('div'); actions.className = 'rv-actions';
+    var save = document.createElement('button'); save.textContent = 'Save';
+    save.onclick = function(){
+      if (ta.value.trim()) upsert({page:PAGE, section:section, status:'open', date:today(), body:ta.value.trim()});
+      wrap.remove();
+    };
+    var cancel = document.createElement('button'); cancel.textContent = 'Cancel';
+    cancel.className = 'rv-cancel'; cancel.onclick = function(){ wrap.remove(); };
+    actions.appendChild(save); actions.appendChild(cancel);
+    wrap.appendChild(ta); wrap.appendChild(actions);
+    after.insertAdjacentElement('afterend', wrap);
+    ta.focus();
+  }
+  // --- headings, inline buttons ---
+  var mainH1 = document.querySelector('main h1');
+  if (mainH1 && !mainH1.id) { mainH1.id = 'page-title'; }
+  var headings = Array.prototype.slice.call(
+    document.querySelectorAll('main h1[id], main h2[id], main h3[id], main h4[id]'));
+  headings.forEach(function(h){
+    var b = document.createElement('button');
+    b.className = 'rv-add'; b.textContent = '💬 comment'; b.title = 'Comment on this section';
+    b.onclick = function(){ editor(h.id, h); };
+    h.appendChild(b);
+  });
+  function headingTitle(h){
+    var t = h.childNodes[0] ? h.childNodes[0].textContent : h.textContent;
+    return t.trim();
+  }
+  function titleFor(section){
+    var el = section && document.getElementById(section);
+    return el ? headingTitle(el) : (section || '(page)');
+  }
+
+  // --- drawer ---
+  var drawer = document.createElement('div');
+  drawer.id = 'rv-drawer';
+  drawer.innerHTML =
+    '<header><strong>Review</strong> <span class="rv-count"></span></header>' +
+    '<div class="rv-compose">' +
+    '<div class="rv-live">Commenting on the section in view:</div>' +
+    '<label for="rv-sec"></label><select id="rv-sec"></select>' +
+    '<textarea id="rv-text" placeholder="Type as you read… (Ctrl+Enter saves)"></textarea>' +
+    '<div style="margin-top:.4rem; display:flex; gap:.5rem;">' +
+    '<button class="rv-primary" id="rv-save">Save comment</button>' +
+    '<button id="rv-clear">Clear</button></div></div>' +
+    '<div class="rv-list"></div>' +
+    '<footer><button id="rv-export">Export .md</button>' +
+    '<button id="rv-import">Import</button>' +
+    '<span class="rv-otherpages"></span></footer>';
+  document.body.appendChild(drawer);
+  var toggle = document.createElement('button');
+  toggle.id = 'rv-toggle';
+  toggle.onclick = function(){
+    document.body.classList.toggle('rv-open');
+    try { localStorage.setItem(RVKEY + ':open', document.body.classList.contains('rv-open') ? '1' : ''); } catch(e){}
+  };
+  document.body.appendChild(toggle);
+  try { if (localStorage.getItem(RVKEY + ':open')) document.body.classList.add('rv-open'); } catch(e){}
+
+  var sel = drawer.querySelector('#rv-sec');
+  headings.forEach(function(h){
+    var opt = document.createElement('option');
+    opt.value = h.id; opt.textContent = headingTitle(h);
+    sel.appendChild(opt);
+  });
+  var followScroll = true;
+  sel.onchange = function(){ followScroll = false; };
+
+  // scroll spy: pick the last heading above the upper third of the viewport
+  function currentSection(){
+    var line = window.innerHeight * 0.33, best = headings[0];
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].getBoundingClientRect().top <= line) best = headings[i];
+    }
+    return best ? best.id : '';
+  }
+  window.addEventListener('scroll', function(){
+    if (!followScroll) return;
+    var s = currentSection();
+    if (s && sel.value !== s) sel.value = s;
+  }, {passive:true});
+  // typing pins the target section so a stray scroll can't retarget the comment
+  drawer.querySelector('#rv-text').addEventListener('input', function(){
+    if (this.value.trim()) followScroll = false;
+    else followScroll = true;
+  });
+
+  function saveFromDrawer(){
+    var ta = drawer.querySelector('#rv-text');
+    if (!ta.value.trim()) return;
+    upsert({page:PAGE, section:sel.value, status:'open', date:today(), body:ta.value.trim()});
+    ta.value = ''; followScroll = true;
+  }
+  drawer.querySelector('#rv-save').onclick = saveFromDrawer;
+  drawer.querySelector('#rv-text').addEventListener('keydown', function(e){
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') saveFromDrawer();
+  });
+  drawer.querySelector('#rv-clear').onclick = function(){
+    drawer.querySelector('#rv-text').value = ''; followScroll = true;
+  };
+  drawer.querySelector('#rv-export').onclick = exportMd;
+  var fileIn = document.createElement('input');
+  fileIn.type = 'file'; fileIn.accept = '.md,text/markdown'; fileIn.style.display = 'none';
+  fileIn.onchange = function(){ if (fileIn.files[0]) importMd(fileIn.files[0]); };
+  drawer.appendChild(fileIn);
+  drawer.querySelector('#rv-import').onclick = function(){ fileIn.click(); };
+
+  function drawerItem(c){
+    var div = document.createElement('div');
+    div.className = 'rv-item' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var where = document.createElement('div'); where.className = 'rv-where';
+    where.textContent = titleFor(c.section);
+    var text = document.createElement('div'); text.className = 'rv-text';
+    text.textContent = c.body;
+    var meta = document.createElement('div'); meta.className = 'rv-meta';
+    meta.textContent = (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(e){ e.stopPropagation(); remove(c);
+      upsert(Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'})); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(e){ e.stopPropagation();
+      if (confirm('Delete this comment?')) remove(c); };
+    meta.appendChild(tog); meta.appendChild(del);
+    div.appendChild(where); div.appendChild(text); div.appendChild(meta);
+    div.onclick = function(){
+      var el = c.section && document.getElementById(c.section);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+    return div;
+  }
+
+  function refresh(){
+    document.querySelectorAll('.rv-comment:not(.rv-editor)').forEach(function(el){ el.remove(); });
+    var all = allComments();
+    var mine = all.filter(function(c){ return c.page === PAGE; });
+    mine.forEach(function(c){
+      var target = c.section && document.getElementById(c.section);
+      var anchor = target || mainH1 || document.body.querySelector('main') || document.body;
+      anchor.insertAdjacentElement('afterend', commentBox(c));
+    });
+    var open = all.filter(function(c){ return c.status !== 'resolved'; }).length;
+    toggle.textContent = '💬 Review (' + open + ')';
+    drawer.querySelector('.rv-count').textContent =
+      open + ' open / ' + all.length + ' total';
+    var list = drawer.querySelector('.rv-list');
+    list.innerHTML = '';
+    mine.slice().reverse().forEach(function(c){ list.appendChild(drawerItem(c)); });
+    var others = {};
+    all.forEach(function(c){ if (c.page !== PAGE) others[c.page] = (others[c.page]||0) + 1; });
+    var otherKeys = Object.keys(others);
+    drawer.querySelector('.rv-otherpages').textContent = otherKeys.length
+      ? 'Other pages: ' + otherKeys.map(function(k){ return k + ' (' + others[k] + ')'; }).join(', ')
+      : '';
+  }
+  refresh();
+  var s0 = currentSection();
+  if (s0) sel.value = s0;
+})();
+</script>
+</body>
+</html>

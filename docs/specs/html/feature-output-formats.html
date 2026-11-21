@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATAK Map Downloader — Feature: Output formats</title>
+<style>
+:root { --bg:#ffffff; --fg:#1a1a24; --muted:#5a5a68; --line:#e3e3ea; --accent:#3452c8;
+        --card:#f6f6f9; --warn-bg:#fff7e8; --warn-line:#e8b34a; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14141b; --fg:#e8e8ee; --muted:#9a9aa8; --line:#2c2c38; --accent:#8ea6ff;
+          --card:#1c1c26; --warn-bg:#2a2318; --warn-line:#a87c2a; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+       font:16px/1.6 system-ui,-apple-system,sans-serif; }
+.layout { display:flex; min-height:100vh; }
+aside.site { width:17rem; flex:none; border-right:1px solid var(--line);
+             padding:1.2rem 1rem 3rem; position:sticky; top:0; height:100vh;
+             overflow-y:auto; background:var(--card); }
+aside.site h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em;
+                color:var(--muted); margin:1.2rem 0 .3rem; border:none; padding:0; }
+aside.site ul { list-style:none; margin:0; padding:0; }
+aside.site li { margin:.15rem 0; }
+aside.site a { text-decoration:none; color:var(--fg); font-size:.92rem;
+               display:block; padding:.15rem .5rem; border-radius:6px; }
+aside.site a:hover { background:var(--bg); }
+aside.site a.current { background:var(--accent); color:#fff; }
+aside.site a.sub { padding-left:1.3rem; font-size:.84rem; color:var(--muted); }
+aside.site .brand { font-weight:700; font-size:1.05rem; }
+main { max-width:60rem; margin:0 auto; padding:2rem 1.5rem 6rem; min-width:0; flex:1; }
+h1,h2,h3,h4 { line-height:1.25; }
+h1 { font-size:2rem; margin:.2rem 0; }
+h2 { border-bottom:1px solid var(--line); padding-bottom:.3rem; margin-top:2.5rem; }
+a { color:var(--accent); }
+code { background:var(--card); padding:.1em .35em; border-radius:4px; font-size:.9em; }
+pre.code { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; overflow-x:auto; }
+pre.code code { background:none; padding:0; }
+.table-wrap { overflow-x:auto; }
+table { border-collapse:collapse; margin:1rem 0; min-width:50%; }
+th,td { border:1px solid var(--line); padding:.4rem .7rem; text-align:left; }
+th { background:var(--card); }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 1rem;
+             color:var(--muted); }
+.meta { color:var(--muted); margin-bottom:2rem; }
+.badge { display:inline-block; padding:.1rem .6rem; border-radius:999px;
+         border:1px solid var(--accent); color:var(--accent); font-size:.85rem; }
+.diagram { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; margin:1rem 0; overflow-x:auto; }
+.diagram pre.mermaid { margin:0; }
+.diagram.raw::before { content:"diagram source (assets/mermaid.min.js not vendored)";
+                       display:block; color:var(--muted); font-size:.8rem;
+                       margin-bottom:.5rem; }
+.callout-h, .callout-h ~ p, .callout-h ~ ul { background:var(--warn-bg); }
+.callout-h { border-left:4px solid var(--warn-line); padding:.3rem .8rem; }
+.mockup { margin:1.5rem 0; }
+.mockup iframe { width:100%; height:32rem; border:1px solid var(--line);
+                 border-radius:8px; background:#fff; }
+nav.pager { display:flex; justify-content:space-between; margin-top:3rem;
+            border-top:1px solid var(--line); padding-top:1rem; }
+@media (max-width: 900px) {
+  .layout { display:block; }
+  aside.site { width:auto; height:auto; position:static; border-right:none;
+               border-bottom:1px solid var(--line); }
+}
+h1[id]:hover .rv-add, h2[id]:hover .rv-add, h3[id]:hover .rv-add,
+h4[id]:hover .rv-add { opacity:1; }
+.rv-add { opacity:0; margin-left:.5rem; font-size:.75rem; cursor:pointer;
+          border:1px solid var(--accent); color:var(--accent); background:none;
+          border-radius:6px; padding:0 .45rem; vertical-align:middle;
+          transition:opacity .15s; }
+.rv-comment { border:1px solid var(--warn-line); border-left-width:4px;
+              background:var(--warn-bg); border-radius:8px; padding:.6rem .9rem;
+              margin:.8rem 0; font-size:.92rem; }
+.rv-comment.rv-resolved { opacity:.6; border-left-color:var(--line); }
+.rv-comment .rv-head { display:flex; gap:.6rem; align-items:center;
+                       color:var(--muted); font-size:.8rem; margin-bottom:.3rem; }
+.rv-comment .rv-head button { font-size:.75rem; cursor:pointer; background:none;
+                              border:1px solid var(--line); border-radius:6px;
+                              color:var(--muted); padding:0 .4rem; }
+.rv-comment .rv-body { white-space:pre-wrap; }
+.rv-editor textarea { width:100%; min-height:5rem; background:var(--bg);
+                      color:var(--fg); border:1px solid var(--line);
+                      border-radius:6px; padding:.5rem; font:inherit; }
+.rv-editor .rv-actions { margin-top:.4rem; display:flex; gap:.5rem; }
+.rv-editor button { cursor:pointer; border-radius:6px; padding:.2rem .8rem;
+                    border:1px solid var(--accent); background:var(--accent);
+                    color:#fff; }
+.rv-editor button.rv-cancel { background:none; color:var(--accent); }
+#rv-toggle { position:fixed; right:1rem; bottom:1rem; z-index:60;
+             background:var(--accent); color:#fff; border:none; cursor:pointer;
+             border-radius:999px; padding:.5rem 1rem; font-size:.85rem;
+             box-shadow:0 2px 10px rgba(0,0,0,.2); }
+#rv-drawer { position:fixed; top:0; right:0; bottom:0; width:21rem; z-index:55;
+             background:var(--card); border-left:1px solid var(--line);
+             display:flex; flex-direction:column; transform:translateX(100%);
+             transition:transform .2s ease; box-shadow:-4px 0 16px rgba(0,0,0,.12); }
+body.rv-open #rv-drawer { transform:none; }
+body.rv-open .layout { padding-right:21rem; }
+#rv-drawer header { padding:.8rem 1rem .5rem; border-bottom:1px solid var(--line); }
+#rv-drawer header .rv-count { color:var(--muted); font-size:.8rem; }
+#rv-drawer .rv-compose { padding:.8rem 1rem; border-bottom:1px solid var(--line); }
+#rv-drawer .rv-compose label { display:block; font-size:.75rem;
+                               color:var(--muted); margin-bottom:.25rem; }
+#rv-drawer .rv-compose select { width:100%; margin-bottom:.4rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.3rem; font:inherit; font-size:.85rem; }
+#rv-drawer .rv-compose textarea { width:100%; min-height:5.5rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.5rem; font:inherit; font-size:.9rem; }
+#rv-drawer .rv-compose .rv-live { font-size:.72rem; color:var(--muted); }
+#rv-drawer .rv-list { flex:1; overflow-y:auto; padding:.6rem 1rem; }
+#rv-drawer .rv-item { border:1px solid var(--line); border-left:3px solid
+             var(--warn-line); border-radius:8px; padding:.45rem .6rem;
+             margin-bottom:.6rem; font-size:.82rem; cursor:pointer; }
+#rv-drawer .rv-item.rv-resolved { opacity:.55; border-left-color:var(--line); }
+#rv-drawer .rv-item .rv-where { color:var(--accent); font-size:.72rem; }
+#rv-drawer .rv-item .rv-meta { color:var(--muted); font-size:.72rem;
+                               display:flex; gap:.5rem; align-items:center; }
+#rv-drawer .rv-item .rv-meta button { font-size:.7rem; cursor:pointer;
+             background:none; border:1px solid var(--line); border-radius:5px;
+             color:var(--muted); padding:0 .35rem; }
+#rv-drawer .rv-item .rv-text { white-space:pre-wrap; margin:.15rem 0; }
+#rv-drawer footer { padding:.6rem 1rem; border-top:1px solid var(--line);
+                    display:flex; gap:.5rem; flex-wrap:wrap; }
+#rv-drawer footer button, #rv-drawer .rv-compose button {
+  cursor:pointer; border:1px solid var(--accent); background:none;
+  color:var(--accent); border-radius:6px; padding:.2rem .7rem; font-size:.8rem; }
+#rv-drawer .rv-compose button.rv-primary { background:var(--accent); color:#fff; }
+#rv-drawer .rv-otherpages { color:var(--muted); font-size:.75rem;
+                            margin:.4rem 0 0; }
+@media (max-width: 1200px) { body.rv-open .layout { padding-right:0; } }
+</style>
+</head>
+<body data-page="feature-output-formats" data-rvkey="atak-map-downloader">
+<div class="layout">
+<aside class="site"><a class="brand" href="../spec.html">ATAK Map Downloader</a>
+<h2>Spec</h2><ul>
+<li><a href="../spec.html">Overview &amp; index</a></li>
+</ul>
+<h2>Features</h2><ul>
+<li><a href="feature-foundation.html">Foundation</a></li>
+<li><a href="feature-map-sources.html">Map source catalog</a></li>
+<li><a href="feature-area-estimate.html">Area estimate and tile info</a></li>
+<li><a href="feature-tile-download.html">Tile download and output file</a></li>
+<li><a href="feature-web-ui.html">Web UI and server</a></li>
+<li><a href="feature-security-hardening.html">Security hardening</a></li>
+<li><a href="feature-polite-downloading.html">Polite downloading</a></li>
+<li><a href="feature-robust-downloads.html">Robust downloads</a></li>
+<li><a href="feature-offline-web-ui.html">Offline web UI</a></li>
+<li><a href="feature-source-sync.html">Source sync and WMS</a></li>
+<li><a class="current" href="feature-output-formats.html">Output formats</a></li>
+<li><a href="feature-area-selection.html">Area selection</a></li>
+<li><a href="feature-team-server.html">Team server</a></li>
+</ul></aside>
+<main>
+<h1>Feature: Output formats</h1>
+<p class="meta">Epic 6: Output formats &nbsp; <span class="badge">planned</span></p>
+<h3 id="output-formats-purpose">Purpose</h3>
+<p>Today the project writes one output format: an SQLite file with the four-column TMS <code>tiles</code> table and a <code>.sqlite</code> extension (<code>internal/mbtiles/mbtiles.go:29-34</code>). ATAK detects the format by schema, not by extension. The archived ATAK-CIV source shows three relevant SQLite readers:</p>
+<ul>
+<li>A four-column <code>tiles</code> table loads as "momap".
+</li>
+<li>A table with an extra <code>tile_alpha</code> column loads as "mbtiles".
+</li>
+<li><code>key, provider, tile</code> loads as OSMDroid.
+</li>
+</ul>
+<p>A <code>.gpkg</code> file goes to a separate GeoPackage reader. Source: https://github.com/deptofdefense/AndroidTacticalAssaultKit-CIV/blob/main/takkernel/engine/src/main/java/com/atakmap/android/maps/tilesets/TilesetInfo.java (archived 4.6.0.5).</p>
+<p>This feature completes the MBTiles metadata and adds OSMDroid and GeoPackage writers. It also adds a data package export, so that one zip carries the output file and its source file to a device or a TAK Server.</p>
+<h3 id="output-formats-user-stories">User stories</h3>
+<ul>
+<li>As a solo operator, I want an MBTiles file that QGIS and ATAK both open, so that I check the area on my desktop first.
+</li>
+<li>As a team preparer, I want a data package, so that team members import it in one step through ATAK's Import Manager.
+</li>
+<li>As a WinTAK user, I want GeoPackage, so that I use the same file in WinTAK and in GIS tools.
+</li>
+<li>As an ATAK user, I want the OSMDroid format, so that the file merges with tiles ATAK downloaded itself.
+</li>
+</ul>
+<h3 id="output-formats-functional-requirements">Functional requirements</h3>
+<h4 id="output-formats-format-selection">Format selection</h4>
+<ul>
+<li>FR-output-formats-1 — <code>atak-dl download --format mbtiles|osmdroid|gpkg</code> selects the output format. The default is <code>mbtiles</code>.
+</li>
+<li>FR-output-formats-2 — The output file extension is <code>.mbtiles</code> for <code>mbtiles</code>, <code>.sqlite</code> for <code>osmdroid</code> and <code>.gpkg</code> for <code>gpkg</code>.
+</li>
+<li>FR-output-formats-3 — <code>POST /api/jobs</code> accepts <code>output_format</code> with the same values and default.
+</li>
+<li>FR-output-formats-4 — The engine writes through one <code>output.Writer</code> interface: <code>Open</code>, <code>Has(z,x,y)</code>, <code>Put(z,x,y,data)</code>, <code>PutFailed</code>, <code>Close</code>.
+</li>
+<li>FR-output-formats-5 — <code>--resume</code> works for all three output formats.
+</li>
+</ul>
+<h4 id="output-formats-mbtiles">MBTiles</h4>
+<ul>
+<li>FR-output-formats-6 — The MBTiles writer keeps the current <code>tiles</code> schema and the TMS row order.
+</li>
+<li>FR-output-formats-7 — The MBTiles writer writes the metadata keys <code>name</code>, <code>format</code>, <code>bounds</code>, <code>center</code>, <code>minzoom</code>, <code>maxzoom</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>attribution</code> and <code>atakdl_source</code>.
+</li>
+<li>FR-output-formats-8 — <code>format</code> is <code>png</code>, <code>jpg</code> or <code>webp</code>, in lower case, from the map source tile type.
+</li>
+<li>FR-output-formats-9 — <code>center</code> is <code>&lt;lon&gt;,&lt;lat&gt;,&lt;zoom&gt;</code> at the center of the bounds and the minimum zoom level of the job.
+</li>
+<li>FR-output-formats-10 — <code>type</code> is <code>overlay</code> for a map source from the snapshot's <code>overlays</code> directory and <code>baselayer</code> for every other map source.
+</li>
+</ul>
+<h4 id="output-formats-osmdroid">OSMDroid</h4>
+<ul>
+<li>FR-output-formats-11 — The OSMDroid writer creates <code>tiles (key INTEGER PRIMARY KEY, provider TEXT, tile BLOB)</code>.
+</li>
+<li>FR-output-formats-12 — The OSMDroid writer computes <code>key = (((z &lt;&lt; z) + x) &lt;&lt; z) + y</code> with the XYZ row.
+</li>
+<li>FR-output-formats-13 — The OSMDroid writer sets <code>provider</code> to the map source name.
+</li>
+<li>FR-output-formats-14 — The OSMDroid writer creates the <code>ATAK_metadata</code> table with the schema and values that ATAK-CIV <code>OSMDroidTileContainer.java</code> reads.
+</li>
+</ul>
+<h4 id="output-formats-geopackage">GeoPackage</h4>
+<ul>
+<li>FR-output-formats-15 — The GeoPackage writer creates a GeoPackage 1.3 file with <code>gpkg_spatial_ref_sys</code>, <code>gpkg_contents</code>, <code>gpkg_tile_matrix_set</code> and <code>gpkg_tile_matrix</code>.
+</li>
+<li>FR-output-formats-16 — The GeoPackage writer uses SRS 3857 and the GoogleMapsCompatible tile matrix.
+</li>
+<li>FR-output-formats-17 — The GeoPackage writer creates one tile pyramid table named from the map source, with <code>zoom_level</code>, <code>tile_column</code>, <code>tile_row</code> and <code>tile_data</code>, and XYZ row order.
+</li>
+<li>FR-output-formats-18 — The GeoPackage writer sets <code>application_id</code> to <code>0x47504B47</code> ("GPKG") and <code>user_version</code> to <code>10300</code>.
+</li>
+</ul>
+<h4 id="output-formats-data-package">Data package</h4>
+<ul>
+<li>FR-output-formats-19 — <code>--data-package</code> wraps the output file in a zip with the extension <code>.zip</code>.
+</li>
+<li>FR-output-formats-20 — The data package contains <code>MANIFEST/manifest.xml</code> with <code>&lt;MissionPackageManifest version="2"&gt;</code>.
+</li>
+<li>FR-output-formats-21 — The manifest has a <code>uid</code> (UUID v4), a <code>name</code> and <code>onReceiveImport</code> set to <code>true</code>.
+</li>
+<li>FR-output-formats-22 — The manifest lists one <code>&lt;Content zipEntry=...&gt;</code> for each file in the data package.
+</li>
+<li>FR-output-formats-23 — <code>--data-package --include-source</code> adds the map source's source file to the data package.
+</li>
+<li>FR-output-formats-24 — The web UI export panel offers the output format, the data package option, the include-source option and the package name.
+</li>
+</ul>
+<h4 id="output-formats-conformance">Conformance</h4>
+<ul>
+<li>FR-output-formats-25 — Each output format has a conformance test that applies ATAK's detection rules from <code>TilesetInfo.java</code> to a written output file.
+</li>
+<li>FR-output-formats-26 — The MBTiles conformance test also checks the MBTiles 1.3 required metadata keys.
+</li>
+<li>FR-output-formats-27 — The GeoPackage conformance test checks the required tables and the <code>application_id</code>.
+</li>
+</ul>
+<h3 id="output-formats-user-flows">User flows</h3>
+<h4 id="output-formats-flow-1-export-as-a-data-package-from-the-web-ui">Flow 1 — Export as a data package from the web UI</h4>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+  participant U as User
+  participant W as Web UI
+  participant S as Server
+  participant E as Engine
+  U-&gt;&gt;W: Choose GeoPackage, check data package, name "Mt Hood SAR"
+  W--&gt;&gt;U: File name preview Mt_Hood_SAR.zip
+  U-&gt;&gt;W: Select Start
+  W-&gt;&gt;S: POST /api/jobs with output_format gpkg and data_package true
+  S-&gt;&gt;E: run job with GeoPackage writer
+  E--&gt;&gt;S: job complete
+  S-&gt;&gt;S: zip output file + source file + manifest
+  S--&gt;&gt;W: state complete, output_file Mt_Hood_SAR.zip
+  U-&gt;&gt;W: Select Download</pre></div>
+<ol>
+<li>The user chooses an output format and checks the data package option.
+</li>
+<li>The web UI shows the file name preview.
+</li>
+<li>The user selects <strong>Start</strong>.
+</li>
+<li>The engine writes the output file in the chosen output format.
+</li>
+<li>The server builds the zip with the manifest.
+</li>
+<li>The web UI shows the data package in the output file list.
+</li>
+</ol>
+<h4 id="output-formats-flow-2-choose-an-output-format-in-the-cli">Flow 2 — Choose an output format in the CLI</h4>
+<div class="diagram"><pre class="mermaid">flowchart TD
+  A[atak-dl download --format X] --&gt; B{X valid?}
+  B --&gt;|no| Z[Exit 1: unknown format, list valid values]
+  B --&gt;|yes| C[Open writer for X]
+  C --&gt; D[Run job]
+  D --&gt; E{--data-package?}
+  E --&gt;|no| F[Output file X]
+  E --&gt;|yes| G[Write zip with manifest] --&gt; H[Remove the unzipped output file]</pre></div>
+<ol>
+<li>The user runs <code>atak-dl download --format &lt;format&gt;</code>.
+</li>
+<li>If the format is unknown, the CLI exits with code 1 and lists the valid values.
+</li>
+<li>The CLI opens the writer for the output format and runs the job.
+</li>
+<li>If the command has <code>--data-package</code>, the CLI writes the zip and removes the output file that is not zipped.
+</li>
+</ol>
+<h3 id="output-formats-screens-states">Screens &amp; states</h3>
+<p><strong>Export panel</strong> — <a href="../mockups/03-export-options.html">mockups/03-export-options.html</a>. It sits in the workspace sidebar from feature 08, under the zoom range.</p>
+<p>Regions:</p>
+<ul>
+<li>Three output format cards.
+</li>
+<li>The data package checkbox, with include-source and the package name.
+</li>
+<li>The file name preview.
+</li>
+<li>A help box that says where to put each output file on the device.
+</li>
+</ul>
+<p>States: the default (MBTiles selected, no data package), a data package with an empty name (Start disabled, message "Enter a package name"), and a resumed job (the output format is locked to the format of the existing file).</p>
+<h3 id="output-formats-behaviour-rules">Behaviour rules</h3>
+<ul>
+<li>Device locations, as shown in the help box:
+<ul>
+<li>MBTiles, OSMDroid and GeoPackage files go to <code>atak/imagery/</code>.
+</li>
+<li>A data package goes through ATAK's Import Manager.
+</li>
+</ul>
+</li>
+<li>The package name allows <code>[A-Za-z0-9 _-]</code>, 1 to 64 characters. Spaces become <code>_</code> in the file name.
+</li>
+<li><code>--data-package</code> with <code>--resume</code> resumes the inner output file and then rebuilds the zip.
+</li>
+</ul>
+<h3 id="output-formats-data-touched">Data touched</h3>
+<ul>
+<li>OUTPUT_FILE gains <code>format</code> values <code>osmdroid</code> and <code>gpkg</code>, and the zip wrapper.
+</li>
+<li>METADATA_ENTRY gains <code>center</code>, <code>attribution</code> and <code>atakdl_source</code>.
+</li>
+</ul>
+<h3 id="output-formats-interfaces">Interfaces</h3>
+<ul>
+<li>MBTiles 1.3: https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md.
+</li>
+<li>OGC GeoPackage 1.3: https://www.geopackage.org/spec131/. Read the tile matrix set and the <code>application_id</code> sections before you build it.
+</li>
+<li>ATAK-CIV readers (archived 4.6.0.5):
+<ul>
+<li><code>TilesetInfo.java</code> (detection)
+</li>
+<li><code>OSMDroidTileContainer.java</code> and <code>OSMUtils.java</code> (OSMDroid key and metadata)
+</li>
+<li><code>GeoPackageLayerInfoSpi.java</code>
+</li>
+<li>all under https://github.com/deptofdefense/AndroidTacticalAssaultKit-CIV/tree/main/takkernel/engine/src/main/java/com/atakmap/
+</li>
+</ul>
+</li>
+<li>Data package manifest example: https://github.com/joshuafuller/ATAK-Maps/blob/master/mapvalidator/catalog.py.
+</li>
+<li><code>POST /api/jobs</code> adds <code>output_format</code>, <code>data_package</code>, <code>include_source</code> and <code>package_name</code>.
+</li>
+</ul>
+<h3 id="output-formats-edge-cases-failures">Edge cases &amp; failures</h3>
+<ul>
+<li>If the OSMDroid key overflows int64 above zoom level 20, the writer refuses zoom levels above 20 for <code>osmdroid</code> with error code <code>zoom_out_of_range</code>. Check the overflow point in <code>OSMUtils.java</code> first.
+</li>
+<li>If the map source tile type is <code>webp</code>, the CLI warns that ATAK WebP support is unverified.
+</li>
+<li>If the zip step fails, the job ends <code>failed</code> with reason <code>package_failed</code>, and the inner output file stays.
+</li>
+</ul>
+<h3 id="output-formats-acceptance-criteria">Acceptance criteria</h3>
+<ul>
+<li>A default job writes <code>&lt;name&gt;.mbtiles</code>, and <code>SELECT value FROM metadata WHERE name='center'</code> returns three comma-separated numbers.
+</li>
+<li>The MBTiles conformance test passes: four <code>tiles</code> columns, TMS rows, and the <code>name</code> and <code>format</code> keys.
+</li>
+<li>An <code>--format osmdroid</code> job writes a <code>tiles</code> table with exactly the columns <code>key</code>, <code>provider</code> and <code>tile</code>. The key for z=10, x=301, y=385 equals <code>(((10&lt;&lt;10)+301)&lt;&lt;10)+385</code>.
+</li>
+<li>An <code>--format gpkg</code> job writes a file that <code>ogrinfo</code> (GDAL) lists as a raster GeoPackage with SRS EPSG:3857.
+</li>
+<li><code>--data-package --include-source</code> writes a zip with <code>MANIFEST/manifest.xml</code>, the output file and the source file, and each one is listed in the manifest.
+</li>
+<li><code>--resume</code> on a <code>.gpkg</code> output file skips the stored tiles.
+</li>
+<li>The web UI file name preview changes when the user changes the output format or the package name.
+</li>
+</ul>
+<h3 id="output-formats-out-of-scope">Out of scope</h3>
+<ul>
+<li>Re-encoding tiles to another image format.
+</li>
+<li>KMZ output.
+</li>
+<li>Uploading a data package to a TAK Server.
+</li>
+</ul>
+<h3 id="output-formats-open-questions" class="callout-h">Open questions</h3>
+<ul>
+<li>The OSMDroid <code>ATAK_metadata</code> table schema is not in this spec. The builder reads it from <code>OSMDroidTileContainer.java</code> and records it in an ADR.
+</li>
+<li>Does ATAK 5.x still pick the "momap" reader for the MBTiles writer's four-column table? The optional device check answers this question.
+</li>
+</ul><h2>Mockups</h2><p>Mockups convey intent — the rough shape a user will see. An implementer may diverge where framework conventions, components, accessibility, or a better idea serve the feature's requirements; the FRs and acceptance criteria are the contract, not the pixels.</p><div class="mockup"><iframe src="../mockups/03-export-options.html" loading="lazy"></iframe><p><a href="../mockups/03-export-options.html" target="_blank">Open ../mockups/03-export-options.html in new tab</a></p></div><nav class="pager">
+<a href="feature-source-sync.html">&larr; Feature: Source sync and WMS</a>
+<a href="feature-area-selection.html">Feature: Area selection &rarr;</a>
+</nav>
+</main>
+</div>
+<script src="../assets/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+<script type="application/json" id="rv-embedded">[]</script>
+<script>
+(function(){
+  'use strict';
+  var PAGE = document.body.getAttribute('data-page');
+  // storage key carries the spec's slug: file:// pages can share one
+  // localStorage pool, and two specs must never share a comment store
+  var RVKEY = 'spec-review:' + (document.body.getAttribute('data-rvkey') || 'spec');
+  var EMBED = [];
+  var embedEl = document.getElementById('rv-embedded');
+  if (embedEl) { try { EMBED = JSON.parse(embedEl.textContent); } catch(e){} }
+  function loadLocal(){ try { return JSON.parse(localStorage.getItem(RVKEY)) || {comments:[], deleted:[]}; } catch(e){ return {comments:[], deleted:[]}; } }
+  function saveLocal(s){ try { localStorage.setItem(RVKEY, JSON.stringify(s)); } catch(e){} }
+  function cid(c){ return c.page + '|' + c.section + '|' + (c.date||'') + '|' + c.body.slice(0,24); }
+  function allComments(){
+    var s = loadLocal(), map = {};
+    EMBED.forEach(function(c){ map[cid(c)] = c; });
+    s.comments.forEach(function(c){ map[cid(c)] = c; });
+    s.deleted.forEach(function(id){ delete map[id]; });
+    return Object.keys(map).map(function(k){ return map[k]; });
+  }
+  function upsert(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    s.comments.push(c);
+    s.deleted = s.deleted.filter(function(x){ return x !== id; });
+    saveLocal(s); refresh();
+  }
+  function remove(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    if (EMBED.some(function(x){ return cid(x) === id; })) s.deleted.push(id);
+    saveLocal(s); refresh();
+  }
+  function today(){ return new Date().toISOString().slice(0,10); }
+  function exportMd(){
+    var lines = ['# Review comments', '',
+      '<!-- Exported from the spec review layer. Save this file as',
+      '     docs/specs/review-comments.md and re-run render-spec.py to embed',
+      '     every comment under its section for the next review round. -->', ''];
+    allComments().sort(function(a,b){
+      return (a.page+a.section).localeCompare(b.page+b.section);
+    }).forEach(function(c){
+      lines.push('## [' + c.page + '] ' + (c.section||''));
+      lines.push('status: ' + (c.status||'open'));
+      lines.push('date: ' + (c.date||today()));
+      lines.push(c.body); lines.push('');
+    });
+    var blob = new Blob([lines.join('\n')], {type:'text/markdown'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'review-comments.md';
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+  function importMd(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      var text = String(reader.result);
+      var blocks = text.split(/^## /m).slice(1);
+      blocks.forEach(function(b){
+        var head = b.match(/^\[([^\]]+)\]\s*(\S*)/);
+        if (!head) return;
+        var status = (b.match(/^status:\s*(\S+)/m)||[])[1] || 'open';
+        var date = (b.match(/^date:\s*(\S+)/m)||[])[1] || today();
+        var body = b.replace(/^\[[^\]]*\]\s*\S*\s*\n/, '')
+                    .replace(/^status:.*\n?/m,'').replace(/^date:.*\n?/m,'').trim();
+        if (body) upsert({page:head[1], section:head[2]||'', status:status, date:date, body:body});
+      });
+      refresh();
+    };
+    reader.readAsText(file);
+  }
+  function commentBox(c){
+    var div = document.createElement('div');
+    div.className = 'rv-comment' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var head = document.createElement('div'); head.className = 'rv-head';
+    head.textContent = '💬 ' + (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(){ remove(c); c = Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'}); upsert(c); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(){ if (confirm('Delete this comment?')) remove(c); };
+    head.appendChild(tog); head.appendChild(del);
+    var body = document.createElement('div'); body.className = 'rv-body';
+    body.textContent = c.body;
+    div.appendChild(head); div.appendChild(body);
+    return div;
+  }
+  function editor(section, after){
+    var wrap = document.createElement('div');
+    wrap.className = 'rv-comment rv-editor';
+    var ta = document.createElement('textarea');
+    ta.placeholder = 'Comment on this section…';
+    var actions = document.createElement('div'); actions.className = 'rv-actions';
+    var save = document.createElement('button'); save.textContent = 'Save';
+    save.onclick = function(){
+      if (ta.value.trim()) upsert({page:PAGE, section:section, status:'open', date:today(), body:ta.value.trim()});
+      wrap.remove();
+    };
+    var cancel = document.createElement('button'); cancel.textContent = 'Cancel';
+    cancel.className = 'rv-cancel'; cancel.onclick = function(){ wrap.remove(); };
+    actions.appendChild(save); actions.appendChild(cancel);
+    wrap.appendChild(ta); wrap.appendChild(actions);
+    after.insertAdjacentElement('afterend', wrap);
+    ta.focus();
+  }
+  // --- headings, inline buttons ---
+  var mainH1 = document.querySelector('main h1');
+  if (mainH1 && !mainH1.id) { mainH1.id = 'page-title'; }
+  var headings = Array.prototype.slice.call(
+    document.querySelectorAll('main h1[id], main h2[id], main h3[id], main h4[id]'));
+  headings.forEach(function(h){
+    var b = document.createElement('button');
+    b.className = 'rv-add'; b.textContent = '💬 comment'; b.title = 'Comment on this section';
+    b.onclick = function(){ editor(h.id, h); };
+    h.appendChild(b);
+  });
+  function headingTitle(h){
+    var t = h.childNodes[0] ? h.childNodes[0].textContent : h.textContent;
+    return t.trim();
+  }
+  function titleFor(section){
+    var el = section && document.getElementById(section);
+    return el ? headingTitle(el) : (section || '(page)');
+  }
+
+  // --- drawer ---
+  var drawer = document.createElement('div');
+  drawer.id = 'rv-drawer';
+  drawer.innerHTML =
+    '<header><strong>Review</strong> <span class="rv-count"></span></header>' +
+    '<div class="rv-compose">' +
+    '<div class="rv-live">Commenting on the section in view:</div>' +
+    '<label for="rv-sec"></label><select id="rv-sec"></select>' +
+    '<textarea id="rv-text" placeholder="Type as you read… (Ctrl+Enter saves)"></textarea>' +
+    '<div style="margin-top:.4rem; display:flex; gap:.5rem;">' +
+    '<button class="rv-primary" id="rv-save">Save comment</button>' +
+    '<button id="rv-clear">Clear</button></div></div>' +
+    '<div class="rv-list"></div>' +
+    '<footer><button id="rv-export">Export .md</button>' +
+    '<button id="rv-import">Import</button>' +
+    '<span class="rv-otherpages"></span></footer>';
+  document.body.appendChild(drawer);
+  var toggle = document.createElement('button');
+  toggle.id = 'rv-toggle';
+  toggle.onclick = function(){
+    document.body.classList.toggle('rv-open');
+    try { localStorage.setItem(RVKEY + ':open', document.body.classList.contains('rv-open') ? '1' : ''); } catch(e){}
+  };
+  document.body.appendChild(toggle);
+  try { if (localStorage.getItem(RVKEY + ':open')) document.body.classList.add('rv-open'); } catch(e){}
+
+  var sel = drawer.querySelector('#rv-sec');
+  headings.forEach(function(h){
+    var opt = document.createElement('option');
+    opt.value = h.id; opt.textContent = headingTitle(h);
+    sel.appendChild(opt);
+  });
+  var followScroll = true;
+  sel.onchange = function(){ followScroll = false; };
+
+  // scroll spy: pick the last heading above the upper third of the viewport
+  function currentSection(){
+    var line = window.innerHeight * 0.33, best = headings[0];
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].getBoundingClientRect().top <= line) best = headings[i];
+    }
+    return best ? best.id : '';
+  }
+  window.addEventListener('scroll', function(){
+    if (!followScroll) return;
+    var s = currentSection();
+    if (s && sel.value !== s) sel.value = s;
+  }, {passive:true});
+  // typing pins the target section so a stray scroll can't retarget the comment
+  drawer.querySelector('#rv-text').addEventListener('input', function(){
+    if (this.value.trim()) followScroll = false;
+    else followScroll = true;
+  });
+
+  function saveFromDrawer(){
+    var ta = drawer.querySelector('#rv-text');
+    if (!ta.value.trim()) return;
+    upsert({page:PAGE, section:sel.value, status:'open', date:today(), body:ta.value.trim()});
+    ta.value = ''; followScroll = true;
+  }
+  drawer.querySelector('#rv-save').onclick = saveFromDrawer;
+  drawer.querySelector('#rv-text').addEventListener('keydown', function(e){
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') saveFromDrawer();
+  });
+  drawer.querySelector('#rv-clear').onclick = function(){
+    drawer.querySelector('#rv-text').value = ''; followScroll = true;
+  };
+  drawer.querySelector('#rv-export').onclick = exportMd;
+  var fileIn = document.createElement('input');
+  fileIn.type = 'file'; fileIn.accept = '.md,text/markdown'; fileIn.style.display = 'none';
+  fileIn.onchange = function(){ if (fileIn.files[0]) importMd(fileIn.files[0]); };
+  drawer.appendChild(fileIn);
+  drawer.querySelector('#rv-import').onclick = function(){ fileIn.click(); };
+
+  function drawerItem(c){
+    var div = document.createElement('div');
+    div.className = 'rv-item' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var where = document.createElement('div'); where.className = 'rv-where';
+    where.textContent = titleFor(c.section);
+    var text = document.createElement('div'); text.className = 'rv-text';
+    text.textContent = c.body;
+    var meta = document.createElement('div'); meta.className = 'rv-meta';
+    meta.textContent = (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(e){ e.stopPropagation(); remove(c);
+      upsert(Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'})); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(e){ e.stopPropagation();
+      if (confirm('Delete this comment?')) remove(c); };
+    meta.appendChild(tog); meta.appendChild(del);
+    div.appendChild(where); div.appendChild(text); div.appendChild(meta);
+    div.onclick = function(){
+      var el = c.section && document.getElementById(c.section);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+    return div;
+  }
+
+  function refresh(){
+    document.querySelectorAll('.rv-comment:not(.rv-editor)').forEach(function(el){ el.remove(); });
+    var all = allComments();
+    var mine = all.filter(function(c){ return c.page === PAGE; });
+    mine.forEach(function(c){
+      var target = c.section && document.getElementById(c.section);
+      var anchor = target || mainH1 || document.body.querySelector('main') || document.body;
+      anchor.insertAdjacentElement('afterend', commentBox(c));
+    });
+    var open = all.filter(function(c){ return c.status !== 'resolved'; }).length;
+    toggle.textContent = '💬 Review (' + open + ')';
+    drawer.querySelector('.rv-count').textContent =
+      open + ' open / ' + all.length + ' total';
+    var list = drawer.querySelector('.rv-list');
+    list.innerHTML = '';
+    mine.slice().reverse().forEach(function(c){ list.appendChild(drawerItem(c)); });
+    var others = {};
+    all.forEach(function(c){ if (c.page !== PAGE) others[c.page] = (others[c.page]||0) + 1; });
+    var otherKeys = Object.keys(others);
+    drawer.querySelector('.rv-otherpages').textContent = otherKeys.length
+      ? 'Other pages: ' + otherKeys.map(function(k){ return k + ' (' + others[k] + ')'; }).join(', ')
+      : '';
+  }
+  refresh();
+  var s0 = currentSection();
+  if (s0) sel.value = s0;
+})();
+</script>
+</body>
+</html>

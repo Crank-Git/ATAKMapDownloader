@@ -1,0 +1,925 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATAK Map Downloader</title>
+<style>
+:root { --bg:#ffffff; --fg:#1a1a24; --muted:#5a5a68; --line:#e3e3ea; --accent:#3452c8;
+        --card:#f6f6f9; --warn-bg:#fff7e8; --warn-line:#e8b34a; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14141b; --fg:#e8e8ee; --muted:#9a9aa8; --line:#2c2c38; --accent:#8ea6ff;
+          --card:#1c1c26; --warn-bg:#2a2318; --warn-line:#a87c2a; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+       font:16px/1.6 system-ui,-apple-system,sans-serif; }
+.layout { display:flex; min-height:100vh; }
+aside.site { width:17rem; flex:none; border-right:1px solid var(--line);
+             padding:1.2rem 1rem 3rem; position:sticky; top:0; height:100vh;
+             overflow-y:auto; background:var(--card); }
+aside.site h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em;
+                color:var(--muted); margin:1.2rem 0 .3rem; border:none; padding:0; }
+aside.site ul { list-style:none; margin:0; padding:0; }
+aside.site li { margin:.15rem 0; }
+aside.site a { text-decoration:none; color:var(--fg); font-size:.92rem;
+               display:block; padding:.15rem .5rem; border-radius:6px; }
+aside.site a:hover { background:var(--bg); }
+aside.site a.current { background:var(--accent); color:#fff; }
+aside.site a.sub { padding-left:1.3rem; font-size:.84rem; color:var(--muted); }
+aside.site .brand { font-weight:700; font-size:1.05rem; }
+main { max-width:60rem; margin:0 auto; padding:2rem 1.5rem 6rem; min-width:0; flex:1; }
+h1,h2,h3,h4 { line-height:1.25; }
+h1 { font-size:2rem; margin:.2rem 0; }
+h2 { border-bottom:1px solid var(--line); padding-bottom:.3rem; margin-top:2.5rem; }
+a { color:var(--accent); }
+code { background:var(--card); padding:.1em .35em; border-radius:4px; font-size:.9em; }
+pre.code { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; overflow-x:auto; }
+pre.code code { background:none; padding:0; }
+.table-wrap { overflow-x:auto; }
+table { border-collapse:collapse; margin:1rem 0; min-width:50%; }
+th,td { border:1px solid var(--line); padding:.4rem .7rem; text-align:left; }
+th { background:var(--card); }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 1rem;
+             color:var(--muted); }
+.meta { color:var(--muted); margin-bottom:2rem; }
+.badge { display:inline-block; padding:.1rem .6rem; border-radius:999px;
+         border:1px solid var(--accent); color:var(--accent); font-size:.85rem; }
+.diagram { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; margin:1rem 0; overflow-x:auto; }
+.diagram pre.mermaid { margin:0; }
+.diagram.raw::before { content:"diagram source (assets/mermaid.min.js not vendored)";
+                       display:block; color:var(--muted); font-size:.8rem;
+                       margin-bottom:.5rem; }
+.callout-h, .callout-h ~ p, .callout-h ~ ul { background:var(--warn-bg); }
+.callout-h { border-left:4px solid var(--warn-line); padding:.3rem .8rem; }
+.mockup { margin:1.5rem 0; }
+.mockup iframe { width:100%; height:32rem; border:1px solid var(--line);
+                 border-radius:8px; background:#fff; }
+nav.pager { display:flex; justify-content:space-between; margin-top:3rem;
+            border-top:1px solid var(--line); padding-top:1rem; }
+@media (max-width: 900px) {
+  .layout { display:block; }
+  aside.site { width:auto; height:auto; position:static; border-right:none;
+               border-bottom:1px solid var(--line); }
+}
+h1[id]:hover .rv-add, h2[id]:hover .rv-add, h3[id]:hover .rv-add,
+h4[id]:hover .rv-add { opacity:1; }
+.rv-add { opacity:0; margin-left:.5rem; font-size:.75rem; cursor:pointer;
+          border:1px solid var(--accent); color:var(--accent); background:none;
+          border-radius:6px; padding:0 .45rem; vertical-align:middle;
+          transition:opacity .15s; }
+.rv-comment { border:1px solid var(--warn-line); border-left-width:4px;
+              background:var(--warn-bg); border-radius:8px; padding:.6rem .9rem;
+              margin:.8rem 0; font-size:.92rem; }
+.rv-comment.rv-resolved { opacity:.6; border-left-color:var(--line); }
+.rv-comment .rv-head { display:flex; gap:.6rem; align-items:center;
+                       color:var(--muted); font-size:.8rem; margin-bottom:.3rem; }
+.rv-comment .rv-head button { font-size:.75rem; cursor:pointer; background:none;
+                              border:1px solid var(--line); border-radius:6px;
+                              color:var(--muted); padding:0 .4rem; }
+.rv-comment .rv-body { white-space:pre-wrap; }
+.rv-editor textarea { width:100%; min-height:5rem; background:var(--bg);
+                      color:var(--fg); border:1px solid var(--line);
+                      border-radius:6px; padding:.5rem; font:inherit; }
+.rv-editor .rv-actions { margin-top:.4rem; display:flex; gap:.5rem; }
+.rv-editor button { cursor:pointer; border-radius:6px; padding:.2rem .8rem;
+                    border:1px solid var(--accent); background:var(--accent);
+                    color:#fff; }
+.rv-editor button.rv-cancel { background:none; color:var(--accent); }
+#rv-toggle { position:fixed; right:1rem; bottom:1rem; z-index:60;
+             background:var(--accent); color:#fff; border:none; cursor:pointer;
+             border-radius:999px; padding:.5rem 1rem; font-size:.85rem;
+             box-shadow:0 2px 10px rgba(0,0,0,.2); }
+#rv-drawer { position:fixed; top:0; right:0; bottom:0; width:21rem; z-index:55;
+             background:var(--card); border-left:1px solid var(--line);
+             display:flex; flex-direction:column; transform:translateX(100%);
+             transition:transform .2s ease; box-shadow:-4px 0 16px rgba(0,0,0,.12); }
+body.rv-open #rv-drawer { transform:none; }
+body.rv-open .layout { padding-right:21rem; }
+#rv-drawer header { padding:.8rem 1rem .5rem; border-bottom:1px solid var(--line); }
+#rv-drawer header .rv-count { color:var(--muted); font-size:.8rem; }
+#rv-drawer .rv-compose { padding:.8rem 1rem; border-bottom:1px solid var(--line); }
+#rv-drawer .rv-compose label { display:block; font-size:.75rem;
+                               color:var(--muted); margin-bottom:.25rem; }
+#rv-drawer .rv-compose select { width:100%; margin-bottom:.4rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.3rem; font:inherit; font-size:.85rem; }
+#rv-drawer .rv-compose textarea { width:100%; min-height:5.5rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.5rem; font:inherit; font-size:.9rem; }
+#rv-drawer .rv-compose .rv-live { font-size:.72rem; color:var(--muted); }
+#rv-drawer .rv-list { flex:1; overflow-y:auto; padding:.6rem 1rem; }
+#rv-drawer .rv-item { border:1px solid var(--line); border-left:3px solid
+             var(--warn-line); border-radius:8px; padding:.45rem .6rem;
+             margin-bottom:.6rem; font-size:.82rem; cursor:pointer; }
+#rv-drawer .rv-item.rv-resolved { opacity:.55; border-left-color:var(--line); }
+#rv-drawer .rv-item .rv-where { color:var(--accent); font-size:.72rem; }
+#rv-drawer .rv-item .rv-meta { color:var(--muted); font-size:.72rem;
+                               display:flex; gap:.5rem; align-items:center; }
+#rv-drawer .rv-item .rv-meta button { font-size:.7rem; cursor:pointer;
+             background:none; border:1px solid var(--line); border-radius:5px;
+             color:var(--muted); padding:0 .35rem; }
+#rv-drawer .rv-item .rv-text { white-space:pre-wrap; margin:.15rem 0; }
+#rv-drawer footer { padding:.6rem 1rem; border-top:1px solid var(--line);
+                    display:flex; gap:.5rem; flex-wrap:wrap; }
+#rv-drawer footer button, #rv-drawer .rv-compose button {
+  cursor:pointer; border:1px solid var(--accent); background:none;
+  color:var(--accent); border-radius:6px; padding:.2rem .7rem; font-size:.8rem; }
+#rv-drawer .rv-compose button.rv-primary { background:var(--accent); color:#fff; }
+#rv-drawer .rv-otherpages { color:var(--muted); font-size:.75rem;
+                            margin:.4rem 0 0; }
+@media (max-width: 1200px) { body.rv-open .layout { padding-right:0; } }
+</style>
+</head>
+<body data-page="index" data-rvkey="atak-map-downloader">
+<div class="layout">
+<aside class="site"><a class="brand" href="spec.html">ATAK Map Downloader</a>
+<h2>Spec</h2><ul>
+<li><a class="current" href="spec.html">Overview &amp; index</a></li>
+<li><a class="sub" href="#overview">Overview</a></li>
+<li><a class="sub" href="#terms">Terms</a></li>
+<li><a class="sub" href="#goals">Goals</a></li>
+<li><a class="sub" href="#non-goals">Non-goals</a></li>
+<li><a class="sub" href="#users-personas">Users &amp; personas</a></li>
+<li><a class="sub" href="#feature-map">Feature map</a></li>
+<li><a class="sub" href="#architecture-stack">Architecture &amp; stack</a></li>
+<li><a class="sub" href="#data-model">Data model</a></li>
+<li><a class="sub" href="#cross-cutting-concerns">Cross-cutting concerns</a></li>
+<li><a class="sub" href="#environments-config">Environments &amp; config</a></li>
+<li><a class="sub" href="#testing-strategy">Testing strategy</a></li>
+<li><a class="sub" href="#epics">Epics</a></li>
+<li><a class="sub" href="#milestones">Milestones</a></li>
+<li><a class="sub" href="#assumptions">Assumptions</a></li>
+<li><a class="sub" href="#risks-open-questions">Risks &amp; open questions</a></li>
+<li><a class="sub" href="#changelog">Changelog</a></li>
+</ul>
+<h2>Features</h2><ul>
+<li><a href="html/feature-foundation.html">Foundation</a></li>
+<li><a href="html/feature-map-sources.html">Map source catalog</a></li>
+<li><a href="html/feature-area-estimate.html">Area estimate and tile info</a></li>
+<li><a href="html/feature-tile-download.html">Tile download and output file</a></li>
+<li><a href="html/feature-web-ui.html">Web UI and server</a></li>
+<li><a href="html/feature-security-hardening.html">Security hardening</a></li>
+<li><a href="html/feature-polite-downloading.html">Polite downloading</a></li>
+<li><a href="html/feature-robust-downloads.html">Robust downloads</a></li>
+<li><a href="html/feature-offline-web-ui.html">Offline web UI</a></li>
+<li><a href="html/feature-source-sync.html">Source sync and WMS</a></li>
+<li><a href="html/feature-output-formats.html">Output formats</a></li>
+<li><a href="html/feature-area-selection.html">Area selection</a></li>
+<li><a href="html/feature-team-server.html">Team server</a></li>
+</ul></aside>
+<main>
+<p class="meta"><span class="badge">approved</span> &nbsp; created 2026-11-21 &nbsp; rendered 2026-11-21</p>
+<h1>ATAK Map Downloader</h1>
+<h1 id="atak-map-downloader">ATAK Map Downloader</h1>
+<h2 id="overview">Overview</h2>
+<p>ATAK Map Downloader is a single Go binary, <code>atak-dl</code>. It reads MOBAC source files and downloads the tiles of one map source over an area and a zoom range. It writes the tiles to an SQLite output file that ATAK imports for offline use. The project has a CLI for scripts and a web UI for interactive area selection.</p>
+<p>The project was written in February 2026 and received one outside fix in August 2026 (PR #3). This spec was reconstructed from the code on 2026-11-21. Features 01–04 describe what is built. Features 00 and 05–12 are the roadmap that issue-flow builds.</p>
+<p>The project exists because ATAK users often work with no network. Examples are search and rescue teams, wildland fire crews and outdoor users. ATAK can stream tiles and download small areas on the device. This project moves that work to a desktop or a server: more bandwidth, larger areas, repeatable jobs, and one output file that many devices can use.</p>
+<h2 id="terms">Terms</h2>
+<div class="table-wrap"><table>
+<tr><th>Term</th><th>Part of speech</th><th>Meaning in this project</th><th>Do not use</th></tr>
+<tr><td>project</td><td>noun</td><td>ATAK Map Downloader as a whole, built as the <code>atak-dl</code> binary.</td><td>app, system, tool (in requirements)</td></tr>
+<tr><td>ATAK</td><td>noun</td><td>Android Team Awareness Kit. Also covers iTAK and WinTAK when this spec says "TAK clients".</td><td>—</td></tr>
+<tr><td>MOBAC</td><td>noun</td><td>Mobile Atlas Creator. Its XML format defines map sources.</td><td>—</td></tr>
+<tr><td>map source</td><td>noun</td><td>One tile provider definition: name, URL template, zoom range, tile type. Code: <code>xmlparser.MapSource</code>.</td><td>provider, layer, map</td></tr>
+<tr><td>source file</td><td>noun</td><td>One MOBAC XML file that defines one map source.</td><td>config, definition</td></tr>
+<tr><td>source catalog</td><td>noun</td><td>The set of map sources that the project loaded.</td><td>library, source list</td></tr>
+<tr><td>snapshot</td><td>noun</td><td>The pinned copy of ATAK-Maps source files embedded in the binary (planned, feature 09).</td><td>bundle, vendor copy</td></tr>
+<tr><td>overlay</td><td>noun</td><td>A map source with transparent tiles, drawn on top of another map source.</td><td>layer</td></tr>
+<tr><td>policy class</td><td>noun</td><td>The terms-of-use class of a map source: <code>open</code>, <code>conditional</code> or <code>restricted</code> (planned, feature 06).</td><td>license, tier</td></tr>
+<tr><td>rate limit</td><td>noun</td><td>The maximum number of requests per second that the project sends to one host.</td><td>throttle</td></tr>
+<tr><td>tile</td><td>noun</td><td>One square raster image at one zoom level, column and row.</td><td>image, chunk</td></tr>
+<tr><td>zoom level</td><td>noun</td><td>An integer from 0 to 25 that selects the tile grid.</td><td>level, z (in prose)</td></tr>
+<tr><td>zoom range</td><td>noun</td><td>A minimum and a maximum zoom level, both included.</td><td>levels</td></tr>
+<tr><td>bounds</td><td>noun</td><td>A geographic rectangle: minimum and maximum latitude and longitude. The <code>--bbox</code> flag name stays as it is.</td><td>bbox (in prose), extent, box</td></tr>
+<tr><td>area</td><td>noun</td><td>The region that a job covers: bounds, a polygon or a route buffer (polygon and route buffer are planned, feature 11).</td><td>AOI, region, selection</td></tr>
+<tr><td>route buffer</td><td>noun</td><td>An area made from a line and a distance in metres on each side of it (planned).</td><td>corridor</td></tr>
+<tr><td>estimate</td><td>noun</td><td>A prediction of the tile count, file size and time for an area and a zoom range. The <code>estimate</code> command name stays as it is.</td><td>quote, calculation</td></tr>
+<tr><td>preview</td><td>noun</td><td>A grid of sample tiles from a map source, shown on the map over the area.</td><td>thumbnail</td></tr>
+<tr><td>download</td><td>verb</td><td>To get tiles from a map source over HTTP and write them to an output file. Never a noun in this spec.</td><td>fetch, grab, scrape, pull</td></tr>
+<tr><td>job</td><td>noun</td><td>One run of a download: map source, area, zoom range, settings, output file and state.</td><td>download (noun), task, run</td></tr>
+<tr><td>output file</td><td>noun</td><td>The SQLite or zip file that a job writes.</td><td>tileset, database, map file, archive</td></tr>
+<tr><td>output format</td><td>noun</td><td>The schema of the output file: <code>mbtiles</code>, <code>osmdroid</code> or <code>gpkg</code> (planned, feature 10).</td><td>file type</td></tr>
+<tr><td>data package</td><td>noun</td><td>An ATAK zip file with a <code>MANIFEST/manifest.xml</code> (planned, feature 10).</td><td>mission package (except in ATAK quotes)</td></tr>
+<tr><td>retry</td><td>verb</td><td>To send a tile request again after it fails.</td><td>re-fetch</td></tr>
+<tr><td>resume</td><td>verb</td><td>To continue a job into an existing output file and skip the tiles it already holds (planned, feature 07).</td><td>restart, continue</td></tr>
+<tr><td>failure rate</td><td>noun</td><td>Failed tiles divided by processed tiles in one job.</td><td>error rate</td></tr>
+<tr><td>failure tolerance</td><td>noun</td><td>The highest failure rate at which a job still succeeds. Code: <code>MaxFailureRate</code>.</td><td>error budget</td></tr>
+<tr><td>server</td><td>noun</td><td>The HTTP process that <code>atak-dl serve</code> starts.</td><td>backend, daemon</td></tr>
+<tr><td>web UI</td><td>noun</td><td>The browser page that the server sends from the binary.</td><td>frontend, dashboard, web app</td></tr>
+<tr><td>CLI</td><td>noun</td><td>Command-line interface: the <code>atak-dl</code> subcommands.</td><td>terminal mode</td></tr>
+<tr><td>base map</td><td>noun</td><td>The background map that the web UI draws under the area.</td><td>basemap layer</td></tr>
+<tr><td>geocode</td><td>verb</td><td>To find coordinates for a place name through Nominatim.</td><td>search (as a verb for this)</td></tr>
+<tr><td>token</td><td>noun</td><td>The shared secret that a client sends to a server that is not bound to loopback (planned, feature 12).</td><td>password, API key</td></tr>
+<tr><td>TMS</td><td>noun</td><td>Tile Map Service row order: row 0 is at the south edge.</td><td>—</td></tr>
+<tr><td>XYZ</td><td>noun</td><td>Slippy-map row order: row 0 is at the north edge.</td><td>—</td></tr>
+<tr><td>WMS</td><td>noun</td><td>OGC Web Map Service. A map source that the project requests with bounds instead of a tile column and row.</td><td>—</td></tr>
+<tr><td>SSE</td><td>noun</td><td>Server-Sent Events: a one-way HTTP event stream (planned, feature 05).</td><td>—</td></tr>
+</table></div>
+<h2 id="goals">Goals</h2>
+<ol>
+<li>A user prepares an offline output file for an area with one command or one web UI session.
+</li>
+<li>Every output file that the project writes imports into ATAK with no manual change.
+</li>
+<li>The binary builds for Linux, macOS and Windows on amd64 and arm64 with no C toolchain (<code>CGO_ENABLED=0</code>).
+</li>
+<li>The web UI works with no internet connection, apart from the tile requests and the online base map.
+</li>
+<li>The project sends no request that breaks a published usage policy by default: identifying User-Agent, rate limits, backoff, and a warning for restricted map sources.
+</li>
+<li>A cancelled or failed job keeps every tile that it downloaded, and the user can resume it.
+</li>
+<li>A team runs the server on one LAN machine and submits jobs from a browser, with a token.
+</li>
+</ol>
+<h2 id="non-goals">Non-goals</h2>
+<ul>
+<li>The project does not host or proxy tiles to ATAK devices for live streaming.
+</li>
+<li>The project does not create vector tiles or render OpenStreetMap data.
+</li>
+<li>The project does not change the projection of raster tiles. Every map source is Web Mercator or a WMS that supports EPSG:3857.
+</li>
+<li>The project does not re-encode tiles to JPEG or WebP in v1.
+</li>
+<li>The project does not have user accounts. One shared token protects the server.
+</li>
+<li>The project does not keep a Python-version compatibility promise. The README claim is retired.
+</li>
+<li>The project does not ship a desktop wrapper (Wails or similar).
+</li>
+</ul>
+<h2 id="users-personas">Users &amp; personas</h2>
+<div class="table-wrap"><table>
+<tr><th>Persona</th><th>What they need</th><th>What they may do</th></tr>
+<tr><td>Solo operator</td><td>Prepares offline maps for their own ATAK device before a trip. Uses the web UI or the CLI on a laptop.</td><td>Every action. The server is on loopback, so no token is needed.</td></tr>
+<tr><td>Team preparer</td><td>Prepares output files for a SAR unit, a fire crew or a club, and gives them to members as files or data packages.</td><td>Every action. Often scripts the CLI.</td></tr>
+<tr><td>Server operator</td><td>Runs <code>atak-dl serve</code> on a LAN machine or in Docker for a team.</td><td>Sets the bind address, the token, the data directory and the worker count.</td></tr>
+<tr><td>Team member</td><td>Opens the server's web UI from a browser on the LAN.</td><td>With the token: submits jobs, cancels jobs and downloads output files. Without the token: nothing.</td></tr>
+<tr><td>OSS user</td><td>Finds the project on GitHub. Installs it from a release, Homebrew or Docker.</td><td>Same as the solo operator.</td></tr>
+</table></div>
+<h2 id="feature-map">Feature map</h2>
+<div class="table-wrap"><table>
+<tr><th>Feature set</th><th>Spec file</th><th>Epic</th><th>Status</th><th>Mockups</th></tr>
+<tr><td>Foundation</td><td><a href="html/feature-foundation.html">features/00-foundation.md</a></td><td>Epic 0: Foundation</td><td>planned</td><td>—</td></tr>
+<tr><td>Map source catalog</td><td><a href="html/feature-map-sources.html">features/01-map-sources.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
+<tr><td>Area estimate and tile info</td><td><a href="html/feature-area-estimate.html">features/02-area-estimate.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
+<tr><td>Tile download and output file</td><td><a href="html/feature-tile-download.html">features/03-tile-download.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
+<tr><td>Web UI and server</td><td><a href="html/feature-web-ui.html">features/04-web-ui.md</a></td><td>Existing (built)</td><td>built</td><td>—</td></tr>
+<tr><td>Security hardening</td><td><a href="html/feature-security-hardening.html">features/05-security-hardening.md</a></td><td>Epic 1: Security hardening</td><td>planned</td><td>—</td></tr>
+<tr><td>Polite downloading</td><td><a href="html/feature-polite-downloading.html">features/06-polite-downloading.md</a></td><td>Epic 2: Polite downloading</td><td>planned</td><td>04-source-policy-warning</td></tr>
+<tr><td>Robust downloads</td><td><a href="html/feature-robust-downloads.html">features/07-robust-downloads.md</a></td><td>Epic 3: Robust downloads</td><td>planned</td><td>—</td></tr>
+<tr><td>Offline web UI</td><td><a href="html/feature-offline-web-ui.html">features/08-offline-web-ui.md</a></td><td>Epic 4: Offline web UI</td><td>planned</td><td>01-workspace</td></tr>
+<tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>planned</td><td>—</td></tr>
+<tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>planned</td><td>03-export-options</td></tr>
+<tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>planned</td><td>02-area-tools</td></tr>
+<tr><td>Team server</td><td><a href="html/feature-team-server.html">features/12-team-server.md</a></td><td>Epic 8: Team server</td><td>planned</td><td>05-jobs</td></tr>
+</table></div>
+<h2 id="architecture-stack">Architecture &amp; stack</h2>
+<p>The diagram shows the target architecture after Epic 8. Components that exist today are marked "built".</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+  subgraph Binary["atak-dl binary"]
+    CLI["CLI commands (built)"]
+    Server["Server: net/http (built, reworked)"]
+    WebUI["Web UI: embedded page (built, reworked)"]
+    Catalog["Source catalog: xmlparser (built)"]
+    Snapshot["Snapshot: embedded ATAK-Maps (planned)"]
+    Policy["Source policy table (planned)"]
+    TileCalc["tilecalc: tile math (built)"]
+    Engine["Download engine (built, reworked)"]
+    Writer["Output writer: mbtiles / osmdroid / gpkg (built mbtiles)"]
+    Jobs["Job queue and store (planned)"]
+  end
+  Browser["Browser"] --&gt;|HTTP + SSE| Server
+  Server --&gt; WebUI
+  CLI --&gt; Engine
+  Server --&gt; Jobs --&gt; Engine
+  Snapshot --&gt; Catalog
+  SourceDir["--mapsources-dir"] --&gt; Catalog
+  Catalog --&gt; Engine
+  Policy --&gt; Engine
+  TileCalc --&gt; Engine
+  Engine --&gt;|rate-limited HTTPS| Tiles["Tile servers"]
+  Engine --&gt; Writer --&gt; Out["Output file"]
+  Server --&gt;|1 request/s| Nominatim["Nominatim geocoder"]
+  Out --&gt;|copy or data package| TAK["ATAK device"]</pre></div>
+<p>Per component:</p>
+<ul>
+<li><strong>Language and runtime: Go.</strong> Today <code>go.mod</code> says <code>go 1.21</code>, and the installed toolchain is 1.27.3. Epic 0 sets <code>go 1.26</code> with <code>toolchain go1.27.4</code>. Go 1.27.4 is the current stable release (https://go.dev/doc/devel/release, retrieved 2026-11-21). Go beat the alternatives because it gives one static binary and has a cross-compile story that a solo maintainer can keep. See <a href="../adr/0001-go-single-binary-cli.md">ADR 0001</a>.
+</li>
+<li><strong>CLI: spf13/cobra.</strong> Built. Cobra is kept because it already defines every command.
+</li>
+<li><strong>SQLite driver: modernc.org/sqlite (planned).</strong> It replaces <code>mattn/go-sqlite3</code>, which needs CGO. modernc is at v1.62.0 (https://pkg.go.dev/modernc.org/sqlite?tab=versions, retrieved 2026-11-21). It is about 1.6 times slower than mattn at bulk inserts (https://github.com/cvilsmeier/go-sqlite-bench). The network is the bottleneck, so the difference is small. ncruces/go-sqlite3 is pre-1.0 and is the fallback. See <a href="../adr/0005-pure-go-sqlite.md">ADR 0005</a>.
+</li>
+<li><strong>Server: net/http.</strong> The Go 1.22 method-and-path patterns replace the hand-written router in <code>cmd/atak-dl/commands/web.go:52-75</code>. <code>http.CrossOriginProtection</code> (Go 1.25, https://go.dev/doc/go1.25) blocks requests from other web pages. <code>os.Root</code> (Go 1.24) limits file serving to the output directory.
+</li>
+<li><strong>Progress channel: SSE (planned).</strong> SSE replaces <code>gorilla/websocket</code>, which has had no release since v1.5.3 in June 2024 (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions). Progress goes from the server to the browser only, and browser commands become POST requests. See <a href="../adr/0006-sse-job-api.md">ADR 0006</a>.
+</li>
+<li><strong>Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman (planned), embedded with <code>embed.FS</code>.</strong> Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
+</li>
+<li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Today there is a copied folder of 34 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
+</li>
+<li><strong>Release: GoReleaser v2 on GitHub Actions (planned).</strong> Release targets are GitHub Releases, a GHCR image and a Homebrew cask in <code>Crank-Git/homebrew-tap</code>. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). <code>brews</code> is deprecated in favour of <code>homebrew_casks</code> (https://goreleaser.com/deprecations/).
+</li>
+<li><strong>Lint: golangci-lint v2 (planned).</strong> Version v2.15.0, with the complexity linters enabled (https://github.com/golangci/golangci-lint/releases).
+</li>
+</ul>
+<p>Repository layout (current, plus planned additions in italics):</p>
+<pre class="code"><code>cmd/atak-dl/            CLI entry point and one file per command
+internal/xmlparser/     source file parser (built)
+internal/tilecalc/      Web Mercator tile math (built)
+internal/download/      download engine (built)
+internal/mbtiles/       MBTiles writer (built)
+internal/output/        planned: one writer per output format
+internal/policy/        planned: source policy table and rate limits
+internal/jobs/          planned: job queue and job store
+internal/server/        planned: HTTP handlers moved out of commands/web.go
+web/                    embedded web UI
+mapsources/             source files (replaced by the embedded snapshot in Epic 5)
+docs/specs/ docs/adr/   this spec and the decision records</code></pre>
+<h2 id="data-model">Data model</h2>
+<div class="diagram"><pre class="mermaid">erDiagram
+  MAP_SOURCE ||--o| SOURCE_POLICY : "matched by host"
+  MAP_SOURCE ||--o{ JOB : "used by"
+  JOB ||--|{ AREA : covers
+  JOB ||--|| OUTPUT_FILE : writes
+  OUTPUT_FILE ||--|{ TILE : holds
+  OUTPUT_FILE ||--|{ METADATA_ENTRY : holds
+  OUTPUT_FILE ||--o{ FAILED_TILE : records
+  JOB ||--o{ JOB_EVENT : emits
+  SOURCE_FILE ||--o| MAP_SOURCE : defines
+  SOURCE_FILE ||--o| SKIPPED_SOURCE : "fails as"
+  MAP_SOURCE {
+    string name PK
+    string url
+    int min_zoom
+    int max_zoom
+    string tile_type
+    string tile_update
+    string background_color
+    bool ignore_errors
+    string_list server_parts
+    string kind "tile or wms (planned)"
+    bool invert_y "planned"
+  }
+  SOURCE_FILE {
+    string path PK
+    string origin "snapshot or user (planned)"
+  }
+  SKIPPED_SOURCE {
+    string path FK
+    string reason "planned"
+    string detail
+  }
+  SOURCE_POLICY {
+    string host_pattern PK
+    string policy_class
+    float requests_per_second
+    string reason
+    string reference_url
+  }
+  JOB {
+    string id PK "planned"
+    string source_name FK
+    int min_zoom
+    int max_zoom
+    string state
+    string output_format "planned"
+    int total
+    int downloaded
+    int skipped "planned"
+    int failed
+    time created_at "planned"
+  }
+  AREA {
+    string kind "bounds, polygon, route_buffer"
+    string geometry
+    int min_zoom
+    int max_zoom
+  }
+  OUTPUT_FILE {
+    string path PK
+    string format
+  }
+  TILE {
+    int zoom_level
+    int tile_column
+    int tile_row "TMS"
+    blob tile_data
+  }
+  METADATA_ENTRY {
+    string name PK
+    string value
+  }
+  FAILED_TILE {
+    int zoom_level
+    int tile_column
+    int tile_row
+    string reason "planned"
+  }
+  JOB_EVENT {
+    string type
+    string payload
+  }</pre></div>
+<p>Per entity:</p>
+<ul>
+<li><strong>MAP_SOURCE</strong> (built, <code>internal/xmlparser/xmlparser.go:16-26</code>). The parser loads it from a <code>&lt;customMapSource&gt;</code> source file. <code>name</code> is the key. If two source files have the same name, the last file loaded wins with no warning. Defaults: if both zooms are 0, <code>max_zoom</code> is 18. <code>tile_type</code> is <code>png</code>, <code>tile_update</code> is <code>None</code> and <code>background_color</code> is <code>#000000</code>. Planned: <code>kind</code> (<code>tile</code> or <code>wms</code>) and <code>invert_y</code> (feature 09).
+</li>
+<li><strong>SOURCE_FILE</strong> (built). A MOBAC XML file in the source directory. Planned: <code>origin</code> is <code>snapshot</code> or <code>user</code> (feature 09).
+</li>
+<li><strong>SKIPPED_SOURCE</strong> (planned, feature 09). An in-memory record of a source file that did not load, with its reason. Today the parser drops these with no record.
+</li>
+<li><strong>SOURCE_POLICY</strong> (planned, feature 06). A table embedded in the binary, keyed by a host pattern such as <code>*.google.com</code>. <code>policy_class</code> is <code>open</code>, <code>conditional</code> or <code>restricted</code>. <code>requests_per_second</code> is the rate limit for that host.
+</li>
+<li><strong>JOB</strong> (built as one in-memory record, <code>cmd/atak-dl/commands/web.go:30-34</code>). The state is <code>idle</code> or <code>downloading</code>. Planned (features 05 and 12): an <code>id</code>, the states in the state diagram below, and a persistent record in the data directory.
+</li>
+<li><strong>AREA</strong> (built as bounds only). Planned: polygon and route buffer geometry as GeoJSON, with a zoom range for each area (feature 11).
+</li>
+<li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path is deleted first, and the file is deleted again on cancel. Planned: an extension per output format, no silent delete, and resume (features 07 and 10).
+</li>
+<li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:29-34</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned, with no check.
+</li>
+<li><strong>METADATA_ENTRY</strong> (built). Keys: <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code>, <code>maxzoom</code>. Planned: <code>center</code> and <code>attribution</code> (feature 10).
+</li>
+<li><strong>FAILED_TILE</strong> (planned, feature 07). A table <code>atakdl_failed_tiles</code> in the output file. ATAK reads only the <code>tiles</code> and <code>metadata</code> tables, so an extra table is safe. This is inferred from ATAK-CIV <code>TilesetInfo.java</code> and is a risk item.
+</li>
+<li><strong>JOB_EVENT</strong> (planned). An SSE message: <code>progress</code>, <code>state</code> or <code>log</code>.
+</li>
+</ul>
+<p>Job lifecycle (planned, features 05, 07 and 12):</p>
+<div class="diagram"><pre class="mermaid">stateDiagram-v2
+  [*] --&gt; queued
+  queued --&gt; running : worker free
+  queued --&gt; cancelled : cancel
+  running --&gt; complete : failure rate within failure tolerance
+  running --&gt; failed : failure rate above failure tolerance or auto-stop
+  running --&gt; cancelled : cancel
+  failed --&gt; queued : resume
+  cancelled --&gt; queued : resume
+  complete --&gt; [*]</pre></div>
+<h2 id="cross-cutting-concerns">Cross-cutting concerns</h2>
+<ul>
+<li><strong>Authentication and authorization.</strong> Today there is none, and that is acceptable only on loopback. Planned (feature 12): if the server binds to an address that is not loopback, every request must carry the token. The token comes from <code>--token</code> or <code>ATAKDL_TOKEN</code>. If neither is set, the server generates one and prints it once at start.
+</li>
+<li><strong>Cross-origin requests.</strong> Today the server sends <code>Access-Control-Allow-Origin: *</code>, and the websocket accepts any origin (<code>web.go:44,54</code>). Any web page that the user visits can start a job. Planned (feature 05): no CORS headers, and <code>http.CrossOriginProtection</code> on every state-changing route.
+</li>
+<li><strong>TLS.</strong> Today <code>InsecureSkipVerify</code> is true by default (<code>internal/download/download.go:42,100</code>). Planned (feature 05): verification is on by default, and <code>--insecure</code> turns it off for one job.
+</li>
+<li><strong>Error handling.</strong> Today handlers write hand-built JSON strings as <code>text/plain</code> (<code>web.go:179,352</code>). Planned (feature 05): every error response is <code>application/json</code> with the shape <code>{"error": {"code": "&lt;snake_case&gt;", "message": "&lt;text&gt;"}}</code>.
+</li>
+<li><strong>Validation.</strong> Planned limits:
+<ul>
+<li>The zoom range is within the map source's zoom range.
+</li>
+<li>The tile count is at most <code>--max-tiles</code>, with a default of 500,000 (feature 07).
+</li>
+<li>A request body is at most 1 MiB.
+</li>
+<li>Concurrency is from 1 to 32.
+</li>
+</ul>
+</li>
+<li><strong>Logging.</strong> <code>log/slog</code> with the text handler today. Planned: every job log line carries <code>job_id</code>, and every failed tile is logged at debug level with its URL and reason.
+</li>
+<li><strong>Politeness.</strong> Planned (feature 06):
+<ul>
+<li>The User-Agent is <code>atak-map-downloader/&lt;version&gt; (+https://github.com/Crank-Git/ATAKMapDownloader)</code>.
+</li>
+<li>Each host has a rate limit.
+</li>
+<li>The project backs off on 429 and 503 and honours <code>Retry-After</code>.
+</li>
+<li>Geocoding is limited to 1 request per second across the whole server, as the Nominatim policy requires (https://operations.osmfoundation.org/policies/nominatim/).
+</li>
+</ul>
+</li>
+<li><strong>Accessibility.</strong> Planned (feature 08):
+<ul>
+<li>Every control has a label.
+</li>
+<li>Icon buttons have <code>aria-label</code>.
+</li>
+<li>The job status region is <code>aria-live="polite"</code>.
+</li>
+<li>The progress bar sets <code>aria-valuenow</code>.
+</li>
+<li>The theme follows <code>prefers-color-scheme</code>.
+</li>
+</ul>
+</li>
+<li><strong>Performance targets.</strong> The tile writer stores at least 500 tiles per second on a laptop SSD (one writer goroutine, one transaction per 500 tiles). The server starts in less than 1 second with the embedded snapshot.
+</li>
+<li><strong>Internationalization.</strong> English only. No i18n is planned.
+</li>
+</ul>
+<h2 id="environments-config">Environments &amp; config</h2>
+<ul>
+<li><strong>Environments.</strong> One environment: the user's machine, or a LAN server or container. The project has no hosted deployment. Releases are the deploy target: GitHub Releases, <code>ghcr.io/crank-git/atak-map-downloader</code> and the Homebrew cask.
+</li>
+<li><strong>Configuration.</strong> Configuration is through flags today, and no code reads an environment variable. Planned environment variables:
+</li>
+</ul>
+<div class="table-wrap"><table>
+<tr><th>Name</th><th>Feature</th><th>Meaning</th></tr>
+<tr><td><code>ATAKDL_TOKEN</code></td><td>12</td><td>The token for a server that is not on loopback. It has the same meaning as <code>--token</code>.</td></tr>
+<tr><td><code>ATAKDL_DATA_DIR</code></td><td>12</td><td>The directory for output files and the job store. It has the same meaning as <code>--data-dir</code>. The default is <code>./downloads</code>.</td></tr>
+</table></div>
+<ul>
+<li><strong>CI secrets</strong> (names only; see <a href="../external.md">docs/external.md</a>): <code>GITHUB_TOKEN</code> (provided by Actions) and <code>HOMEBREW_TAP_GITHUB_TOKEN</code> (a fine-grained token with write access to <code>Crank-Git/homebrew-tap</code>).
+</li>
+<li><strong>Seed and demo data.</strong> Epic 0 adds <code>testdata/</code> with three fixture source files (tile, quadkey and WMS) and a fake tile server for tests (<code>internal/testtiles</code>). The demo is <code>atak-dl download --source "OpenTopo - Opentopomap" --bbox 45.30,-121.80,45.45,-121.60 --min-zoom 8 --max-zoom 12</code>, Mount Hood with about 60 tiles.
+</li>
+</ul>
+<h2 id="testing-strategy">Testing strategy</h2>
+<ul>
+<li><strong>Unit tests.</strong> <code>go test -race ./...</code>. Every package in <code>internal/</code> has table-driven tests. Today only <code>tilecalc</code> and <code>xmlparser</code> have tests (12 tests, all pass).
+</li>
+<li><strong>Integration tests.</strong> The download engine and every output writer run against <code>internal/testtiles</code>, an <code>httptest</code> tile server. The test server can return 200, 404, 429 with <code>Retry-After</code>, 503, HTML bodies and slow responses. No test calls a real tile server.
+</li>
+<li><strong>Conformance tests.</strong> Each output format has a test that opens the output file and applies ATAK's format-detection rules from ATAK-CIV <code>TilesetInfo.java</code>: the <code>tiles</code> column set, the row order and the metadata keys. A device check is a manual, optional step, because the maintainer has no TAK client installed.
+</li>
+<li><strong>HTTP tests.</strong> The server handlers run under <code>httptest</code>. SSE and timeouts use <code>testing/synctest</code>.
+</li>
+<li><strong>Smoke test.</strong> <code>scripts/smoke.sh</code> builds the binary and starts <code>serve</code> on a free port. It checks that <code>GET /</code> returns 200 and that <code>GET /api/sources</code> returns a non-empty list, then stops the server.
+</li>
+<li><strong>Lint.</strong> <code>golangci-lint run</code> with the config from Epic 0. <code>gofmt -l .</code> prints nothing.
+</li>
+<li><strong>What "done" means for a change:</strong> <code>go test -race ./...</code>, <code>golangci-lint run</code> and <code>scripts/smoke.sh</code> pass in CI on the PR. A change to an output format also passes its conformance test.
+</li>
+</ul>
+<h2 id="epics">Epics</h2>
+<ol>
+<li><strong>Epic 0: Foundation.</strong> Goal: a fresh clone tests, lints, builds and releases with no C toolchain. Covers <a href="html/feature-foundation.html">00-foundation</a>. Depends on: nothing. Exit: CI is green on <code>develop</code>, and a <code>v0.2.0-rc</code> tag produces signed release artifacts.
+</li>
+<li><strong>Epic 1: Security hardening.</strong> Goal: no web page and no network attacker can drive or tamper with a job. Covers <a href="html/feature-security-hardening.html">05-security-hardening</a>. Depends on: Epic 0. Exit: the cross-origin, TLS and limit tests pass, and the websocket is gone.
+</li>
+<li><strong>Epic 2: Polite downloading.</strong> Goal: default behavior meets the published tile and Nominatim policies. Covers <a href="html/feature-polite-downloading.html">06-polite-downloading</a>. Depends on: Epic 1 (the job API). Exit: rate-limit and backoff tests pass, and restricted map sources need confirmation.
+</li>
+<li><strong>Epic 3: Robust downloads.</strong> Goal: no job loses a downloaded tile, and no output file holds a bad tile. Covers <a href="html/feature-robust-downloads.html">07-robust-downloads</a>. Depends on: Epic 2 (the host rate limiter that the engine waits on). Exit: resume, validation and tile-cap tests pass under <code>-race</code>.
+</li>
+<li><strong>Epic 4: Offline web UI.</strong> Goal: the web UI works air-gapped and returns output files to the browser. Covers <a href="html/feature-offline-web-ui.html">08-offline-web-ui</a>. Depends on: Epic 1. Exit: the page loads with the network off, and no request leaves for a CDN.
+</li>
+<li><strong>Epic 5: Source sync and WMS.</strong> Goal: the binary carries a current source catalog, and every source file in it loads or reports why not. Covers <a href="html/feature-source-sync.html">09-source-sync</a>. Depends on: Epic 2 (policy table keys). Exit: 53 snapshot source files load or are listed as skipped with a reason.
+</li>
+<li><strong>Epic 6: Output formats.</strong> Goal: the user chooses MBTiles, OSMDroid or GeoPackage, optionally inside a data package. Covers <a href="html/feature-output-formats.html">10-output-formats</a>. Depends on: Epic 3 (the single writer). Exit: the conformance tests pass for all three output formats.
+</li>
+<li><strong>Epic 7: Area selection.</strong> Goal: a job covers polygons, imported files and route buffers, with a zoom range for each area. Covers <a href="html/feature-area-selection.html">11-area-selection</a>. Depends on: Epic 4 (Geoman). Exit: a polygon job downloads only intersecting tiles.
+</li>
+<li><strong>Epic 8: Team server.</strong> Goal: a team shares one server with a token, a job queue and job history. Covers <a href="html/feature-team-server.html">12-team-server</a>. Depends on: Epics 1 and 4. Exit: the Docker image runs headless and two queued jobs complete in order.
+</li>
+</ol>
+<h2 id="milestones">Milestones</h2>
+<div class="table-wrap"><table>
+<tr><th>Milestone</th><th>Epics</th><th>What "shippable" means</th></tr>
+<tr><td>v0.2.0: Modern build</td><td>0</td><td>Signed CGO-free binaries for 6 platforms, a GHCR image and a Homebrew cask. Behavior is unchanged.</td></tr>
+<tr><td>v0.3.0: Safe by default</td><td>1, 2</td><td>The local server cannot be driven by other web pages. TLS is verified. Requests follow the tile and Nominatim policies.</td></tr>
+<tr><td>v0.4.0: Reliable jobs</td><td>3, 4</td><td>Resume, tile validation and tile caps. The web UI works offline and returns output files.</td></tr>
+<tr><td>v0.5.0: Current catalog</td><td>5, 6</td><td>The ATAK-Maps v2.3.1 snapshot with WMS support. Three output formats and data packages.</td></tr>
+<tr><td>v1.0.0: Teams</td><td>7, 8</td><td>Polygon and route areas. A token-protected team server with a queue.</td></tr>
+</table></div>
+<p>Epic 4 needs only Epic 1, so issue-flow may build it in parallel with Epics 2 and 3.</p>
+<h2 id="assumptions" class="callout-h">Assumptions</h2>
+<ol>
+<li>The default output format stays MBTiles, and the default extension changes from <code>.sqlite</code> to <code>.mbtiles</code> in Epic 6. ATAK detects the format by the schema, not by the extension (ATAK-CIV <code>TilesetInfo.java</code>), so the change is safe for import.
+</li>
+<li>The tile cap default is 500,000 tiles per job. That is about 7.5 GB at the CLI's 15 KB per tile estimate.
+</li>
+<li>The default rate limit for a host that is not in the policy table is 4 requests per second, with concurrency at most 4 for that host.
+</li>
+<li>Restricted map sources stay in the snapshot. They are labeled, rate-limited to 1 request per second, and need explicit confirmation (<code>--accept-terms</code> in the CLI, a checkbox in the web UI). This is the user's "Tag + warn" choice.
+</li>
+<li>The team server runs jobs one at a time by default (<code>--workers 1</code>), because tile servers rate-limit by client IP.
+</li>
+<li>The job store is a JSON-lines file in the data directory, not an SQLite database. Job volume is small.
+</li>
+<li>Release versions start at v0.2.0. The current code is v0.1.0 for history, and no tag exists today.
+</li>
+<li>Device verification on ATAK is optional and manual. Conformance tests carry the acceptance criteria.
+</li>
+</ol>
+<h2 id="risks-open-questions" class="callout-h">Risks &amp; open questions</h2>
+<p>Reconciliation of the existing documentation against the code (Phase 1):</p>
+<ul>
+<li><strong>Contradicted — README cross-compile.</strong> <code>README.md:37-46</code> tells users to cross-compile with <code>GOOS</code>/<code>GOARCH</code>. The <code>mattn/go-sqlite3</code> driver needs CGO, so those commands fail with no C cross-compiler. The code wins. Epic 0 fixes the driver and the README.
+</li>
+<li><strong>Contradicted — "1:1 functionality matching the Python version".</strong> <code>README.md:5</code>. No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim. Epic 0 removes it.
+</li>
+<li><strong>Contradicted — "30+ map sources".</strong> 34 files ship. 30 load. Three WMS source files are skipped with no log (<code>internal/xmlparser/xmlparser.go:129-132</code>), and one file is not a source file.
+</li>
+<li><strong>Contradicted — "MBTiles output".</strong> The output file has a <code>.sqlite</code> extension and lacks the <code>center</code> key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
+</li>
+<li><strong>Contradicted — "Batch Delay".</strong> The web UI offers a batch delay (<code>web/index.html:127</code>). The engine never reads <code>DelayBetweenBatches</code> (<code>internal/download/download.go:28</code>).
+</li>
+<li><strong>Risk — the build fails on this machine today.</strong> On 2026-11-21, <code>go run ./cmd/atak-dl</code> failed at the CGO link step on macOS 27 (<code>ld: … tapi error: malformed file … unknown architecture</code>). The prebuilt <code>./atak-dl</code> from February still runs. Epic 0 removes CGO (ADR 0005), so this is the first sub-issue to build.
+</li>
+<li><strong>Risk — a late cancel is lost.</strong> The engine checks the context only while it starts tile requests (<code>internal/download/download.go:171-184</code>). A SIGINT after the last request starts ends as a normal job, and the CLI can print "Download complete". Feature 07 fixes this (FR-robust-downloads-30).
+</li>
+<li><strong>Risk — preview tiles can fail to show.</strong> The preview overlays set <code>crossOrigin: 'anonymous'</code> (<code>web/static/js/app.js</code>), so a tile server that sends no CORS header blocks the image. Feature 08 owns the preview rendering.
+</li>
+<li><strong>Risk — ATAK format handling is inferred, not tested.</strong> The public ATAK-CIV source is archived at 4.6.0.5 (October 2024). No public source exists for ATAK 5.x, iTAK, WinTAK or TAK Aware. Each output format can fail on a newer client. Mitigation: conformance tests, plus an optional device check before v0.5.0.
+</li>
+<li><strong>Risk — restricted map sources.</strong> Google and Esri terms prohibit bulk download and offline caching. Google: https://developers.google.com/maps/documentation/tile/policies. Esri: https://www.esri.com/content/dam/arcgisonline/docs/tou_summary.pdf. The OSM tile policy says "Offline use is not permitted" (https://operations.osmfoundation.org/policies/tiles/). Microsoft says direct Bing tile URLs are "not allowed" (https://learn.microsoft.com/en-us/bingmaps/rest-services/directly-accessing-the-bing-maps-tiles). The project warns and rate-limits, and the user decides. Bing tile endpoints can stop working at any time.
+</li>
+<li><strong>Risk — the ATAK-Maps v2 rename.</strong> ATAK-Maps v2.0.0 renamed every map source (https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md). Scripts that pass <code>--source "Google - Satellite Only"</code> break after Epic 5. Mitigation: an alias table from old names to new names for one release.
+</li>
+<li><strong>Open question — Leaflet-Geoman license.</strong> The free edition is believed to be MIT, but the research spike did not confirm it. Epic 4 confirms the license before it vendors the library.
+</li>
+<li><strong>Open question — WebP support in ATAK.</strong> Not verified. Re-encoding is a non-goal for v1.
+</li>
+<li><strong>Open question — the OSMDroid <code>ATAK_metadata</code> table.</strong> The exact schema must be read from ATAK-CIV <code>OSMDroidTileContainer.java</code> before Epic 6 builds the writer.
+</li>
+<li><strong>Undocumented behavior found in the code</strong> (no document mentions it):
+<ul>
+<li>the <code>/api/preview</code> route and its tile grid
+</li>
+<li>the <code>/api/geocode</code> Nominatim proxy
+</li>
+<li>the <code>/api/tile-info</code> and <code>/api/validate-source</code> routes, which the web UI never calls
+</li>
+<li>the auto-zoom rule in <code>estimate</code>
+</li>
+<li>the mtime-based source cache
+</li>
+<li>deletion of an existing output file before a job
+</li>
+<li>deletion of the output file on cancel
+</li>
+<li>the single global job lock
+</li>
+<li>dark mode that inverts map tiles
+</li>
+</ul>
+</li>
+</ul>
+<h2 id="changelog">Changelog</h2>
+<ul>
+<li>2026-11-21: Created by project-inherit. Features 01–04 are built and documented from the code. Features 00 and 05–12 are planned from the roadmap interview.
+</li>
+<li>2026-11-21: Approved by the maintainer after review round 1. Mockups 02, 03 and 04 were adjusted for heading sizes and borders.
+</li>
+</ul><nav class="pager">
+<span></span>
+<a href="html/feature-foundation.html">Feature: Foundation &rarr;</a>
+</nav>
+</main>
+</div>
+<script src="assets/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+<script type="application/json" id="rv-embedded">[]</script>
+<script>
+(function(){
+  'use strict';
+  var PAGE = document.body.getAttribute('data-page');
+  // storage key carries the spec's slug: file:// pages can share one
+  // localStorage pool, and two specs must never share a comment store
+  var RVKEY = 'spec-review:' + (document.body.getAttribute('data-rvkey') || 'spec');
+  var EMBED = [];
+  var embedEl = document.getElementById('rv-embedded');
+  if (embedEl) { try { EMBED = JSON.parse(embedEl.textContent); } catch(e){} }
+  function loadLocal(){ try { return JSON.parse(localStorage.getItem(RVKEY)) || {comments:[], deleted:[]}; } catch(e){ return {comments:[], deleted:[]}; } }
+  function saveLocal(s){ try { localStorage.setItem(RVKEY, JSON.stringify(s)); } catch(e){} }
+  function cid(c){ return c.page + '|' + c.section + '|' + (c.date||'') + '|' + c.body.slice(0,24); }
+  function allComments(){
+    var s = loadLocal(), map = {};
+    EMBED.forEach(function(c){ map[cid(c)] = c; });
+    s.comments.forEach(function(c){ map[cid(c)] = c; });
+    s.deleted.forEach(function(id){ delete map[id]; });
+    return Object.keys(map).map(function(k){ return map[k]; });
+  }
+  function upsert(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    s.comments.push(c);
+    s.deleted = s.deleted.filter(function(x){ return x !== id; });
+    saveLocal(s); refresh();
+  }
+  function remove(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    if (EMBED.some(function(x){ return cid(x) === id; })) s.deleted.push(id);
+    saveLocal(s); refresh();
+  }
+  function today(){ return new Date().toISOString().slice(0,10); }
+  function exportMd(){
+    var lines = ['# Review comments', '',
+      '<!-- Exported from the spec review layer. Save this file as',
+      '     docs/specs/review-comments.md and re-run render-spec.py to embed',
+      '     every comment under its section for the next review round. -->', ''];
+    allComments().sort(function(a,b){
+      return (a.page+a.section).localeCompare(b.page+b.section);
+    }).forEach(function(c){
+      lines.push('## [' + c.page + '] ' + (c.section||''));
+      lines.push('status: ' + (c.status||'open'));
+      lines.push('date: ' + (c.date||today()));
+      lines.push(c.body); lines.push('');
+    });
+    var blob = new Blob([lines.join('\n')], {type:'text/markdown'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'review-comments.md';
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+  function importMd(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      var text = String(reader.result);
+      var blocks = text.split(/^## /m).slice(1);
+      blocks.forEach(function(b){
+        var head = b.match(/^\[([^\]]+)\]\s*(\S*)/);
+        if (!head) return;
+        var status = (b.match(/^status:\s*(\S+)/m)||[])[1] || 'open';
+        var date = (b.match(/^date:\s*(\S+)/m)||[])[1] || today();
+        var body = b.replace(/^\[[^\]]*\]\s*\S*\s*\n/, '')
+                    .replace(/^status:.*\n?/m,'').replace(/^date:.*\n?/m,'').trim();
+        if (body) upsert({page:head[1], section:head[2]||'', status:status, date:date, body:body});
+      });
+      refresh();
+    };
+    reader.readAsText(file);
+  }
+  function commentBox(c){
+    var div = document.createElement('div');
+    div.className = 'rv-comment' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var head = document.createElement('div'); head.className = 'rv-head';
+    head.textContent = '💬 ' + (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(){ remove(c); c = Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'}); upsert(c); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(){ if (confirm('Delete this comment?')) remove(c); };
+    head.appendChild(tog); head.appendChild(del);
+    var body = document.createElement('div'); body.className = 'rv-body';
+    body.textContent = c.body;
+    div.appendChild(head); div.appendChild(body);
+    return div;
+  }
+  function editor(section, after){
+    var wrap = document.createElement('div');
+    wrap.className = 'rv-comment rv-editor';
+    var ta = document.createElement('textarea');
+    ta.placeholder = 'Comment on this section…';
+    var actions = document.createElement('div'); actions.className = 'rv-actions';
+    var save = document.createElement('button'); save.textContent = 'Save';
+    save.onclick = function(){
+      if (ta.value.trim()) upsert({page:PAGE, section:section, status:'open', date:today(), body:ta.value.trim()});
+      wrap.remove();
+    };
+    var cancel = document.createElement('button'); cancel.textContent = 'Cancel';
+    cancel.className = 'rv-cancel'; cancel.onclick = function(){ wrap.remove(); };
+    actions.appendChild(save); actions.appendChild(cancel);
+    wrap.appendChild(ta); wrap.appendChild(actions);
+    after.insertAdjacentElement('afterend', wrap);
+    ta.focus();
+  }
+  // --- headings, inline buttons ---
+  var mainH1 = document.querySelector('main h1');
+  if (mainH1 && !mainH1.id) { mainH1.id = 'page-title'; }
+  var headings = Array.prototype.slice.call(
+    document.querySelectorAll('main h1[id], main h2[id], main h3[id], main h4[id]'));
+  headings.forEach(function(h){
+    var b = document.createElement('button');
+    b.className = 'rv-add'; b.textContent = '💬 comment'; b.title = 'Comment on this section';
+    b.onclick = function(){ editor(h.id, h); };
+    h.appendChild(b);
+  });
+  function headingTitle(h){
+    var t = h.childNodes[0] ? h.childNodes[0].textContent : h.textContent;
+    return t.trim();
+  }
+  function titleFor(section){
+    var el = section && document.getElementById(section);
+    return el ? headingTitle(el) : (section || '(page)');
+  }
+
+  // --- drawer ---
+  var drawer = document.createElement('div');
+  drawer.id = 'rv-drawer';
+  drawer.innerHTML =
+    '<header><strong>Review</strong> <span class="rv-count"></span></header>' +
+    '<div class="rv-compose">' +
+    '<div class="rv-live">Commenting on the section in view:</div>' +
+    '<label for="rv-sec"></label><select id="rv-sec"></select>' +
+    '<textarea id="rv-text" placeholder="Type as you read… (Ctrl+Enter saves)"></textarea>' +
+    '<div style="margin-top:.4rem; display:flex; gap:.5rem;">' +
+    '<button class="rv-primary" id="rv-save">Save comment</button>' +
+    '<button id="rv-clear">Clear</button></div></div>' +
+    '<div class="rv-list"></div>' +
+    '<footer><button id="rv-export">Export .md</button>' +
+    '<button id="rv-import">Import</button>' +
+    '<span class="rv-otherpages"></span></footer>';
+  document.body.appendChild(drawer);
+  var toggle = document.createElement('button');
+  toggle.id = 'rv-toggle';
+  toggle.onclick = function(){
+    document.body.classList.toggle('rv-open');
+    try { localStorage.setItem(RVKEY + ':open', document.body.classList.contains('rv-open') ? '1' : ''); } catch(e){}
+  };
+  document.body.appendChild(toggle);
+  try { if (localStorage.getItem(RVKEY + ':open')) document.body.classList.add('rv-open'); } catch(e){}
+
+  var sel = drawer.querySelector('#rv-sec');
+  headings.forEach(function(h){
+    var opt = document.createElement('option');
+    opt.value = h.id; opt.textContent = headingTitle(h);
+    sel.appendChild(opt);
+  });
+  var followScroll = true;
+  sel.onchange = function(){ followScroll = false; };
+
+  // scroll spy: pick the last heading above the upper third of the viewport
+  function currentSection(){
+    var line = window.innerHeight * 0.33, best = headings[0];
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].getBoundingClientRect().top <= line) best = headings[i];
+    }
+    return best ? best.id : '';
+  }
+  window.addEventListener('scroll', function(){
+    if (!followScroll) return;
+    var s = currentSection();
+    if (s && sel.value !== s) sel.value = s;
+  }, {passive:true});
+  // typing pins the target section so a stray scroll can't retarget the comment
+  drawer.querySelector('#rv-text').addEventListener('input', function(){
+    if (this.value.trim()) followScroll = false;
+    else followScroll = true;
+  });
+
+  function saveFromDrawer(){
+    var ta = drawer.querySelector('#rv-text');
+    if (!ta.value.trim()) return;
+    upsert({page:PAGE, section:sel.value, status:'open', date:today(), body:ta.value.trim()});
+    ta.value = ''; followScroll = true;
+  }
+  drawer.querySelector('#rv-save').onclick = saveFromDrawer;
+  drawer.querySelector('#rv-text').addEventListener('keydown', function(e){
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') saveFromDrawer();
+  });
+  drawer.querySelector('#rv-clear').onclick = function(){
+    drawer.querySelector('#rv-text').value = ''; followScroll = true;
+  };
+  drawer.querySelector('#rv-export').onclick = exportMd;
+  var fileIn = document.createElement('input');
+  fileIn.type = 'file'; fileIn.accept = '.md,text/markdown'; fileIn.style.display = 'none';
+  fileIn.onchange = function(){ if (fileIn.files[0]) importMd(fileIn.files[0]); };
+  drawer.appendChild(fileIn);
+  drawer.querySelector('#rv-import').onclick = function(){ fileIn.click(); };
+
+  function drawerItem(c){
+    var div = document.createElement('div');
+    div.className = 'rv-item' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var where = document.createElement('div'); where.className = 'rv-where';
+    where.textContent = titleFor(c.section);
+    var text = document.createElement('div'); text.className = 'rv-text';
+    text.textContent = c.body;
+    var meta = document.createElement('div'); meta.className = 'rv-meta';
+    meta.textContent = (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(e){ e.stopPropagation(); remove(c);
+      upsert(Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'})); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(e){ e.stopPropagation();
+      if (confirm('Delete this comment?')) remove(c); };
+    meta.appendChild(tog); meta.appendChild(del);
+    div.appendChild(where); div.appendChild(text); div.appendChild(meta);
+    div.onclick = function(){
+      var el = c.section && document.getElementById(c.section);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+    return div;
+  }
+
+  function refresh(){
+    document.querySelectorAll('.rv-comment:not(.rv-editor)').forEach(function(el){ el.remove(); });
+    var all = allComments();
+    var mine = all.filter(function(c){ return c.page === PAGE; });
+    mine.forEach(function(c){
+      var target = c.section && document.getElementById(c.section);
+      var anchor = target || mainH1 || document.body.querySelector('main') || document.body;
+      anchor.insertAdjacentElement('afterend', commentBox(c));
+    });
+    var open = all.filter(function(c){ return c.status !== 'resolved'; }).length;
+    toggle.textContent = '💬 Review (' + open + ')';
+    drawer.querySelector('.rv-count').textContent =
+      open + ' open / ' + all.length + ' total';
+    var list = drawer.querySelector('.rv-list');
+    list.innerHTML = '';
+    mine.slice().reverse().forEach(function(c){ list.appendChild(drawerItem(c)); });
+    var others = {};
+    all.forEach(function(c){ if (c.page !== PAGE) others[c.page] = (others[c.page]||0) + 1; });
+    var otherKeys = Object.keys(others);
+    drawer.querySelector('.rv-otherpages').textContent = otherKeys.length
+      ? 'Other pages: ' + otherKeys.map(function(k){ return k + ' (' + others[k] + ')'; }).join(', ')
+      : '';
+  }
+  refresh();
+  var s0 = currentSection();
+  if (s0) sel.value = s0;
+})();
+</script>
+</body>
+</html>

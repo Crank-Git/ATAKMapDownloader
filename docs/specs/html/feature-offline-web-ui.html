@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATAK Map Downloader — Feature: Offline web UI</title>
+<style>
+:root { --bg:#ffffff; --fg:#1a1a24; --muted:#5a5a68; --line:#e3e3ea; --accent:#3452c8;
+        --card:#f6f6f9; --warn-bg:#fff7e8; --warn-line:#e8b34a; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14141b; --fg:#e8e8ee; --muted:#9a9aa8; --line:#2c2c38; --accent:#8ea6ff;
+          --card:#1c1c26; --warn-bg:#2a2318; --warn-line:#a87c2a; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+       font:16px/1.6 system-ui,-apple-system,sans-serif; }
+.layout { display:flex; min-height:100vh; }
+aside.site { width:17rem; flex:none; border-right:1px solid var(--line);
+             padding:1.2rem 1rem 3rem; position:sticky; top:0; height:100vh;
+             overflow-y:auto; background:var(--card); }
+aside.site h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em;
+                color:var(--muted); margin:1.2rem 0 .3rem; border:none; padding:0; }
+aside.site ul { list-style:none; margin:0; padding:0; }
+aside.site li { margin:.15rem 0; }
+aside.site a { text-decoration:none; color:var(--fg); font-size:.92rem;
+               display:block; padding:.15rem .5rem; border-radius:6px; }
+aside.site a:hover { background:var(--bg); }
+aside.site a.current { background:var(--accent); color:#fff; }
+aside.site a.sub { padding-left:1.3rem; font-size:.84rem; color:var(--muted); }
+aside.site .brand { font-weight:700; font-size:1.05rem; }
+main { max-width:60rem; margin:0 auto; padding:2rem 1.5rem 6rem; min-width:0; flex:1; }
+h1,h2,h3,h4 { line-height:1.25; }
+h1 { font-size:2rem; margin:.2rem 0; }
+h2 { border-bottom:1px solid var(--line); padding-bottom:.3rem; margin-top:2.5rem; }
+a { color:var(--accent); }
+code { background:var(--card); padding:.1em .35em; border-radius:4px; font-size:.9em; }
+pre.code { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; overflow-x:auto; }
+pre.code code { background:none; padding:0; }
+.table-wrap { overflow-x:auto; }
+table { border-collapse:collapse; margin:1rem 0; min-width:50%; }
+th,td { border:1px solid var(--line); padding:.4rem .7rem; text-align:left; }
+th { background:var(--card); }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 1rem;
+             color:var(--muted); }
+.meta { color:var(--muted); margin-bottom:2rem; }
+.badge { display:inline-block; padding:.1rem .6rem; border-radius:999px;
+         border:1px solid var(--accent); color:var(--accent); font-size:.85rem; }
+.diagram { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; margin:1rem 0; overflow-x:auto; }
+.diagram pre.mermaid { margin:0; }
+.diagram.raw::before { content:"diagram source (assets/mermaid.min.js not vendored)";
+                       display:block; color:var(--muted); font-size:.8rem;
+                       margin-bottom:.5rem; }
+.callout-h, .callout-h ~ p, .callout-h ~ ul { background:var(--warn-bg); }
+.callout-h { border-left:4px solid var(--warn-line); padding:.3rem .8rem; }
+.mockup { margin:1.5rem 0; }
+.mockup iframe { width:100%; height:32rem; border:1px solid var(--line);
+                 border-radius:8px; background:#fff; }
+nav.pager { display:flex; justify-content:space-between; margin-top:3rem;
+            border-top:1px solid var(--line); padding-top:1rem; }
+@media (max-width: 900px) {
+  .layout { display:block; }
+  aside.site { width:auto; height:auto; position:static; border-right:none;
+               border-bottom:1px solid var(--line); }
+}
+h1[id]:hover .rv-add, h2[id]:hover .rv-add, h3[id]:hover .rv-add,
+h4[id]:hover .rv-add { opacity:1; }
+.rv-add { opacity:0; margin-left:.5rem; font-size:.75rem; cursor:pointer;
+          border:1px solid var(--accent); color:var(--accent); background:none;
+          border-radius:6px; padding:0 .45rem; vertical-align:middle;
+          transition:opacity .15s; }
+.rv-comment { border:1px solid var(--warn-line); border-left-width:4px;
+              background:var(--warn-bg); border-radius:8px; padding:.6rem .9rem;
+              margin:.8rem 0; font-size:.92rem; }
+.rv-comment.rv-resolved { opacity:.6; border-left-color:var(--line); }
+.rv-comment .rv-head { display:flex; gap:.6rem; align-items:center;
+                       color:var(--muted); font-size:.8rem; margin-bottom:.3rem; }
+.rv-comment .rv-head button { font-size:.75rem; cursor:pointer; background:none;
+                              border:1px solid var(--line); border-radius:6px;
+                              color:var(--muted); padding:0 .4rem; }
+.rv-comment .rv-body { white-space:pre-wrap; }
+.rv-editor textarea { width:100%; min-height:5rem; background:var(--bg);
+                      color:var(--fg); border:1px solid var(--line);
+                      border-radius:6px; padding:.5rem; font:inherit; }
+.rv-editor .rv-actions { margin-top:.4rem; display:flex; gap:.5rem; }
+.rv-editor button { cursor:pointer; border-radius:6px; padding:.2rem .8rem;
+                    border:1px solid var(--accent); background:var(--accent);
+                    color:#fff; }
+.rv-editor button.rv-cancel { background:none; color:var(--accent); }
+#rv-toggle { position:fixed; right:1rem; bottom:1rem; z-index:60;
+             background:var(--accent); color:#fff; border:none; cursor:pointer;
+             border-radius:999px; padding:.5rem 1rem; font-size:.85rem;
+             box-shadow:0 2px 10px rgba(0,0,0,.2); }
+#rv-drawer { position:fixed; top:0; right:0; bottom:0; width:21rem; z-index:55;
+             background:var(--card); border-left:1px solid var(--line);
+             display:flex; flex-direction:column; transform:translateX(100%);
+             transition:transform .2s ease; box-shadow:-4px 0 16px rgba(0,0,0,.12); }
+body.rv-open #rv-drawer { transform:none; }
+body.rv-open .layout { padding-right:21rem; }
+#rv-drawer header { padding:.8rem 1rem .5rem; border-bottom:1px solid var(--line); }
+#rv-drawer header .rv-count { color:var(--muted); font-size:.8rem; }
+#rv-drawer .rv-compose { padding:.8rem 1rem; border-bottom:1px solid var(--line); }
+#rv-drawer .rv-compose label { display:block; font-size:.75rem;
+                               color:var(--muted); margin-bottom:.25rem; }
+#rv-drawer .rv-compose select { width:100%; margin-bottom:.4rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.3rem; font:inherit; font-size:.85rem; }
+#rv-drawer .rv-compose textarea { width:100%; min-height:5.5rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.5rem; font:inherit; font-size:.9rem; }
+#rv-drawer .rv-compose .rv-live { font-size:.72rem; color:var(--muted); }
+#rv-drawer .rv-list { flex:1; overflow-y:auto; padding:.6rem 1rem; }
+#rv-drawer .rv-item { border:1px solid var(--line); border-left:3px solid
+             var(--warn-line); border-radius:8px; padding:.45rem .6rem;
+             margin-bottom:.6rem; font-size:.82rem; cursor:pointer; }
+#rv-drawer .rv-item.rv-resolved { opacity:.55; border-left-color:var(--line); }
+#rv-drawer .rv-item .rv-where { color:var(--accent); font-size:.72rem; }
+#rv-drawer .rv-item .rv-meta { color:var(--muted); font-size:.72rem;
+                               display:flex; gap:.5rem; align-items:center; }
+#rv-drawer .rv-item .rv-meta button { font-size:.7rem; cursor:pointer;
+             background:none; border:1px solid var(--line); border-radius:5px;
+             color:var(--muted); padding:0 .35rem; }
+#rv-drawer .rv-item .rv-text { white-space:pre-wrap; margin:.15rem 0; }
+#rv-drawer footer { padding:.6rem 1rem; border-top:1px solid var(--line);
+                    display:flex; gap:.5rem; flex-wrap:wrap; }
+#rv-drawer footer button, #rv-drawer .rv-compose button {
+  cursor:pointer; border:1px solid var(--accent); background:none;
+  color:var(--accent); border-radius:6px; padding:.2rem .7rem; font-size:.8rem; }
+#rv-drawer .rv-compose button.rv-primary { background:var(--accent); color:#fff; }
+#rv-drawer .rv-otherpages { color:var(--muted); font-size:.75rem;
+                            margin:.4rem 0 0; }
+@media (max-width: 1200px) { body.rv-open .layout { padding-right:0; } }
+</style>
+</head>
+<body data-page="feature-offline-web-ui" data-rvkey="atak-map-downloader">
+<div class="layout">
+<aside class="site"><a class="brand" href="../spec.html">ATAK Map Downloader</a>
+<h2>Spec</h2><ul>
+<li><a href="../spec.html">Overview &amp; index</a></li>
+</ul>
+<h2>Features</h2><ul>
+<li><a href="feature-foundation.html">Foundation</a></li>
+<li><a href="feature-map-sources.html">Map source catalog</a></li>
+<li><a href="feature-area-estimate.html">Area estimate and tile info</a></li>
+<li><a href="feature-tile-download.html">Tile download and output file</a></li>
+<li><a href="feature-web-ui.html">Web UI and server</a></li>
+<li><a href="feature-security-hardening.html">Security hardening</a></li>
+<li><a href="feature-polite-downloading.html">Polite downloading</a></li>
+<li><a href="feature-robust-downloads.html">Robust downloads</a></li>
+<li><a class="current" href="feature-offline-web-ui.html">Offline web UI</a></li>
+<li><a href="feature-source-sync.html">Source sync and WMS</a></li>
+<li><a href="feature-output-formats.html">Output formats</a></li>
+<li><a href="feature-area-selection.html">Area selection</a></li>
+<li><a href="feature-team-server.html">Team server</a></li>
+</ul></aside>
+<main>
+<h1>Feature: Offline web UI</h1>
+<p class="meta">Epic 4: Offline web UI &nbsp; <span class="badge">planned</span></p>
+<h3 id="offline-web-ui-purpose">Purpose</h3>
+<p>Today the web UI loads Leaflet, leaflet-draw, Bootstrap and Font Awesome from public CDNs (<code>web/index.html:9-16,241-243</code>). With no internet the page does not work, and ATAK users often prepare maps on poor connections. The finished output file stays on the server's disk with no route to fetch it, so a browser on another machine cannot get it. Errors appear only in a small status log. A loading modal exists but is never shown (<code>web/static/js/app.js:576-581</code>).</p>
+<p>This feature vendors every asset, removes Bootstrap and Font Awesome, and adds an output file list with downloads. It adds a local base map from an output file and gives every screen its full set of states.</p>
+<h3 id="offline-web-ui-user-stories">User stories</h3>
+<ul>
+<li>As a solo operator with no internet, I want the web UI to load, so that I can preview and use my existing output files.
+</li>
+<li>As a team member on another machine, I want a Download button for each output file, so that I get the file without shell access.
+</li>
+<li>As any user, I want clear loading and error states, so that I know what the project is doing.
+</li>
+<li>As a keyboard or screen-reader user, I want labeled controls and spoken status, so that I can use the web UI.
+</li>
+</ul>
+<h3 id="offline-web-ui-functional-requirements">Functional requirements</h3>
+<h4 id="offline-web-ui-vendored-assets">Vendored assets</h4>
+<ul>
+<li>FR-offline-web-ui-1 — The binary embeds Leaflet 1.9.4 and Leaflet-Geoman under <code>web/static/vendor/</code>.
+</li>
+<li>FR-offline-web-ui-2 — The web UI page loads no resource from a host other than the server, apart from tiles of the online base map and preview tiles.
+</li>
+<li>FR-offline-web-ui-3 — The web UI uses no Bootstrap and no Font Awesome.
+</li>
+<li>FR-offline-web-ui-4 — Icons are inline SVG.
+</li>
+<li>FR-offline-web-ui-5 — <code>web/static/vendor/LICENSES.md</code> lists the name, version, license and source URL of each vendored library.
+</li>
+<li>FR-offline-web-ui-6 — Geoman replaces leaflet-draw for the rectangle tool.
+</li>
+</ul>
+<h4 id="offline-web-ui-output-files">Output files</h4>
+<ul>
+<li>FR-offline-web-ui-7 — <code>GET /api/files</code> returns every output file in the output directory: name, size in bytes, modified time, format, map source, zoom range and bounds.
+</li>
+<li>FR-offline-web-ui-8 — <code>GET /api/files/{name}</code> returns the output file as an attachment.
+</li>
+<li>FR-offline-web-ui-9 — The server opens output files through <code>os.Root</code> on the output directory.
+</li>
+<li>FR-offline-web-ui-10 — <code>GET /api/files/{name}</code> returns 404 with error code <code>file_not_found</code> for a name that is not in the output directory.
+</li>
+<li>FR-offline-web-ui-11 — The web UI shows the output file list with a <strong>Download</strong> button per file.
+</li>
+<li>FR-offline-web-ui-12 — When a job completes, the web UI adds the new output file to the top of the list.
+</li>
+</ul>
+<h4 id="offline-web-ui-local-base-map">Local base map</h4>
+<ul>
+<li>FR-offline-web-ui-13 — <code>GET /api/files/{name}/tiles/{z}/{x}/{y}</code> returns one tile from an output file, with the TMS row converted from the XYZ request.
+</li>
+<li>FR-offline-web-ui-14 — The tile route returns 204 for a tile that the output file does not hold.
+</li>
+<li>FR-offline-web-ui-15 — The base map switcher offers "Online (OpenStreetMap)" and one entry per output file.
+</li>
+<li>FR-offline-web-ui-16 — If the browser is offline at load time, the web UI selects the most recent output file as the base map.
+</li>
+</ul>
+<h4 id="offline-web-ui-states-and-feedback">States and feedback</h4>
+<ul>
+<li>FR-offline-web-ui-17 — The header shows a connection indicator with the states connected, reconnecting and offline.
+</li>
+<li>FR-offline-web-ui-18 — The web UI shows a loading state on the source picker, the estimate card and the preview while their requests run.
+</li>
+<li>FR-offline-web-ui-19 — The web UI shows an inline error banner with the server's error message when a request fails.
+</li>
+<li>FR-offline-web-ui-20 — The error banner has a <strong>Retry</strong> button for the request that failed.
+</li>
+<li>FR-offline-web-ui-21 — The job panel shows downloaded, skipped and failed counts, the rate and the ETA.
+</li>
+<li>FR-offline-web-ui-22 — The job panel offers "If the file exists: Fail, Resume, Overwrite", sent as <code>if_exists</code>.
+</li>
+<li>FR-offline-web-ui-23 — The estimate card uses the selected map source's size per tile, not a fixed 20 KB.
+</li>
+<li>FR-offline-web-ui-24 — The estimate and the preview accept a zoom range where the minimum equals the maximum.
+</li>
+</ul>
+<h4 id="offline-web-ui-accessibility-and-theme">Accessibility and theme</h4>
+<ul>
+<li>FR-offline-web-ui-25 — Every form control has a visible <code>&lt;label&gt;</code>.
+</li>
+<li>FR-offline-web-ui-26 — Every icon-only button has an <code>aria-label</code>.
+</li>
+<li>FR-offline-web-ui-27 — The job status region has <code>aria-live="polite"</code>.
+</li>
+<li>FR-offline-web-ui-28 — The progress bar sets <code>aria-valuenow</code>, <code>aria-valuemin</code> and <code>aria-valuemax</code>.
+</li>
+<li>FR-offline-web-ui-29 — The theme follows <code>prefers-color-scheme</code> until the user selects a theme.
+</li>
+<li>FR-offline-web-ui-30 — Dark mode does not invert map tiles or preview tiles.
+</li>
+<li>FR-offline-web-ui-31 — The web UI inserts server strings and user strings as text, never as HTML.
+</li>
+</ul>
+<h3 id="offline-web-ui-user-flows">User flows</h3>
+<h4 id="offline-web-ui-flow-1-load-the-web-ui-with-no-internet">Flow 1 — Load the web UI with no internet</h4>
+<div class="diagram"><pre class="mermaid">flowchart TD
+  A[Open http://localhost:5000] --&gt; B[Server sends page + vendored assets]
+  B --&gt; C{navigator.onLine and OSM tile loads?}
+  C --&gt;|yes| D[Base map: Online]
+  C --&gt;|no| E{Any output files?}
+  E --&gt;|yes| F[Base map: most recent output file]
+  E --&gt;|no| G[Base map: blank grid + banner 'Offline: no local base map']
+  D --&gt; H[Source picker loads from /api/sources]
+  F --&gt; H
+  G --&gt; H</pre></div>
+<ol>
+<li>The user opens the web UI.
+</li>
+<li>The server sends the page and the vendored assets.
+</li>
+<li>If the browser is online, the web UI uses the online base map.
+</li>
+<li>If the browser is offline and an output file exists, the web UI uses the most recent output file as the base map.
+</li>
+<li>If the browser is offline and no output file exists, the web UI shows a blank grid and an offline banner.
+</li>
+<li>The web UI loads the source catalog.
+</li>
+</ol>
+<h4 id="offline-web-ui-flow-2-run-a-job-and-fetch-the-output-file">Flow 2 — Run a job and fetch the output file</h4>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+  participant U as User
+  participant W as Web UI
+  participant S as Server
+  U-&gt;&gt;W: Draw rectangle, choose map source and zoom range
+  W-&gt;&gt;S: POST /api/estimate
+  S--&gt;&gt;W: estimate
+  U-&gt;&gt;W: Select Start
+  W-&gt;&gt;S: POST /api/jobs
+  S--&gt;&gt;W: 202 job record
+  W-&gt;&gt;S: GET /api/jobs/{id}/events
+  S--&gt;&gt;W: progress events
+  S--&gt;&gt;W: state complete
+  W-&gt;&gt;S: GET /api/files
+  S--&gt;&gt;W: file list
+  U-&gt;&gt;W: Select Download
+  W-&gt;&gt;S: GET /api/files/{name}
+  S--&gt;&gt;U: output file attachment</pre></div>
+<ol>
+<li>The user draws a rectangle and chooses a map source and a zoom range.
+</li>
+<li>The web UI requests an estimate and shows it.
+</li>
+<li>The user selects <strong>Start</strong>.
+</li>
+<li>The web UI sends the job and opens the event stream.
+</li>
+<li>The web UI shows progress until the job completes.
+</li>
+<li>The web UI refreshes the output file list.
+</li>
+<li>The user selects <strong>Download</strong>, and the browser saves the output file.
+</li>
+</ol>
+<h4 id="offline-web-ui-flow-3-a-request-fails">Flow 3 — A request fails</h4>
+<div class="diagram"><pre class="mermaid">flowchart TD
+  A[Request] --&gt; B{Response}
+  B --&gt;|2xx| C[Show result]
+  B --&gt;|4xx or 5xx JSON error| D[Error banner with message + Retry]
+  B --&gt;|network failure| E[Indicator: offline, banner 'Server unreachable' + Retry]
+  D --&gt;|Retry| A
+  E --&gt;|Retry| A</pre></div>
+<ol>
+<li>The web UI sends a request.
+</li>
+<li>If the response succeeds, the web UI shows the result.
+</li>
+<li>If the response is an error, the web UI shows the error banner with the message.
+</li>
+<li>If the network fails, the indicator shows offline and the banner says "Server unreachable".
+</li>
+<li>If the user selects <strong>Retry</strong>, the web UI sends the request again.
+</li>
+</ol>
+<h3 id="offline-web-ui-screens-states">Screens &amp; states</h3>
+<p><strong>Workspace</strong> — <a href="../mockups/01-workspace.html">mockups/01-workspace.html</a>. This is the only screen.</p>
+<p>Regions:</p>
+<ul>
+<li>Header with the connection indicator and the theme toggle.
+</li>
+<li>Sidebar with the source picker, search, zoom range, estimate card, advanced settings, Start and Cancel.
+</li>
+<li>Job panel.
+</li>
+<li>Output file list.
+</li>
+<li>Map with the base map switcher.
+</li>
+</ul>
+<div class="table-wrap"><table>
+<tr><th>State</th><th>What the user sees</th></tr>
+<tr><td>empty</td><td>No area drawn. The estimate card says "Draw an area on the map". Start is disabled.</td></tr>
+<tr><td>loading</td><td>Skeleton rows in the source picker. A spinner in the estimate card.</td></tr>
+<tr><td>estimating</td><td>The estimate card shows a spinner. Start is disabled.</td></tr>
+<tr><td>ready</td><td>The estimate card shows tiles, size and time. A warning appears above 100,000 tiles. Start is enabled.</td></tr>
+<tr><td>downloading</td><td>The job panel shows the progress bar and counts. Cancel is visible. The settings are read-only.</td></tr>
+<tr><td>complete</td><td>The job panel shows the summary. The new output file is highlighted in the list.</td></tr>
+<tr><td>error</td><td>The inline banner shows the message and Retry.</td></tr>
+<tr><td>offline</td><td>The indicator is offline and the base map falls back (Flow 1). Start is disabled.</td></tr>
+</table></div>
+<h3 id="offline-web-ui-behaviour-rules">Behaviour rules</h3>
+<ul>
+<li>The web UI picks the size per tile from the map source's tile type: <code>jpg</code> 18 KB, <code>png</code> 25 KB, and any other type 20 KB. These values are assumptions. The CLI <code>estimate</code> uses the same table.
+</li>
+<li>The output file list is sorted by modified time, newest first.
+</li>
+<li>The vendored assets add at most 400 KB to the binary.
+</li>
+<li>The connection indicator is "connected" while the event stream or the last request succeeded, "reconnecting" while <code>EventSource</code> reconnects, and "offline" after 3 failed attempts.
+</li>
+</ul>
+<h3 id="offline-web-ui-data-touched">Data touched</h3>
+<ul>
+<li>OUTPUT_FILE is read through <code>os.Root</code>. The format and map source come from the <code>metadata</code> table.
+</li>
+<li>No new stored fields.
+</li>
+</ul>
+<h3 id="offline-web-ui-interfaces">Interfaces</h3>
+<div class="table-wrap"><table>
+<tr><th>Method</th><th>Path</th><th>Success</th><th>Errors</th></tr>
+<tr><td>GET</td><td><code>/api/files</code></td><td>200 <code>[{name, size, modified, format, source, min_zoom, max_zoom, bounds}]</code></td><td>—</td></tr>
+<tr><td>GET</td><td><code>/api/files/{name}</code></td><td>200 attachment, <code>Content-Disposition: attachment</code></td><td>404 <code>file_not_found</code></td></tr>
+<tr><td>GET</td><td><code>/api/files/{name}/tiles/{z}/{x}/{y}</code></td><td>200 image, or 204</td><td>404</td></tr>
+</table></div>
+<ul>
+<li>Leaflet 1.9.4: https://leafletjs.com/reference.html (1.9.4 reference). The release list is at https://github.com/Leaflet/Leaflet/releases.
+</li>
+<li>Leaflet-Geoman v2.20.8: https://github.com/geoman-io/leaflet-geoman. Confirm the free-edition license before you vendor it.
+</li>
+<li><code>os.Root</code>: https://pkg.go.dev/os#Root (Go 1.24+).
+</li>
+</ul>
+<h3 id="offline-web-ui-edge-cases-failures">Edge cases &amp; failures</h3>
+<ul>
+<li>If the Geoman license is not MIT-compatible, use Leaflet's own <code>L.Rectangle</code> with a small drag handler instead, and record the choice in an ADR.
+</li>
+<li>If an output file is a data package (feature 10), the tile route returns 404 for it, and the base map switcher omits it.
+</li>
+<li>If an output file is being written by a running job, <code>/api/files</code> lists it with <code>"in_progress": true</code>. The Download button is disabled.
+</li>
+<li>If a file name in the output directory has characters outside <code>[A-Za-z0-9._-]</code>, the list omits it.
+</li>
+</ul>
+<h3 id="offline-web-ui-acceptance-criteria">Acceptance criteria</h3>
+<ul>
+<li>With the network turned off, the web UI loads, and the browser console shows no failed request to a host other than the server.
+</li>
+<li><code>grep -r "unpkg\|jsdelivr\|cdnjs" web/</code> prints nothing.
+</li>
+<li><code>GET /api/files/..%2Fgo.mod</code> returns 404.
+</li>
+<li>A completed job's output file appears in the list, and <strong>Download</strong> saves a file whose size matches <code>GET /api/files</code>.
+</li>
+<li>Selecting an output file as the base map shows its tiles at the correct position over the online base map. The test compares one known tile.
+</li>
+<li>A 500 response from <code>/api/estimate</code> shows the error banner with the message and a Retry button.
+</li>
+<li>Each control has a label, and each icon-only button has an <code>aria-label</code>. An axe check of the page reports no "critical" issue.
+</li>
+<li>In dark mode, the preview tile pixels are the same as in light mode.
+</li>
+<li>An estimate for a map source with tile type <code>jpg</code> uses 18 KB per tile.
+</li>
+</ul>
+<h3 id="offline-web-ui-out-of-scope">Out of scope</h3>
+<ul>
+<li>Polygon and route areas. Feature 11 adds them.
+</li>
+<li>A jobs page and a token sign-in. Feature 12 adds them.
+</li>
+<li>An offline geocoder.
+</li>
+</ul>
+<h3 id="offline-web-ui-open-questions" class="callout-h">Open questions</h3>
+<ul>
+<li>The size-per-tile table (18 KB, 25 KB, 20 KB) is a guess. A later change can replace it with a measured average from the first 50 tiles of a job.
+</li>
+</ul><h2>Mockups</h2><p>Mockups convey intent — the rough shape a user will see. An implementer may diverge where framework conventions, components, accessibility, or a better idea serve the feature's requirements; the FRs and acceptance criteria are the contract, not the pixels.</p><div class="mockup"><iframe src="../mockups/01-workspace.html" loading="lazy"></iframe><p><a href="../mockups/01-workspace.html" target="_blank">Open ../mockups/01-workspace.html in new tab</a></p></div><nav class="pager">
+<a href="feature-robust-downloads.html">&larr; Feature: Robust downloads</a>
+<a href="feature-source-sync.html">Feature: Source sync and WMS &rarr;</a>
+</nav>
+</main>
+</div>
+<script src="../assets/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+<script type="application/json" id="rv-embedded">[]</script>
+<script>
+(function(){
+  'use strict';
+  var PAGE = document.body.getAttribute('data-page');
+  // storage key carries the spec's slug: file:// pages can share one
+  // localStorage pool, and two specs must never share a comment store
+  var RVKEY = 'spec-review:' + (document.body.getAttribute('data-rvkey') || 'spec');
+  var EMBED = [];
+  var embedEl = document.getElementById('rv-embedded');
+  if (embedEl) { try { EMBED = JSON.parse(embedEl.textContent); } catch(e){} }
+  function loadLocal(){ try { return JSON.parse(localStorage.getItem(RVKEY)) || {comments:[], deleted:[]}; } catch(e){ return {comments:[], deleted:[]}; } }
+  function saveLocal(s){ try { localStorage.setItem(RVKEY, JSON.stringify(s)); } catch(e){} }
+  function cid(c){ return c.page + '|' + c.section + '|' + (c.date||'') + '|' + c.body.slice(0,24); }
+  function allComments(){
+    var s = loadLocal(), map = {};
+    EMBED.forEach(function(c){ map[cid(c)] = c; });
+    s.comments.forEach(function(c){ map[cid(c)] = c; });
+    s.deleted.forEach(function(id){ delete map[id]; });
+    return Object.keys(map).map(function(k){ return map[k]; });
+  }
+  function upsert(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    s.comments.push(c);
+    s.deleted = s.deleted.filter(function(x){ return x !== id; });
+    saveLocal(s); refresh();
+  }
+  function remove(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    if (EMBED.some(function(x){ return cid(x) === id; })) s.deleted.push(id);
+    saveLocal(s); refresh();
+  }
+  function today(){ return new Date().toISOString().slice(0,10); }
+  function exportMd(){
+    var lines = ['# Review comments', '',
+      '<!-- Exported from the spec review layer. Save this file as',
+      '     docs/specs/review-comments.md and re-run render-spec.py to embed',
+      '     every comment under its section for the next review round. -->', ''];
+    allComments().sort(function(a,b){
+      return (a.page+a.section).localeCompare(b.page+b.section);
+    }).forEach(function(c){
+      lines.push('## [' + c.page + '] ' + (c.section||''));
+      lines.push('status: ' + (c.status||'open'));
+      lines.push('date: ' + (c.date||today()));
+      lines.push(c.body); lines.push('');
+    });
+    var blob = new Blob([lines.join('\n')], {type:'text/markdown'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'review-comments.md';
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+  function importMd(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      var text = String(reader.result);
+      var blocks = text.split(/^## /m).slice(1);
+      blocks.forEach(function(b){
+        var head = b.match(/^\[([^\]]+)\]\s*(\S*)/);
+        if (!head) return;
+        var status = (b.match(/^status:\s*(\S+)/m)||[])[1] || 'open';
+        var date = (b.match(/^date:\s*(\S+)/m)||[])[1] || today();
+        var body = b.replace(/^\[[^\]]*\]\s*\S*\s*\n/, '')
+                    .replace(/^status:.*\n?/m,'').replace(/^date:.*\n?/m,'').trim();
+        if (body) upsert({page:head[1], section:head[2]||'', status:status, date:date, body:body});
+      });
+      refresh();
+    };
+    reader.readAsText(file);
+  }
+  function commentBox(c){
+    var div = document.createElement('div');
+    div.className = 'rv-comment' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var head = document.createElement('div'); head.className = 'rv-head';
+    head.textContent = '💬 ' + (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(){ remove(c); c = Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'}); upsert(c); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(){ if (confirm('Delete this comment?')) remove(c); };
+    head.appendChild(tog); head.appendChild(del);
+    var body = document.createElement('div'); body.className = 'rv-body';
+    body.textContent = c.body;
+    div.appendChild(head); div.appendChild(body);
+    return div;
+  }
+  function editor(section, after){
+    var wrap = document.createElement('div');
+    wrap.className = 'rv-comment rv-editor';
+    var ta = document.createElement('textarea');
+    ta.placeholder = 'Comment on this section…';
+    var actions = document.createElement('div'); actions.className = 'rv-actions';
+    var save = document.createElement('button'); save.textContent = 'Save';
+    save.onclick = function(){
+      if (ta.value.trim()) upsert({page:PAGE, section:section, status:'open', date:today(), body:ta.value.trim()});
+      wrap.remove();
+    };
+    var cancel = document.createElement('button'); cancel.textContent = 'Cancel';
+    cancel.className = 'rv-cancel'; cancel.onclick = function(){ wrap.remove(); };
+    actions.appendChild(save); actions.appendChild(cancel);
+    wrap.appendChild(ta); wrap.appendChild(actions);
+    after.insertAdjacentElement('afterend', wrap);
+    ta.focus();
+  }
+  // --- headings, inline buttons ---
+  var mainH1 = document.querySelector('main h1');
+  if (mainH1 && !mainH1.id) { mainH1.id = 'page-title'; }
+  var headings = Array.prototype.slice.call(
+    document.querySelectorAll('main h1[id], main h2[id], main h3[id], main h4[id]'));
+  headings.forEach(function(h){
+    var b = document.createElement('button');
+    b.className = 'rv-add'; b.textContent = '💬 comment'; b.title = 'Comment on this section';
+    b.onclick = function(){ editor(h.id, h); };
+    h.appendChild(b);
+  });
+  function headingTitle(h){
+    var t = h.childNodes[0] ? h.childNodes[0].textContent : h.textContent;
+    return t.trim();
+  }
+  function titleFor(section){
+    var el = section && document.getElementById(section);
+    return el ? headingTitle(el) : (section || '(page)');
+  }
+
+  // --- drawer ---
+  var drawer = document.createElement('div');
+  drawer.id = 'rv-drawer';
+  drawer.innerHTML =
+    '<header><strong>Review</strong> <span class="rv-count"></span></header>' +
+    '<div class="rv-compose">' +
+    '<div class="rv-live">Commenting on the section in view:</div>' +
+    '<label for="rv-sec"></label><select id="rv-sec"></select>' +
+    '<textarea id="rv-text" placeholder="Type as you read… (Ctrl+Enter saves)"></textarea>' +
+    '<div style="margin-top:.4rem; display:flex; gap:.5rem;">' +
+    '<button class="rv-primary" id="rv-save">Save comment</button>' +
+    '<button id="rv-clear">Clear</button></div></div>' +
+    '<div class="rv-list"></div>' +
+    '<footer><button id="rv-export">Export .md</button>' +
+    '<button id="rv-import">Import</button>' +
+    '<span class="rv-otherpages"></span></footer>';
+  document.body.appendChild(drawer);
+  var toggle = document.createElement('button');
+  toggle.id = 'rv-toggle';
+  toggle.onclick = function(){
+    document.body.classList.toggle('rv-open');
+    try { localStorage.setItem(RVKEY + ':open', document.body.classList.contains('rv-open') ? '1' : ''); } catch(e){}
+  };
+  document.body.appendChild(toggle);
+  try { if (localStorage.getItem(RVKEY + ':open')) document.body.classList.add('rv-open'); } catch(e){}
+
+  var sel = drawer.querySelector('#rv-sec');
+  headings.forEach(function(h){
+    var opt = document.createElement('option');
+    opt.value = h.id; opt.textContent = headingTitle(h);
+    sel.appendChild(opt);
+  });
+  var followScroll = true;
+  sel.onchange = function(){ followScroll = false; };
+
+  // scroll spy: pick the last heading above the upper third of the viewport
+  function currentSection(){
+    var line = window.innerHeight * 0.33, best = headings[0];
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].getBoundingClientRect().top <= line) best = headings[i];
+    }
+    return best ? best.id : '';
+  }
+  window.addEventListener('scroll', function(){
+    if (!followScroll) return;
+    var s = currentSection();
+    if (s && sel.value !== s) sel.value = s;
+  }, {passive:true});
+  // typing pins the target section so a stray scroll can't retarget the comment
+  drawer.querySelector('#rv-text').addEventListener('input', function(){
+    if (this.value.trim()) followScroll = false;
+    else followScroll = true;
+  });
+
+  function saveFromDrawer(){
+    var ta = drawer.querySelector('#rv-text');
+    if (!ta.value.trim()) return;
+    upsert({page:PAGE, section:sel.value, status:'open', date:today(), body:ta.value.trim()});
+    ta.value = ''; followScroll = true;
+  }
+  drawer.querySelector('#rv-save').onclick = saveFromDrawer;
+  drawer.querySelector('#rv-text').addEventListener('keydown', function(e){
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') saveFromDrawer();
+  });
+  drawer.querySelector('#rv-clear').onclick = function(){
+    drawer.querySelector('#rv-text').value = ''; followScroll = true;
+  };
+  drawer.querySelector('#rv-export').onclick = exportMd;
+  var fileIn = document.createElement('input');
+  fileIn.type = 'file'; fileIn.accept = '.md,text/markdown'; fileIn.style.display = 'none';
+  fileIn.onchange = function(){ if (fileIn.files[0]) importMd(fileIn.files[0]); };
+  drawer.appendChild(fileIn);
+  drawer.querySelector('#rv-import').onclick = function(){ fileIn.click(); };
+
+  function drawerItem(c){
+    var div = document.createElement('div');
+    div.className = 'rv-item' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var where = document.createElement('div'); where.className = 'rv-where';
+    where.textContent = titleFor(c.section);
+    var text = document.createElement('div'); text.className = 'rv-text';
+    text.textContent = c.body;
+    var meta = document.createElement('div'); meta.className = 'rv-meta';
+    meta.textContent = (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(e){ e.stopPropagation(); remove(c);
+      upsert(Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'})); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(e){ e.stopPropagation();
+      if (confirm('Delete this comment?')) remove(c); };
+    meta.appendChild(tog); meta.appendChild(del);
+    div.appendChild(where); div.appendChild(text); div.appendChild(meta);
+    div.onclick = function(){
+      var el = c.section && document.getElementById(c.section);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+    return div;
+  }
+
+  function refresh(){
+    document.querySelectorAll('.rv-comment:not(.rv-editor)').forEach(function(el){ el.remove(); });
+    var all = allComments();
+    var mine = all.filter(function(c){ return c.page === PAGE; });
+    mine.forEach(function(c){
+      var target = c.section && document.getElementById(c.section);
+      var anchor = target || mainH1 || document.body.querySelector('main') || document.body;
+      anchor.insertAdjacentElement('afterend', commentBox(c));
+    });
+    var open = all.filter(function(c){ return c.status !== 'resolved'; }).length;
+    toggle.textContent = '💬 Review (' + open + ')';
+    drawer.querySelector('.rv-count').textContent =
+      open + ' open / ' + all.length + ' total';
+    var list = drawer.querySelector('.rv-list');
+    list.innerHTML = '';
+    mine.slice().reverse().forEach(function(c){ list.appendChild(drawerItem(c)); });
+    var others = {};
+    all.forEach(function(c){ if (c.page !== PAGE) others[c.page] = (others[c.page]||0) + 1; });
+    var otherKeys = Object.keys(others);
+    drawer.querySelector('.rv-otherpages').textContent = otherKeys.length
+      ? 'Other pages: ' + otherKeys.map(function(k){ return k + ' (' + others[k] + ')'; }).join(', ')
+      : '';
+  }
+  refresh();
+  var s0 = currentSection();
+  if (s0) sel.value = s0;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Export options mockup</title>
+<style>
+:root{--bg:#f4f3ef;--panel:#ffffff;--ink:#1d2321;--muted:#5d6763;--line:#d6d8d2;--accent:#2f6b4f;--accent-ink:#fff;--accent-bg:#e4efe8;--map:#dfe6d6;--map2:#c9d6bd}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--accent-bg:#1d3127;--map:#25302a;--map2:#2e3b33}}
+:root[data-theme=dark]{--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--accent-bg:#1d3127;--map:#25302a;--map2:#2e3b33}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.mock-banner{background:#3b3f9a;color:#fff;font-size:12px;padding:4px 16px}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:16px;margin:0;flex:1}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:6px 10px;cursor:pointer}
+.btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.layout{display:grid;grid-template-columns:380px 1fr;min-height:calc(100vh - 80px)}
+aside{border-right:1px solid var(--line);background:var(--panel);padding:14px;overflow:auto}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px}
+section{margin-bottom:18px}
+.fmt{display:block;border:1px solid var(--line);border-radius:8px;padding:10px 10px 10px 34px;margin-bottom:8px;position:relative;cursor:pointer;background:var(--bg)}
+.fmt input{position:absolute;left:10px;top:12px}
+.fmt:has(input:checked){border-color:var(--accent);background:var(--accent-bg)}
+.fmt b{display:block}
+.fmt .ext{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.fmt .for{font-size:12px;color:var(--muted)}
+.tag{font-size:11px;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:0 6px;margin-left:6px}
+label.chk{display:flex;gap:8px;align-items:center;margin:6px 0}
+.sub{margin-left:24px}
+.sub[aria-disabled=true]{opacity:.45}
+input[type=text]{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.preview{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;word-break:break-all}
+.tree{margin:6px 0 0;padding-left:16px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.help{border:1px solid var(--accent);background:var(--bg);padding:10px 12px;border-radius:4px;font-size:13px}
+.help code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+main{position:relative;background:var(--map);display:flex;align-items:center;justify-content:center}
+main svg{width:100%;height:100%;display:block;min-height:380px}
+@media (max-width:800px){.layout{grid-template-columns:1fr}main svg{min-height:260px}}
+</style>
+</head>
+<body>
+<div class="mock-banner">Mockup: guidance, not a contract. Feature: output-formats</div>
+<header><h1>ATAK Map Downloader — Export</h1><button aria-label="Toggle dark theme" onclick="toggleTheme()">◐</button></header>
+<div class="layout">
+<aside>
+  <section id="output-format">
+    <h2>Output format</h2>
+    <label class="fmt"><input type="radio" name="fmt" value="mbtiles" checked><b>MBTiles <span class="tag">default</span></b><span class="ext">.mbtiles</span><div class="for">ATAK, QGIS, most GIS tools. Spec-complete metadata.</div></label>
+    <label class="fmt"><input type="radio" name="fmt" value="osmdroid"><b>OSMDroid SQLite</b><span class="ext">.sqlite</span><div class="for">ATAK native cache format. Merges with tiles ATAK downloads itself.</div></label>
+    <label class="fmt"><input type="radio" name="fmt" value="gpkg"><b>GeoPackage</b><span class="ext">.gpkg</span><div class="for">ATAK, WinTAK, GIS. OGC standard tile matrix.</div></label>
+  </section>
+
+  <section id="data-package">
+    <h2>Data package</h2>
+    <label class="chk"><input type="checkbox" id="wrap" checked> Wrap in ATAK data package (.zip)</label>
+    <div class="sub" id="pkg-opts">
+      <label class="chk"><input type="checkbox" checked> Include the map source file (.xml)</label>
+      <label for="pkgname" style="font-size:13px">Package name</label>
+      <input id="pkgname" type="text" value="Mt Hood SAR — Imagery Topo">
+    </div>
+  </section>
+
+  <section id="file-name">
+    <h2>Output file</h2>
+    <div class="preview" id="fname">Mt_Hood_SAR_Imagery_Topo_z8-15.zip</div>
+    <ul class="tree" id="pkg-tree">
+      <li>MANIFEST/manifest.xml</li>
+      <li>Mt_Hood_SAR_Imagery_Topo_z8-15.mbtiles</li>
+      <li>usgs_usgsimagerytopo.xml</li>
+    </ul>
+  </section>
+
+  <section id="device-help">
+    <h2>Where to put this on the device</h2>
+    <div class="help">
+      <p style="margin:0 0 6px"><b>A tile file</b> (.mbtiles, .sqlite, .gpkg): copy it to <code>atak/imagery/</code> on the device storage, then open Map Manager.</p>
+      <p style="margin:0"><b>A data package</b> (.zip): open <b>Import Manager → Local SD</b> and pick the zip, or send it over TAK Server.</p>
+    </div>
+  </section>
+
+  <button class="btn-primary" style="width:100%">Start download</button>
+</aside>
+<main id="map" aria-label="Map">
+  <svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Map stand-in">
+    <rect width="800" height="560" fill="var(--map)"/>
+    <path d="M0 380 C120 330 220 420 360 360 S600 300 800 350 V560 H0Z" fill="var(--map2)"/>
+    <g stroke="var(--line)" fill="none"><path d="M0 80H800M0 160H800M0 240H800M0 320H800M0 400H800M0 480H800M80 0V560M160 0V560M240 0V560M320 0V560M400 0V560M480 0V560M560 0V560M640 0V560M720 0V560"/></g>
+    <rect x="240" y="120" width="320" height="240" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="8 5"/>
+    <text x="250" y="140" font-size="13" fill="var(--ink)">Area: Mt Hood SAR · z8–15 · 14,212 tiles</text>
+  </svg>
+</main>
+</div>
+<script>
+function toggleTheme(){const r=document.documentElement;const d=r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=d?'light':'dark'}
+const ext={mbtiles:'.mbtiles',osmdroid:'.sqlite',gpkg:'.gpkg'};
+function update(){
+  const f=document.querySelector('input[name=fmt]:checked').value;const w=document.getElementById('wrap').checked;
+  const base='Mt_Hood_SAR_Imagery_Topo_z8-15';
+  document.getElementById('fname').textContent=base+(w?'.zip':ext[f]);
+  document.getElementById('pkg-tree').hidden=!w;
+  document.getElementById('pkg-tree').children[1].textContent=base+ext[f];
+  document.getElementById('pkg-opts').setAttribute('aria-disabled',!w);
+}
+document.querySelectorAll('input').forEach(i=>i.addEventListener('change',update));update();
+</script>
+</body>
+</html>

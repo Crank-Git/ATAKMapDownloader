@@ -1,0 +1,1018 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATAK Map Downloader — Feature: Web UI and server</title>
+<style>
+:root { --bg:#ffffff; --fg:#1a1a24; --muted:#5a5a68; --line:#e3e3ea; --accent:#3452c8;
+        --card:#f6f6f9; --warn-bg:#fff7e8; --warn-line:#e8b34a; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14141b; --fg:#e8e8ee; --muted:#9a9aa8; --line:#2c2c38; --accent:#8ea6ff;
+          --card:#1c1c26; --warn-bg:#2a2318; --warn-line:#a87c2a; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+       font:16px/1.6 system-ui,-apple-system,sans-serif; }
+.layout { display:flex; min-height:100vh; }
+aside.site { width:17rem; flex:none; border-right:1px solid var(--line);
+             padding:1.2rem 1rem 3rem; position:sticky; top:0; height:100vh;
+             overflow-y:auto; background:var(--card); }
+aside.site h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em;
+                color:var(--muted); margin:1.2rem 0 .3rem; border:none; padding:0; }
+aside.site ul { list-style:none; margin:0; padding:0; }
+aside.site li { margin:.15rem 0; }
+aside.site a { text-decoration:none; color:var(--fg); font-size:.92rem;
+               display:block; padding:.15rem .5rem; border-radius:6px; }
+aside.site a:hover { background:var(--bg); }
+aside.site a.current { background:var(--accent); color:#fff; }
+aside.site a.sub { padding-left:1.3rem; font-size:.84rem; color:var(--muted); }
+aside.site .brand { font-weight:700; font-size:1.05rem; }
+main { max-width:60rem; margin:0 auto; padding:2rem 1.5rem 6rem; min-width:0; flex:1; }
+h1,h2,h3,h4 { line-height:1.25; }
+h1 { font-size:2rem; margin:.2rem 0; }
+h2 { border-bottom:1px solid var(--line); padding-bottom:.3rem; margin-top:2.5rem; }
+a { color:var(--accent); }
+code { background:var(--card); padding:.1em .35em; border-radius:4px; font-size:.9em; }
+pre.code { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; overflow-x:auto; }
+pre.code code { background:none; padding:0; }
+.table-wrap { overflow-x:auto; }
+table { border-collapse:collapse; margin:1rem 0; min-width:50%; }
+th,td { border:1px solid var(--line); padding:.4rem .7rem; text-align:left; }
+th { background:var(--card); }
+blockquote { border-left:3px solid var(--accent); margin:1rem 0; padding:.2rem 1rem;
+             color:var(--muted); }
+.meta { color:var(--muted); margin-bottom:2rem; }
+.badge { display:inline-block; padding:.1rem .6rem; border-radius:999px;
+         border:1px solid var(--accent); color:var(--accent); font-size:.85rem; }
+.diagram { background:var(--card); border:1px solid var(--line); border-radius:8px;
+           padding:1rem; margin:1rem 0; overflow-x:auto; }
+.diagram pre.mermaid { margin:0; }
+.diagram.raw::before { content:"diagram source (assets/mermaid.min.js not vendored)";
+                       display:block; color:var(--muted); font-size:.8rem;
+                       margin-bottom:.5rem; }
+.callout-h, .callout-h ~ p, .callout-h ~ ul { background:var(--warn-bg); }
+.callout-h { border-left:4px solid var(--warn-line); padding:.3rem .8rem; }
+.mockup { margin:1.5rem 0; }
+.mockup iframe { width:100%; height:32rem; border:1px solid var(--line);
+                 border-radius:8px; background:#fff; }
+nav.pager { display:flex; justify-content:space-between; margin-top:3rem;
+            border-top:1px solid var(--line); padding-top:1rem; }
+@media (max-width: 900px) {
+  .layout { display:block; }
+  aside.site { width:auto; height:auto; position:static; border-right:none;
+               border-bottom:1px solid var(--line); }
+}
+h1[id]:hover .rv-add, h2[id]:hover .rv-add, h3[id]:hover .rv-add,
+h4[id]:hover .rv-add { opacity:1; }
+.rv-add { opacity:0; margin-left:.5rem; font-size:.75rem; cursor:pointer;
+          border:1px solid var(--accent); color:var(--accent); background:none;
+          border-radius:6px; padding:0 .45rem; vertical-align:middle;
+          transition:opacity .15s; }
+.rv-comment { border:1px solid var(--warn-line); border-left-width:4px;
+              background:var(--warn-bg); border-radius:8px; padding:.6rem .9rem;
+              margin:.8rem 0; font-size:.92rem; }
+.rv-comment.rv-resolved { opacity:.6; border-left-color:var(--line); }
+.rv-comment .rv-head { display:flex; gap:.6rem; align-items:center;
+                       color:var(--muted); font-size:.8rem; margin-bottom:.3rem; }
+.rv-comment .rv-head button { font-size:.75rem; cursor:pointer; background:none;
+                              border:1px solid var(--line); border-radius:6px;
+                              color:var(--muted); padding:0 .4rem; }
+.rv-comment .rv-body { white-space:pre-wrap; }
+.rv-editor textarea { width:100%; min-height:5rem; background:var(--bg);
+                      color:var(--fg); border:1px solid var(--line);
+                      border-radius:6px; padding:.5rem; font:inherit; }
+.rv-editor .rv-actions { margin-top:.4rem; display:flex; gap:.5rem; }
+.rv-editor button { cursor:pointer; border-radius:6px; padding:.2rem .8rem;
+                    border:1px solid var(--accent); background:var(--accent);
+                    color:#fff; }
+.rv-editor button.rv-cancel { background:none; color:var(--accent); }
+#rv-toggle { position:fixed; right:1rem; bottom:1rem; z-index:60;
+             background:var(--accent); color:#fff; border:none; cursor:pointer;
+             border-radius:999px; padding:.5rem 1rem; font-size:.85rem;
+             box-shadow:0 2px 10px rgba(0,0,0,.2); }
+#rv-drawer { position:fixed; top:0; right:0; bottom:0; width:21rem; z-index:55;
+             background:var(--card); border-left:1px solid var(--line);
+             display:flex; flex-direction:column; transform:translateX(100%);
+             transition:transform .2s ease; box-shadow:-4px 0 16px rgba(0,0,0,.12); }
+body.rv-open #rv-drawer { transform:none; }
+body.rv-open .layout { padding-right:21rem; }
+#rv-drawer header { padding:.8rem 1rem .5rem; border-bottom:1px solid var(--line); }
+#rv-drawer header .rv-count { color:var(--muted); font-size:.8rem; }
+#rv-drawer .rv-compose { padding:.8rem 1rem; border-bottom:1px solid var(--line); }
+#rv-drawer .rv-compose label { display:block; font-size:.75rem;
+                               color:var(--muted); margin-bottom:.25rem; }
+#rv-drawer .rv-compose select { width:100%; margin-bottom:.4rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.3rem; font:inherit; font-size:.85rem; }
+#rv-drawer .rv-compose textarea { width:100%; min-height:5.5rem;
+             background:var(--bg); color:var(--fg); border:1px solid var(--line);
+             border-radius:6px; padding:.5rem; font:inherit; font-size:.9rem; }
+#rv-drawer .rv-compose .rv-live { font-size:.72rem; color:var(--muted); }
+#rv-drawer .rv-list { flex:1; overflow-y:auto; padding:.6rem 1rem; }
+#rv-drawer .rv-item { border:1px solid var(--line); border-left:3px solid
+             var(--warn-line); border-radius:8px; padding:.45rem .6rem;
+             margin-bottom:.6rem; font-size:.82rem; cursor:pointer; }
+#rv-drawer .rv-item.rv-resolved { opacity:.55; border-left-color:var(--line); }
+#rv-drawer .rv-item .rv-where { color:var(--accent); font-size:.72rem; }
+#rv-drawer .rv-item .rv-meta { color:var(--muted); font-size:.72rem;
+                               display:flex; gap:.5rem; align-items:center; }
+#rv-drawer .rv-item .rv-meta button { font-size:.7rem; cursor:pointer;
+             background:none; border:1px solid var(--line); border-radius:5px;
+             color:var(--muted); padding:0 .35rem; }
+#rv-drawer .rv-item .rv-text { white-space:pre-wrap; margin:.15rem 0; }
+#rv-drawer footer { padding:.6rem 1rem; border-top:1px solid var(--line);
+                    display:flex; gap:.5rem; flex-wrap:wrap; }
+#rv-drawer footer button, #rv-drawer .rv-compose button {
+  cursor:pointer; border:1px solid var(--accent); background:none;
+  color:var(--accent); border-radius:6px; padding:.2rem .7rem; font-size:.8rem; }
+#rv-drawer .rv-compose button.rv-primary { background:var(--accent); color:#fff; }
+#rv-drawer .rv-otherpages { color:var(--muted); font-size:.75rem;
+                            margin:.4rem 0 0; }
+@media (max-width: 1200px) { body.rv-open .layout { padding-right:0; } }
+</style>
+</head>
+<body data-page="feature-web-ui" data-rvkey="atak-map-downloader">
+<div class="layout">
+<aside class="site"><a class="brand" href="../spec.html">ATAK Map Downloader</a>
+<h2>Spec</h2><ul>
+<li><a href="../spec.html">Overview &amp; index</a></li>
+</ul>
+<h2>Features</h2><ul>
+<li><a href="feature-foundation.html">Foundation</a></li>
+<li><a href="feature-map-sources.html">Map source catalog</a></li>
+<li><a href="feature-area-estimate.html">Area estimate and tile info</a></li>
+<li><a href="feature-tile-download.html">Tile download and output file</a></li>
+<li><a class="current" href="feature-web-ui.html">Web UI and server</a></li>
+<li><a href="feature-security-hardening.html">Security hardening</a></li>
+<li><a href="feature-polite-downloading.html">Polite downloading</a></li>
+<li><a href="feature-robust-downloads.html">Robust downloads</a></li>
+<li><a href="feature-offline-web-ui.html">Offline web UI</a></li>
+<li><a href="feature-source-sync.html">Source sync and WMS</a></li>
+<li><a href="feature-output-formats.html">Output formats</a></li>
+<li><a href="feature-area-selection.html">Area selection</a></li>
+<li><a href="feature-team-server.html">Team server</a></li>
+</ul></aside>
+<main>
+<h1>Feature: Web UI and server</h1>
+<p class="meta">Existing (built) &nbsp; <span class="badge">built</span></p>
+<h3 id="web-ui-purpose">Purpose</h3>
+<p>The <code>serve</code> command starts a local HTTP server. The server delivers a single-page web UI and a JSON API, plus a websocket that runs one job at a time. The web UI lets the map preparer do these tasks:</p>
+<ul>
+<li>select bounds on a base map,
+</li>
+<li>choose a map source and a zoom range,
+</li>
+<li>see an estimate and a preview,
+</li>
+<li>start, follow and cancel a job.
+</li>
+</ul>
+<p>The web UI and the server are embedded in the binary (<code>web/embed.go</code>). This file describes the behavior that exists today.</p>
+<h3 id="web-ui-user-stories">User stories</h3>
+<ul>
+<li>As a solo operator, I want to draw a rectangle on a map, so that I do not type
+</li>
+</ul>
+<p>coordinates.</p>
+<ul>
+<li>As a solo operator, I want to geocode a place name, so that the map moves to my area.
+</li>
+<li>As a solo operator, I want a preview of the map source over my bounds, so that I can
+</li>
+</ul>
+<p>check the imagery first.</p>
+<ul>
+<li>As a solo operator, I want live progress and a Cancel button, so that I can stop a job
+</li>
+</ul>
+<p>that goes wrong.</p>
+<h3 id="web-ui-functional-requirements">Functional requirements</h3>
+<ul>
+<li>FR-web-ui-1 — The <code>serve</code> command listens on the address that <code>--addr</code> names. The
+</li>
+</ul>
+<p>default is <code>localhost:5000</code>.</p>
+<ul>
+<li>FR-web-ui-2 — The server returns the embedded <code>index.html</code> for <code>/</code>.
+</li>
+<li>FR-web-ui-3 — The server returns embedded files under <code>/static/</code>.
+</li>
+<li>FR-web-ui-4 — The server sends <code>Access-Control-Allow-Origin: *</code> on every response.
+</li>
+<li>FR-web-ui-5 — The server answers every <code>OPTIONS</code> request with status 204.
+</li>
+<li>FR-web-ui-6 — The server accepts a websocket upgrade on <code>/ws</code> from any origin.
+</li>
+<li>FR-web-ui-7 — The server runs at most one job at a time, for all connections.
+</li>
+<li>FR-web-ui-8 — The server rejects a <code>start_download</code> message while a job runs, with
+</li>
+</ul>
+<p>the <code>download_error</code> message <code>Download already in progress</code>.</p>
+<ul>
+<li>FR-web-ui-9 — Any websocket connection can cancel the running job.
+</li>
+<li>FR-web-ui-10 — The server sends a <code>download_progress</code> message after each processed
+</li>
+</ul>
+<p>tile.</p>
+<ul>
+<li>FR-web-ui-11 — <code>POST /api/preview</code> returns the URLs of up to 6 × 6 tiles at the
+</li>
+</ul>
+<p>maximum zoom level, centered on the bounds.</p>
+<ul>
+<li>FR-web-ui-12 — <code>POST /api/geocode</code> sends the query to Nominatim and returns up to 5
+</li>
+</ul>
+<p>results.</p>
+<ul>
+<li>FR-web-ui-13 — The web UI shows an OpenStreetMap base map centered on the United
+</li>
+</ul>
+<p>States at zoom level 4.</p>
+<ul>
+<li>FR-web-ui-14 — The web UI lets the solo operator draw one kind of shape, a rectangle.
+</li>
+<li>FR-web-ui-15 — The web UI enables <strong>Estimate Download</strong> and <strong>Preview</strong> after the map
+</li>
+</ul>
+<p>preparer draws a rectangle.</p>
+<ul>
+<li>FR-web-ui-16 — The web UI enables <strong>Start Download</strong> after a successful estimate.
+</li>
+<li>FR-web-ui-17 — The web UI sets the zoom input limits to the zoom range of the selected
+</li>
+</ul>
+<p>map source.</p>
+<ul>
+<li>FR-web-ui-18 — The web UI moves the map to the first geocode result at zoom level 12
+</li>
+</ul>
+<p>and adds a marker.</p>
+<ul>
+<li>FR-web-ui-19 — The web UI shows each preview tile as an image overlay at 0.8 opacity.
+</li>
+<li>FR-web-ui-20 — The web UI shows a progress bar, the tile counts, the rate, the ETA and
+</li>
+</ul>
+<p>the failed count during a job.</p>
+<ul>
+<li>FR-web-ui-21 — The web UI reconnects 2 seconds after the websocket closes.
+</li>
+<li>FR-web-ui-22 — The web UI saves the light or dark theme in <code>localStorage</code>.
+</li>
+</ul>
+<h3 id="web-ui-user-flows">User flows</h3>
+<h4 id="web-ui-flow-1-the-solo-operator-starts-and-finishes-a-job">Flow 1 — The solo operator starts and finishes a job</h4>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as Solo operator
+    participant W as Web UI
+    participant S as Server
+    participant E as Engine
+    U-&gt;&gt;W: Select Start Download
+    W-&gt;&gt;S: start_download with source, bounds, zoom range, advanced_settings
+    alt parameters missing, source not found, or bounds not valid
+        S--&gt;&gt;W: download_error
+    else a job already runs
+        S--&gt;&gt;W: download_error Download already in progress
+    else accepted
+        S--&gt;&gt;W: download_started with output_file
+        S-&gt;&gt;E: DownloadTiles
+        loop each processed tile
+            E--&gt;&gt;S: progress callback
+            S--&gt;&gt;W: download_progress
+        end
+        alt success
+            S--&gt;&gt;W: download_progress at 100
+            S--&gt;&gt;W: download_complete with filename and path
+            W-&gt;&gt;U: Download Complete panel with the file name
+        else failure
+            S--&gt;&gt;W: download_error Download failed - too many tile errors
+        end
+    end</pre></div>
+<ol>
+<li>The solo operator selects <strong>Start Download</strong>.
+</li>
+<li>The web UI sends <code>start_download</code> on the websocket.
+</li>
+<li>If a parameter is missing, the map source is not found, or the bounds are not valid,
+</li>
+</ol>
+<p>the server sends <code>download_error</code>.</p>
+<ol>
+<li>If a job already runs, the server sends <code>download_error</code> with
+</li>
+</ol>
+<p><code>Download already in progress</code>.</p>
+<ol>
+<li>The server sends <code>download_started</code> with the output file name.
+</li>
+<li>The engine processes the tiles. The server sends <code>download_progress</code> after each tile.
+</li>
+<li>If the job succeeds, the server sends a final <code>download_progress</code> at 100 and then
+</li>
+</ol>
+<p><code>download_complete</code>. The web UI shows the <strong>Download Complete!</strong> panel.</p>
+<ol>
+<li>If the job fails, the server sends <code>download_error</code> with
+</li>
+</ol>
+<p><code>Download failed - too many tile errors. Try reducing concurrent downloads or enabling Ignore Errors.</code></p>
+<h4 id="web-ui-flow-2-the-solo-operator-cancels-a-job">Flow 2 — The solo operator cancels a job</h4>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as Solo operator
+    participant W as Web UI
+    participant S as Server
+    participant E as Engine
+    U-&gt;&gt;W: Select Cancel
+    W-&gt;&gt;S: cancel_download
+    S-&gt;&gt;E: cancel the context
+    S--&gt;&gt;W: download_cancelled Cancellation requested.
+    W-&gt;&gt;U: Reset the job controls
+    E--&gt;&gt;S: DownloadTiles returns
+    S-&gt;&gt;S: Delete the output file
+    S--&gt;&gt;W: download_cancelled Download cancelled by user.</pre></div>
+<ol>
+<li>The solo operator selects <strong>Cancel</strong>.
+</li>
+<li>The web UI sends <code>cancel_download</code>.
+</li>
+<li>The server cancels the context of the job.
+</li>
+<li>The server sends <code>download_cancelled</code> with <code>Cancellation requested.</code>
+</li>
+<li>The web UI resets the job controls at once. The job is still stopping.
+</li>
+<li>When the engine returns, the server deletes the output file.
+</li>
+<li>The server sends <code>download_cancelled</code> with <code>Download cancelled by user.</code>
+</li>
+</ol>
+<h4 id="web-ui-flow-3-the-solo-operator-selects-bounds-and-checks-them">Flow 3 — The solo operator selects bounds and checks them</h4>
+<div class="diagram"><pre class="mermaid">flowchart TD
+    A[Page loads] --&gt; B[GET /api/sources fills the source picker]
+    B --&gt; C{Geocode a place?}
+    C -- yes --&gt; D[POST /api/geocode]
+    D --&gt; E{Results?}
+    E -- yes --&gt; F[Move the map to the first result and add a marker]
+    E -- no --&gt; G[Status log line No results found]
+    C -- no --&gt; H[Draw a rectangle]
+    F --&gt; H
+    G --&gt; H
+    H --&gt; I[Show N S E W and the area in km2]
+    I --&gt; J{Map source chosen and min less than max?}
+    J -- no --&gt; K[Status log line Select area and map source first, or Invalid zoom range]
+    J -- yes --&gt; L[Select Preview: POST /api/preview, overlay the tiles]
+    J -- yes --&gt; M[Select Estimate Download: POST /api/estimate, show the estimate]</pre></div>
+<ol>
+<li>The web UI loads the source catalog from <code>GET /api/sources</code>.
+</li>
+<li>The solo operator can type a place name and press Enter or the search button.
+</li>
+<li>If Nominatim returns results, the web UI moves to the first result and adds a marker.
+</li>
+<li>If there is no result, the web UI logs <code>No results found for "&lt;query&gt;"</code>.
+</li>
+<li>The solo operator selects <strong>Draw Rectangle</strong> and draws the bounds.
+</li>
+<li>The web UI shows the north, south, east and west values and the area in km².
+</li>
+<li>If no map source is chosen, the web UI logs <code>Select area and map source first</code>.
+</li>
+<li>If the minimum zoom level is not less than the maximum, the web UI logs
+</li>
+</ol>
+<p><code>Invalid zoom range</code>.</p>
+<ol>
+<li>The solo operator selects <strong>Preview</strong> to overlay sample tiles on the map.
+</li>
+<li>The solo operator selects <strong>Estimate Download</strong> to see the estimate. See
+</li>
+</ol>
+<p><code>02-area-estimate.md</code>.</p>
+<h3 id="web-ui-screens-states">Screens &amp; states</h3>
+<p>One screen, <code>web/index.html</code>, driven by <code>web/static/js/app.js</code>. It has two regions: the sidebar (<code>col-md-3</code>) and the map (<code>col-md-9</code>).</p>
+<p>Sidebar sections, top to bottom:</p>
+<ol>
+<li>Title and theme toggle (<code>#themeToggle</code>).
+</li>
+<li><strong>Map Source</strong>: <code>#mapSourceSelect</code>.
+</li>
+<li><strong>Area Selection</strong>: geocode input <code>#addressSearch</code>, <strong>Draw Rectangle</strong>, <strong>Clear</strong>,
+</li>
+</ol>
+<p>and <code>#selectionInfo</code>.</p>
+<ol>
+<li><strong>Zoom Levels</strong>: <code>#minZoom</code> (default 1) and <code>#maxZoom</code> (default 15), each 1–20, plus
+</li>
+</ol>
+<p>a zoom guide.</p>
+<ol>
+<li><strong>Download Options</strong>: <code>#customName</code> and the collapsed <strong>Advanced Settings</strong>:
+<ul>
+<li><strong>Concurrent Downloads</strong>: 1, 3, 5, 8 or 10. The default is 5.
+</li>
+<li><strong>Batch Delay (seconds)</strong>: 0.1 to 1.0. The engine does not use this value.
+</li>
+<li><strong>Failure Tolerance</strong>: 10 % to 50 %. The default is 30 %.
+</li>
+<li><strong>Ignore Errors &amp; Continue</strong>.
+</li>
+<li><strong>Verify SSL Certificates</strong>, unchecked.
+</li>
+</ul>
+</li>
+<li><strong>Estimate Download</strong> and <strong>Preview</strong>, then <code>#estimationResult</code>.
+</li>
+<li><strong>Start Download</strong> and <strong>Cancel</strong>, then <code>#downloadProgress</code>.
+</li>
+<li><code>#downloadResults</code>, which shows the file name and the fixed text <code>downloads/ folder</code>.
+</li>
+<li><strong>Status</strong>: <code>#statusLog</code>, at most 50 lines and 200 px high.
+</li>
+</ol>
+<div class="table-wrap"><table>
+<tr><th>State</th><th>What the web UI shows today</th></tr>
+<tr><td>Sources loading</td><td>The option <code>Loading sources...</code></td></tr>
+<tr><td>Sources failed</td><td>A status log line only</td></tr>
+<tr><td>Empty source catalog</td><td>The server returns <code>null</code>. The JavaScript fails on <code>sources.length</code> and logs an error line</td></tr>
+<tr><td>No bounds</td><td><code>Click "Draw Rectangle" to select an area on the map</code>. Estimate and Preview disabled</td></tr>
+<tr><td>Estimate or preview error</td><td>A status log line only</td></tr>
+<tr><td>Request in flight</td><td>Nothing. <code>#loadingModal</code> exists but no code shows it</td></tr>
+<tr><td>Job running</td><td>Spinner text <code>Downloading...</code>, progress bar, <strong>Cancel</strong> visible</td></tr>
+<tr><td>Job failed</td><td>A status log line, and the controls reset</td></tr>
+<tr><td>Job cancelled</td><td>A status log line, and the controls reset</td></tr>
+<tr><td>Job complete</td><td><strong>Download Complete!</strong> panel with the file name</td></tr>
+<tr><td>Websocket closed</td><td>The status log line <code>Disconnected - reconnecting...</code> only</td></tr>
+</table></div>
+<p>Accessibility signals:</p>
+<ul>
+<li>Present:
+<ul>
+<li><code>&lt;label for&gt;</code> on the geocode input, the zoom inputs, the file name and the advanced
+</li>
+</ul>
+</li>
+</ul>
+<p>settings.</p>
+<ul>
+<li><code>aria-expanded</code> and <code>aria-controls</code> on the <strong>Advanced Settings</strong> toggle.
+<ul>
+<li><code>role="status"</code> with visually hidden text on the modal spinner.
+</li>
+</ul>
+</li>
+<li>Missing:
+<ul>
+<li>A label on the source picker, which has only an <code>&lt;h5&gt;</code>.
+</li>
+<li><code>aria-label</code> on the icon-only theme and search buttons.
+</li>
+<li><code>aria-valuenow</code> on the progress bar.
+</li>
+<li><code>aria-live</code> on the status log.
+</li>
+<li>A keyboard path to draw bounds.
+</li>
+</ul>
+</li>
+</ul>
+<p>Theme and layout:</p>
+<ul>
+<li>The theme toggle sets <code>data-bs-theme</code>. The web UI does not read
+</li>
+</ul>
+<p><code>prefers-color-scheme</code>.</p>
+<ul>
+<li>In dark mode, <code>style.css:107-113</code> puts a colour filter on <code>.leaflet-tile</code> and inverts
+</li>
+</ul>
+<p>the map controls. The preview image overlays do not get the filter.</p>
+<ul>
+<li>One breakpoint at 768 px stacks the sidebar and the map.
+</li>
+</ul>
+<p>External dependencies, all loaded at run time (<code>web/index.html:9-16</code>, <code>:241-243</code>):</p>
+<div class="table-wrap"><table>
+<tr><th>Asset</th><th>Version</th><th>Host</th></tr>
+<tr><td>Leaflet</td><td>1.9.4</td><td>unpkg.com</td></tr>
+<tr><td>leaflet-draw</td><td>1.0.4</td><td>unpkg.com</td></tr>
+<tr><td>Bootstrap CSS and bundle</td><td>5.3.0</td><td>cdn.jsdelivr.net</td></tr>
+<tr><td>Font Awesome</td><td>6.4.0</td><td>cdnjs.cloudflare.com</td></tr>
+<tr><td>Base map tiles</td><td>—</td><td><code>{s}.tile.openstreetmap.org</code></td></tr>
+</table></div>
+<h3 id="web-ui-behaviour-rules">Behaviour rules</h3>
+<ul>
+<li>The server has no authentication.
+</li>
+<li>The server has no read, write or idle timeouts (<code>http.ListenAndServe</code>, <code>serve.go:45</code>).
+</li>
+<li>The server creates <code>./downloads</code> at start and writes every output file there.
+</li>
+<li>In <code>start_download</code>, a value of 0 means "use the default". So the web UI cannot set
+</li>
+</ul>
+<p>0 for:</p>
+<ul>
+<li><code>min_zoom</code> (default 1) or <code>max_zoom</code> (default 15),
+<ul>
+<li><code>max_concurrent</code> (default 5),
+</li>
+<li><code>delay_between_batches</code> (default 0.2),
+</li>
+<li><code>failure_tolerance</code> (default 0.3).
+</li>
+</ul>
+</li>
+<li><code>POST /api/preview</code> replaces a <code>min_zoom</code> of 0 with 1 and a <code>max_zoom</code> of 0 with 18.
+</li>
+</ul>
+<p>It uses only the maximum zoom level.</p>
+<ul>
+<li>The preview grid has a maximum number of tiles per side:
+<ul>
+<li>6 at zoom level 10 or less,
+</li>
+<li>4 from zoom level 11 to 15,
+</li>
+<li>3 above zoom level 15.
+</li>
+</ul>
+</li>
+<li>The preview uses the first server part for every tile.
+</li>
+<li>The web UI changes a maximum zoom level that is not above the minimum to the minimum
+</li>
+</ul>
+<p>plus 1.</p>
+<ul>
+<li>On a source change, the web UI sets the zoom inputs to <code>max(1, source min)</code> and
+</li>
+</ul>
+<p><code>min(15, source max)</code>.</p>
+<ul>
+<li>The geocode request goes from the server to
+</li>
+</ul>
+<p><code>https://nominatim.openstreetmap.org/search</code> with <code>limit=5</code>, the User-Agent <code>ATAK-Map-Downloader/1.0</code> and a 10-second timeout. The server does not limit the request rate.</p>
+<h3 id="web-ui-data-touched">Data touched</h3>
+<ul>
+<li>Writes output files under <code>./downloads</code>. See <code>03-tile-download.md</code>.
+</li>
+<li>In memory: one <code>dlState</code> per server, holding <code>downloading bool</code> and <code>cancel</code>, behind a
+</li>
+</ul>
+<p>mutex (<code>web.go:30-34</code>). Nothing survives a restart.</p>
+<ul>
+<li>Browser: <code>localStorage.theme</code>.
+</li>
+</ul>
+<h3 id="web-ui-interfaces">Interfaces</h3>
+<h4 id="web-ui-http-routes">HTTP routes</h4>
+<p>All routes are in <code>cmd/atak-dl/commands/web.go:52-134</code>. Success responses do not set <code>Content-Type: application/json</code>. Error responses come from <code>http.Error</code>, so their <code>Content-Type</code> is <code>text/plain</code>, and their JSON is built by string concatenation.</p>
+<div class="table-wrap"><table>
+<tr><th>Method</th><th>Path</th><th>Request</th><th>Success response</th><th>Errors</th></tr>
+<tr><td>GET</td><td><code>/</code></td><td>—</td><td><code>index.html</code></td><td>—</td></tr>
+<tr><td>GET</td><td><code>/static/*</code></td><td>—</td><td>Embedded file</td><td>404</td></tr>
+<tr><td>any</td><td><code>/api/sources</code></td><td>—</td><td>See <code>01-map-sources.md</code></td><td>—</td></tr>
+<tr><td>POST</td><td><code>/api/estimate</code></td><td>See <code>02-area-estimate.md</code></td><td></td><td>400, 405</td></tr>
+<tr><td>POST</td><td><code>/api/tile-info</code></td><td>See <code>02-area-estimate.md</code></td><td></td><td>400, 405</td></tr>
+<tr><td>POST</td><td><code>/api/validate-source</code></td><td>See <code>01-map-sources.md</code></td><td></td><td>400, 404, 405</td></tr>
+<tr><td>POST</td><td><code>/api/preview</code></td><td><code>{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}</code></td><td><code>{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}</code></td><td>400, 404, 405</td></tr>
+<tr><td>POST</td><td><code>/api/geocode</code></td><td><code>{"query"}</code></td><td><code>{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}</code></td><td>400, 405, 500</td></tr>
+<tr><td>GET</td><td><code>/ws</code></td><td>Websocket upgrade</td><td>See below</td><td>—</td></tr>
+<tr><td>OPTIONS</td><td>any</td><td>—</td><td>204</td><td>—</td></tr>
+</table></div>
+<p>The web UI calls <code>/api/sources</code>, <code>/api/estimate</code>, <code>/api/preview</code>, <code>/api/geocode</code> and <code>/ws</code>. It does not call <code>/api/tile-info</code> or <code>/api/validate-source</code>.</p>
+<h4 id="web-ui-websocket-protocol">Websocket protocol</h4>
+<p>Messages are JSON. Each client message has the form <code>{"type", "data"}</code>.</p>
+<p>Client to server:</p>
+<div class="table-wrap"><table>
+<tr><th><code>type</code></th><th><code>data</code></th></tr>
+<tr><td><code>start_download</code></td><td><code>{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom", "custom_name", "advanced_settings": {"max_concurrent", "delay_between_batches", "failure_tolerance", "ignore_errors", "verify_ssl"}}</code></td></tr>
+<tr><td><code>cancel_download</code></td><td>none</td></tr>
+<tr><td><code>get_download_status</code></td><td>none</td></tr>
+</table></div>
+<p>Server to client:</p>
+<div class="table-wrap"><table>
+<tr><th><code>type</code></th><th>Fields</th><th>When</th></tr>
+<tr><td><code>status</code></td><td><code>message</code></td><td>On connect: <code>Connected to ATAK Downloader</code>. Reply to <code>get_download_status</code>: <code>Download in progress</code> or <code>No active download</code></td></tr>
+<tr><td><code>download_started</code></td><td><code>message</code>, <code>output_file</code></td><td>The job starts</td></tr>
+<tr><td><code>download_progress</code></td><td><code>progress</code>, <code>downloaded</code>, <code>total</code>, <code>failed</code>, <code>rate</code>, <code>eta</code>, <code>message</code></td><td>After each processed tile, and once at 100 on success</td></tr>
+<tr><td><code>download_complete</code></td><td><code>message</code>, <code>filename</code>, <code>path</code></td><td>The job succeeds. <code>path</code> is the path on the server</td></tr>
+<tr><td><code>download_error</code></td><td><code>message</code></td><td>Rejected request, or failed job</td></tr>
+<tr><td><code>download_cancelled</code></td><td><code>message</code></td><td><code>Cancellation requested.</code>, <code>No active download.</code>, or <code>Download cancelled by user.</code></td></tr>
+</table></div>
+<h3 id="web-ui-edge-cases-failures">Edge cases &amp; failures</h3>
+<p>What the code handles:</p>
+<ul>
+<li>A second <code>start_download</code> while a job runs gets a clear error.
+</li>
+<li>A closed websocket makes the web UI reconnect.
+</li>
+<li>The <code>/static/</code> route uses <code>fs.Sub</code> on an <code>embed.FS</code>, which rejects <code>..</code> paths.
+</li>
+<li>The output file name keeps only safe characters, so <code>custom_name</code> cannot leave
+</li>
+</ul>
+<p><code>./downloads</code>.</p>
+<p>What the code does not handle:</p>
+<ul>
+<li><strong>Any web page can drive the server.</strong> CORS is <code>*</code> and <code>CheckOrigin</code> returns true
+</li>
+</ul>
+<p>(<code>web.go:44</code>, <code>:54</code>). A page the solo operator visits can start jobs that write files to disk, or use the geocode route.</p>
+<ul>
+<li><strong><code>--addr 0.0.0.0:5000</code> exposes the server to the network</strong> with no authentication.
+</li>
+<li><strong>Concurrent websocket writes.</strong> Every engine goroutine calls <code>conn.WriteJSON</code> through
+</li>
+</ul>
+<p>the progress callback, and the read loop writes too. gorilla/websocket allows only one concurrent writer, so frames can break or the server can panic.</p>
+<ul>
+<li><strong>The finished output file cannot be fetched from the browser.</strong> No route serves
+</li>
+</ul>
+<p><code>./downloads</code>. The web UI shows only the file name.</p>
+<ul>
+<li><strong>A closed websocket orphans the job.</strong> The job keeps running and writes to the dead
+</li>
+</ul>
+<p>connection. A new connection cannot see its progress. <code>get_download_status</code> returns only text.</p>
+<ul>
+<li><strong>The first <code>download_cancelled</code> resets the web UI before the job stops.</strong> An
+</li>
+</ul>
+<p>immediate <strong>Start Download</strong> then gets <code>Download already in progress</code>.</p>
+<ul>
+<li><strong><code>sendWS</code> drops a message when the socket is not open.</strong> <strong>Start Download</strong> then
+</li>
+</ul>
+<p>stays on <code>Downloading...</code> with no job.</p>
+<ul>
+<li><strong>Every failed job reports "too many tile errors"</strong>, including a failure to create the
+</li>
+</ul>
+<p>output file and <code>no tiles processed</code>.</p>
+<ul>
+<li><strong><code>/api/preview</code> ignores the bounds error</strong> (<code>web.go:290</code>). Bounds that are not valid
+</li>
+</ul>
+<p>give a nil pointer, and the handler panics. <code>net/http</code> recovers it and drops the connection.</p>
+<ul>
+<li><strong>Preview tiles can fail to show.</strong> The overlays set <code>crossOrigin: 'anonymous'</code>
+</li>
+</ul>
+<p>(<code>app.js:363</code>), so a tile server that sends no CORS header blocks the image.</p>
+<ul>
+<li><strong>The web UI needs the internet.</strong> Every library and the base map come from public
+</li>
+</ul>
+<p>hosts, so the page does not work on a disconnected machine.</p>
+<ul>
+<li><strong><code>logStatus</code> writes server and user text through <code>innerHTML</code></strong> (<code>app.js:559</code>). The
+</li>
+</ul>
+<p>geocode popup does the same with <code>display_name</code> (<code>app.js:412</code>).</p>
+<ul>
+<li><strong>The geocode route breaks the Nominatim usage policy.</strong> It has no rate limit, no cache
+</li>
+</ul>
+<p>and no contact detail in the User-Agent (<a href="https://operations.osmfoundation.org/policies/nominatim/">Nominatim usage policy</a>, retrieved 2026-11-21).</p>
+<ul>
+<li><strong>The base map uses <code>tile.openstreetmap.org</code></strong>, whose usage policy requires an
+</li>
+</ul>
+<p>identifying User-Agent and forbids offline bulk use (<a href="https://operations.osmfoundation.org/policies/tiles/">OSM tile usage policy</a>, retrieved 2026-11-21). The browser sends its own User-Agent.</p>
+<ul>
+<li><strong>gorilla/websocket v1.5.3 is the last release</strong>, from June 2024
+</li>
+</ul>
+<p>(<a href="https://pkg.go.dev/github.com/gorilla/websocket?tab=versions">pkg.go.dev versions</a>, retrieved 2026-11-21).</p>
+<ul>
+<li><strong>Unused code:</strong> <code>safeFilename</code>, <code>safeNameRe</code> and the <code>mapsDir</code> field (<code>web.go:28</code>,
+</li>
+</ul>
+<p><code>:577-581</code>), and the <code>loadingModal</code> object (<code>app.js:576-581</code>).</p>
+<p>Known defects and the planned feature that repairs each:</p>
+<div class="table-wrap"><table>
+<tr><th>Defect</th><th>Repaired by</th></tr>
+<tr><td>CORS <code>*</code>, any-origin websocket, no auth on a non-loopback bind, no server timeouts, <code>innerHTML</code> writes, preview panic</td><td><code>security-hardening</code> (05)</td></tr>
+<tr><td>Concurrent websocket writes, gorilla/websocket</td><td><code>security-hardening</code> (05)</td></tr>
+<tr><td>Geocode route that breaks the Nominatim policy</td><td><code>polite-downloading</code> (06)</td></tr>
+<tr><td>CDN dependencies, OSM base map, no fetch of the output file, missing loading and error states, accessibility gaps, unused Batch Delay control</td><td><code>offline-web-ui</code> (08)</td></tr>
+<tr><td>Rectangle only</td><td><code>area-selection</code> (11)</td></tr>
+<tr><td>One global job, orphaned jobs, no job history</td><td><code>team-server</code> (12)</td></tr>
+</table></div>
+<h3 id="web-ui-acceptance-criteria">Acceptance criteria</h3>
+<ul>
+<li>[ ] <code>atak-dl serve</code> prints <code>Open http://localhost:5000 in your browser</code> and serves the
+</li>
+</ul>
+<p>page at that address.</p>
+<ul>
+<li>[ ] <code>GET /</code> returns HTML whose <code>&lt;title&gt;</code> is <code>ATAK Tile Downloader</code>.
+</li>
+<li>[ ] Every response carries <code>Access-Control-Allow-Origin: *</code>.
+</li>
+<li>[ ] A websocket connection to <code>/ws</code> receives
+</li>
+</ul>
+<p><code>{"type":"status","message":"Connected to ATAK Downloader"}</code> first.</p>
+<ul>
+<li>[ ] A second <code>start_download</code> while a job runs receives a <code>download_error</code> with
+</li>
+</ul>
+<p><code>Download already in progress</code>.</p>
+<ul>
+<li>[ ] <code>POST /api/preview</code> with valid bounds and <code>max_zoom</code> 16 returns at most 9 tiles.
+</li>
+<li>[ ] After a rectangle is drawn, <strong>Estimate Download</strong> and <strong>Preview</strong> are enabled.
+</li>
+<li>[ ] After a successful estimate, <strong>Start Download</strong> is enabled.
+</li>
+</ul>
+<h3 id="web-ui-out-of-scope">Out of scope</h3>
+<ul>
+<li>More than one job at a time.
+</li>
+<li>Authentication.
+</li>
+<li>Serving output files to the browser.
+</li>
+</ul>
+<h3 id="web-ui-open-questions" class="callout-h">Open questions</h3>
+<ul>
+<li>The <strong>Batch Delay</strong> control and <code>delay_between_batches</code> reach the engine, which does not
+</li>
+</ul>
+<p>use them. The code does not show whether a delay was ever planned.</p>
+<ul>
+<li>The code does not show whether <code>/api/tile-info</code> and <code>/api/validate-source</code> were meant
+</li>
+</ul>
+<p>for the web UI or for scripts.</p><nav class="pager">
+<a href="feature-tile-download.html">&larr; Feature: Tile download and output file</a>
+<a href="feature-security-hardening.html">Feature: Security hardening &rarr;</a>
+</nav>
+</main>
+</div>
+<script src="../assets/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+<script type="application/json" id="rv-embedded">[]</script>
+<script>
+(function(){
+  'use strict';
+  var PAGE = document.body.getAttribute('data-page');
+  // storage key carries the spec's slug: file:// pages can share one
+  // localStorage pool, and two specs must never share a comment store
+  var RVKEY = 'spec-review:' + (document.body.getAttribute('data-rvkey') || 'spec');
+  var EMBED = [];
+  var embedEl = document.getElementById('rv-embedded');
+  if (embedEl) { try { EMBED = JSON.parse(embedEl.textContent); } catch(e){} }
+  function loadLocal(){ try { return JSON.parse(localStorage.getItem(RVKEY)) || {comments:[], deleted:[]}; } catch(e){ return {comments:[], deleted:[]}; } }
+  function saveLocal(s){ try { localStorage.setItem(RVKEY, JSON.stringify(s)); } catch(e){} }
+  function cid(c){ return c.page + '|' + c.section + '|' + (c.date||'') + '|' + c.body.slice(0,24); }
+  function allComments(){
+    var s = loadLocal(), map = {};
+    EMBED.forEach(function(c){ map[cid(c)] = c; });
+    s.comments.forEach(function(c){ map[cid(c)] = c; });
+    s.deleted.forEach(function(id){ delete map[id]; });
+    return Object.keys(map).map(function(k){ return map[k]; });
+  }
+  function upsert(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    s.comments.push(c);
+    s.deleted = s.deleted.filter(function(x){ return x !== id; });
+    saveLocal(s); refresh();
+  }
+  function remove(c){
+    var s = loadLocal(), id = cid(c);
+    s.comments = s.comments.filter(function(x){ return cid(x) !== id; });
+    if (EMBED.some(function(x){ return cid(x) === id; })) s.deleted.push(id);
+    saveLocal(s); refresh();
+  }
+  function today(){ return new Date().toISOString().slice(0,10); }
+  function exportMd(){
+    var lines = ['# Review comments', '',
+      '<!-- Exported from the spec review layer. Save this file as',
+      '     docs/specs/review-comments.md and re-run render-spec.py to embed',
+      '     every comment under its section for the next review round. -->', ''];
+    allComments().sort(function(a,b){
+      return (a.page+a.section).localeCompare(b.page+b.section);
+    }).forEach(function(c){
+      lines.push('## [' + c.page + '] ' + (c.section||''));
+      lines.push('status: ' + (c.status||'open'));
+      lines.push('date: ' + (c.date||today()));
+      lines.push(c.body); lines.push('');
+    });
+    var blob = new Blob([lines.join('\n')], {type:'text/markdown'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'review-comments.md';
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+  function importMd(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      var text = String(reader.result);
+      var blocks = text.split(/^## /m).slice(1);
+      blocks.forEach(function(b){
+        var head = b.match(/^\[([^\]]+)\]\s*(\S*)/);
+        if (!head) return;
+        var status = (b.match(/^status:\s*(\S+)/m)||[])[1] || 'open';
+        var date = (b.match(/^date:\s*(\S+)/m)||[])[1] || today();
+        var body = b.replace(/^\[[^\]]*\]\s*\S*\s*\n/, '')
+                    .replace(/^status:.*\n?/m,'').replace(/^date:.*\n?/m,'').trim();
+        if (body) upsert({page:head[1], section:head[2]||'', status:status, date:date, body:body});
+      });
+      refresh();
+    };
+    reader.readAsText(file);
+  }
+  function commentBox(c){
+    var div = document.createElement('div');
+    div.className = 'rv-comment' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var head = document.createElement('div'); head.className = 'rv-head';
+    head.textContent = '💬 ' + (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(){ remove(c); c = Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'}); upsert(c); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(){ if (confirm('Delete this comment?')) remove(c); };
+    head.appendChild(tog); head.appendChild(del);
+    var body = document.createElement('div'); body.className = 'rv-body';
+    body.textContent = c.body;
+    div.appendChild(head); div.appendChild(body);
+    return div;
+  }
+  function editor(section, after){
+    var wrap = document.createElement('div');
+    wrap.className = 'rv-comment rv-editor';
+    var ta = document.createElement('textarea');
+    ta.placeholder = 'Comment on this section…';
+    var actions = document.createElement('div'); actions.className = 'rv-actions';
+    var save = document.createElement('button'); save.textContent = 'Save';
+    save.onclick = function(){
+      if (ta.value.trim()) upsert({page:PAGE, section:section, status:'open', date:today(), body:ta.value.trim()});
+      wrap.remove();
+    };
+    var cancel = document.createElement('button'); cancel.textContent = 'Cancel';
+    cancel.className = 'rv-cancel'; cancel.onclick = function(){ wrap.remove(); };
+    actions.appendChild(save); actions.appendChild(cancel);
+    wrap.appendChild(ta); wrap.appendChild(actions);
+    after.insertAdjacentElement('afterend', wrap);
+    ta.focus();
+  }
+  // --- headings, inline buttons ---
+  var mainH1 = document.querySelector('main h1');
+  if (mainH1 && !mainH1.id) { mainH1.id = 'page-title'; }
+  var headings = Array.prototype.slice.call(
+    document.querySelectorAll('main h1[id], main h2[id], main h3[id], main h4[id]'));
+  headings.forEach(function(h){
+    var b = document.createElement('button');
+    b.className = 'rv-add'; b.textContent = '💬 comment'; b.title = 'Comment on this section';
+    b.onclick = function(){ editor(h.id, h); };
+    h.appendChild(b);
+  });
+  function headingTitle(h){
+    var t = h.childNodes[0] ? h.childNodes[0].textContent : h.textContent;
+    return t.trim();
+  }
+  function titleFor(section){
+    var el = section && document.getElementById(section);
+    return el ? headingTitle(el) : (section || '(page)');
+  }
+
+  // --- drawer ---
+  var drawer = document.createElement('div');
+  drawer.id = 'rv-drawer';
+  drawer.innerHTML =
+    '<header><strong>Review</strong> <span class="rv-count"></span></header>' +
+    '<div class="rv-compose">' +
+    '<div class="rv-live">Commenting on the section in view:</div>' +
+    '<label for="rv-sec"></label><select id="rv-sec"></select>' +
+    '<textarea id="rv-text" placeholder="Type as you read… (Ctrl+Enter saves)"></textarea>' +
+    '<div style="margin-top:.4rem; display:flex; gap:.5rem;">' +
+    '<button class="rv-primary" id="rv-save">Save comment</button>' +
+    '<button id="rv-clear">Clear</button></div></div>' +
+    '<div class="rv-list"></div>' +
+    '<footer><button id="rv-export">Export .md</button>' +
+    '<button id="rv-import">Import</button>' +
+    '<span class="rv-otherpages"></span></footer>';
+  document.body.appendChild(drawer);
+  var toggle = document.createElement('button');
+  toggle.id = 'rv-toggle';
+  toggle.onclick = function(){
+    document.body.classList.toggle('rv-open');
+    try { localStorage.setItem(RVKEY + ':open', document.body.classList.contains('rv-open') ? '1' : ''); } catch(e){}
+  };
+  document.body.appendChild(toggle);
+  try { if (localStorage.getItem(RVKEY + ':open')) document.body.classList.add('rv-open'); } catch(e){}
+
+  var sel = drawer.querySelector('#rv-sec');
+  headings.forEach(function(h){
+    var opt = document.createElement('option');
+    opt.value = h.id; opt.textContent = headingTitle(h);
+    sel.appendChild(opt);
+  });
+  var followScroll = true;
+  sel.onchange = function(){ followScroll = false; };
+
+  // scroll spy: pick the last heading above the upper third of the viewport
+  function currentSection(){
+    var line = window.innerHeight * 0.33, best = headings[0];
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].getBoundingClientRect().top <= line) best = headings[i];
+    }
+    return best ? best.id : '';
+  }
+  window.addEventListener('scroll', function(){
+    if (!followScroll) return;
+    var s = currentSection();
+    if (s && sel.value !== s) sel.value = s;
+  }, {passive:true});
+  // typing pins the target section so a stray scroll can't retarget the comment
+  drawer.querySelector('#rv-text').addEventListener('input', function(){
+    if (this.value.trim()) followScroll = false;
+    else followScroll = true;
+  });
+
+  function saveFromDrawer(){
+    var ta = drawer.querySelector('#rv-text');
+    if (!ta.value.trim()) return;
+    upsert({page:PAGE, section:sel.value, status:'open', date:today(), body:ta.value.trim()});
+    ta.value = ''; followScroll = true;
+  }
+  drawer.querySelector('#rv-save').onclick = saveFromDrawer;
+  drawer.querySelector('#rv-text').addEventListener('keydown', function(e){
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') saveFromDrawer();
+  });
+  drawer.querySelector('#rv-clear').onclick = function(){
+    drawer.querySelector('#rv-text').value = ''; followScroll = true;
+  };
+  drawer.querySelector('#rv-export').onclick = exportMd;
+  var fileIn = document.createElement('input');
+  fileIn.type = 'file'; fileIn.accept = '.md,text/markdown'; fileIn.style.display = 'none';
+  fileIn.onchange = function(){ if (fileIn.files[0]) importMd(fileIn.files[0]); };
+  drawer.appendChild(fileIn);
+  drawer.querySelector('#rv-import').onclick = function(){ fileIn.click(); };
+
+  function drawerItem(c){
+    var div = document.createElement('div');
+    div.className = 'rv-item' + (c.status === 'resolved' ? ' rv-resolved' : '');
+    var where = document.createElement('div'); where.className = 'rv-where';
+    where.textContent = titleFor(c.section);
+    var text = document.createElement('div'); text.className = 'rv-text';
+    text.textContent = c.body;
+    var meta = document.createElement('div'); meta.className = 'rv-meta';
+    meta.textContent = (c.date||'') + ' · ' + (c.status||'open');
+    var tog = document.createElement('button');
+    tog.textContent = c.status === 'resolved' ? 'reopen' : 'resolve';
+    tog.onclick = function(e){ e.stopPropagation(); remove(c);
+      upsert(Object.assign({}, c, {status: c.status === 'resolved' ? 'open' : 'resolved'})); };
+    var del = document.createElement('button'); del.textContent = 'delete';
+    del.onclick = function(e){ e.stopPropagation();
+      if (confirm('Delete this comment?')) remove(c); };
+    meta.appendChild(tog); meta.appendChild(del);
+    div.appendChild(where); div.appendChild(text); div.appendChild(meta);
+    div.onclick = function(){
+      var el = c.section && document.getElementById(c.section);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+    return div;
+  }
+
+  function refresh(){
+    document.querySelectorAll('.rv-comment:not(.rv-editor)').forEach(function(el){ el.remove(); });
+    var all = allComments();
+    var mine = all.filter(function(c){ return c.page === PAGE; });
+    mine.forEach(function(c){
+      var target = c.section && document.getElementById(c.section);
+      var anchor = target || mainH1 || document.body.querySelector('main') || document.body;
+      anchor.insertAdjacentElement('afterend', commentBox(c));
+    });
+    var open = all.filter(function(c){ return c.status !== 'resolved'; }).length;
+    toggle.textContent = '💬 Review (' + open + ')';
+    drawer.querySelector('.rv-count').textContent =
+      open + ' open / ' + all.length + ' total';
+    var list = drawer.querySelector('.rv-list');
+    list.innerHTML = '';
+    mine.slice().reverse().forEach(function(c){ list.appendChild(drawerItem(c)); });
+    var others = {};
+    all.forEach(function(c){ if (c.page !== PAGE) others[c.page] = (others[c.page]||0) + 1; });
+    var otherKeys = Object.keys(others);
+    drawer.querySelector('.rv-otherpages').textContent = otherKeys.length
+      ? 'Other pages: ' + otherKeys.map(function(k){ return k + ' (' + others[k] + ')'; }).join(', ')
+      : '';
+  }
+  refresh();
+  var s0 = currentSection();
+  if (s0) sel.value = s0;
+})();
+</script>
+</body>
+</html>

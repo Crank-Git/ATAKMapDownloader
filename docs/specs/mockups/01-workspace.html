@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace mockup</title>
+<style>
+:root{--bg:#f4f3ef;--panel:#ffffff;--ink:#1d2321;--muted:#5d6763;--line:#d6d8d2;--accent:#2f6b4f;--accent-ink:#fff;--warn:#a86a00;--warn-bg:#fff4dc;--err:#b3261e;--err-bg:#fde8e6;--ok:#2f6b4f;--map:#dfe6d6;--map2:#c9d6bd;--water:#b9d3df;--tile:rgba(47,107,79,.18)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--warn:#e7b04a;--warn-bg:#3a2e14;--err:#f08b84;--err-bg:#3d1c1a;--ok:#5fae86;--map:#25302a;--map2:#2e3b33;--water:#1f3440;--tile:rgba(95,174,134,.22)}}
+:root[data-theme=dark]{--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--warn:#e7b04a;--warn-bg:#3a2e14;--err:#f08b84;--err-bg:#3d1c1a;--ok:#5fae86;--map:#25302a;--map2:#2e3b33;--water:#1f3440;--tile:rgba(95,174,134,.22)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.mock-banner{background:#3b3f9a;color:#fff;font-size:12px;padding:4px 16px}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:16px;margin:0;flex:1}
+.conn{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ok)}
+.conn.reconnecting .dot{background:var(--warn)}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:6px 10px;cursor:pointer}
+.btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn-danger{color:var(--err);border-color:var(--err)}
+.layout{display:grid;grid-template-columns:340px 1fr;min-height:calc(100vh - 80px)}
+aside{border-right:1px solid var(--line);background:var(--panel);padding:14px;overflow:auto}
+section{margin-bottom:16px}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 6px}
+label{display:block;font-size:13px;margin:6px 0 3px}
+select,input[type=text],input[type=number]{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.badge{display:inline-block;font-size:11px;padding:1px 6px;border-radius:10px;border:1px solid currentColor}
+.badge.restricted{color:var(--err)}.badge.open{color:var(--ok)}
+.skipped{font-size:12px;color:var(--warn)}
+.card{border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg)}
+.card.warn{border-color:var(--warn);background:var(--warn-bg)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center}
+.stats b{display:block;font-size:16px}
+.stats span{font-size:11px;color:var(--muted)}
+.bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:8px 0}
+.bar i{display:block;height:100%;background:var(--accent);width:62%}
+.banner{padding:8px 10px;border-radius:6px;margin-bottom:10px;font-size:13px}
+.banner.err{background:var(--err-bg);color:var(--err);border:1px solid var(--err)}
+.banner.off{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn)}
+.files li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px;word-break:break-all}
+.files{list-style:none;margin:0;padding:0}
+main{position:relative;background:var(--map)}
+main svg{width:100%;height:100%;display:block;min-height:420px}
+.basemap{position:absolute;top:12px;right:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px}
+.tabs{position:absolute;bottom:12px;left:12px;right:12px;display:flex;flex-wrap:wrap;gap:4px;background:var(--panel);padding:6px;border-radius:8px;border:1px solid var(--line)}
+.tabs button{font-size:12px;padding:4px 8px}
+.tabs button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px}
+@keyframes s{to{transform:rotate(360deg)}}
+[hidden]{display:none!important}
+@media (max-width:800px){.layout{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}main svg{min-height:320px}}
+</style>
+</head>
+<body>
+<div class="mock-banner">Mockup: guidance, not a contract. Feature: offline-web-ui</div>
+<header>
+  <h1>ATAK Map Downloader</h1>
+  <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">Connected</span></div>
+  <button aria-label="Toggle dark theme" onclick="toggleTheme()">◐</button>
+</header>
+<div class="layout">
+<aside>
+  <div class="banner err" id="state-error" hidden>Estimate failed: the area crosses the antimeridian. Draw an area between −180° and 180° longitude.</div>
+  <div class="banner off" id="state-offline" hidden>Server unreachable. Reconnecting in 4 s… Your area and settings are kept.</div>
+
+  <section id="map-source">
+    <label for="source">Map source</label>
+    <select id="source">
+      <option>USGS Imagery Topo (jpg, z0–16)</option>
+      <option>OpenTopoMap (png, z1–17)</option>
+      <option>Google Satellite — restricted (jpg, z0–20)</option>
+    </select>
+    <div style="margin-top:4px;display:flex;justify-content:space-between"><span class="badge open">open</span><a href="#" class="skipped">3 sources skipped — why?</a></div>
+  </section>
+
+  <section id="search">
+    <label for="q">Search place</label>
+    <div class="row"><input id="q" type="text" value="Mount Hood, Oregon"><button style="flex:0" aria-label="Search">⌕</button></div>
+  </section>
+
+  <section id="zoom-range">
+    <h2>Zoom range</h2>
+    <div class="row">
+      <div><label for="zmin">Min</label><input id="zmin" type="number" value="8" min="0" max="16"></div>
+      <div><label for="zmax">Max</label><input id="zmax" type="number" value="15" min="0" max="16"></div>
+    </div>
+  </section>
+
+  <section id="estimate">
+    <h2>Estimate</h2>
+    <div class="card" id="est-empty">Draw an area on the map to see an estimate.</div>
+    <div class="card" id="est-loading" hidden><span class="spinner"></span> Estimating…</div>
+    <div class="card warn" id="est-ready" hidden>
+      <div class="stats"><div><b>14,212</b><span>tiles</span></div><div><b>~212 MB</b><span>size</span></div><div><b>~24 min</b><span>at 10 tiles/s</span></div></div>
+      <p style="margin:8px 0 0;font-size:12px">⚠ Over 10,000 tiles. Consider a smaller area or a lower max zoom.</p>
+    </div>
+  </section>
+
+  <section id="advanced">
+    <details><summary>Advanced settings</summary>
+      <label for="conc">Concurrency</label><input id="conc" type="number" value="4" min="1" max="16">
+      <label for="tol">Failure tolerance (%)</label><input id="tol" type="number" value="20" min="0" max="100">
+      <label><input type="checkbox" checked> Verify TLS certificates</label>
+    </details>
+  </section>
+
+  <section id="job">
+    <h2>Job</h2>
+    <div class="row"><button class="btn-primary" id="start">Start download</button><button class="btn-danger" id="cancel" hidden>Cancel</button></div>
+    <div id="progress" hidden>
+      <div class="bar" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+      <div style="font-size:12px">8,811 / 14,212 processed · 62% · 11.4 tiles/s · ETA 8 min</div>
+      <div class="stats" style="margin-top:6px"><div><b>8,702</b><span>downloaded</span></div><div><b>64</b><span>skipped</span></div><div><b>45</b><span>failed</span></div></div>
+    </div>
+  </section>
+
+  <section id="output-files">
+    <h2>Output files</h2>
+    <ul class="files">
+      <li><span>USGS_Imagery_Topo_Mt_Hood_z8-15.mbtiles<br><small>212 MB · today 14:02</small></span><button>Download</button></li>
+      <li><span>OpenTopoMap_Timberline_Trail_z10-16.mbtiles<br><small>48 MB · yesterday</small></span><button>Download</button></li>
+    </ul>
+  </section>
+</aside>
+
+<main id="map" aria-label="Map">
+  <svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Map stand-in with the selected area">
+    <rect width="800" height="560" fill="var(--map)"/>
+    <path d="M0 380 C120 330 220 420 360 360 S600 300 800 350 V560 H0Z" fill="var(--map2)"/>
+    <path d="M520 0 C500 90 560 160 540 260 S600 420 580 560" stroke="var(--water)" stroke-width="18" fill="none"/>
+    <circle cx="380" cy="230" r="70" fill="var(--map2)"/><circle cx="380" cy="230" r="40" fill="var(--bg)" opacity=".5"/>
+    <g id="tile-grid" stroke="var(--line)" stroke-width="1" fill="none">
+      <path d="M0 80H800M0 160H800M0 240H800M0 320H800M0 400H800M0 480H800M80 0V560M160 0V560M240 0V560M320 0V560M400 0V560M480 0V560M560 0V560M640 0V560M720 0V560"/>
+    </g>
+    <g id="area"><rect x="240" y="120" width="320" height="240" fill="var(--tile)" stroke="var(--accent)" stroke-width="3" stroke-dasharray="8 5"/></g>
+    <text x="250" y="140" font-size="13" fill="var(--ink)">Area: Mount Hood</text>
+  </svg>
+  <div class="basemap" id="base-map">
+    <strong>Base map</strong>
+    <label><input type="radio" name="bm" checked> Online OSM</label>
+    <label><input type="radio" name="bm"> Local: USGS_Imagery_Topo_Mt_Hood_z8-15.mbtiles</label>
+  </div>
+  <div class="tabs" role="group" aria-label="Mockup state">
+    <button data-s="empty" aria-pressed="true">empty</button>
+    <button data-s="estimating">estimating</button>
+    <button data-s="downloading">downloading</button>
+    <button data-s="complete">complete</button>
+    <button data-s="error">error</button>
+    <button data-s="offline">offline</button>
+  </div>
+</main>
+</div>
+<script>
+function toggleTheme(){const r=document.documentElement;const d=r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=d?'light':'dark'}
+const $=id=>document.getElementById(id);
+function show(s){
+  $('est-empty').hidden=s!=='empty';$('est-loading').hidden=s!=='estimating';
+  $('est-ready').hidden=!['downloading','complete','error','offline'].includes(s)&&s!=='ready';
+  if(s==='complete'||s==='downloading')$('est-ready').hidden=false;
+  $('progress').hidden=s!=='downloading'&&s!=='offline';$('cancel').hidden=s!=='downloading';
+  $('start').disabled=s==='downloading'||s==='empty'||s==='offline';
+  $('start').textContent=s==='downloading'?'Downloading…':'Start download';
+  $('state-error').hidden=s!=='error';$('state-offline').hidden=s!=='offline';
+  $('conn').classList.toggle('reconnecting',s==='offline');$('conn-text').textContent=s==='offline'?'Reconnecting…':'Connected';
+  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.s===s));
+}
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>show(b.dataset.s));
+show('empty');
+</script>
+</body>
+</html>

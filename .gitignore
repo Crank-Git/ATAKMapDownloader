@@ -15,3 +15,14 @@ downloads/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code
+.claude/settings.local.json
+.claude/worktrees/
+.claude/agent-memory-local/
+CLAUDE.local.md
+.claude.local.md
+.issue-flow.local.json
+
+# Browser tooling
+.playwright-mcp/

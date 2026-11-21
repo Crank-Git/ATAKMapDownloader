@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jobs mockup</title>
+<style>
+:root{--bg:#f4f3ef;--panel:#ffffff;--ink:#1d2321;--muted:#5d6763;--line:#d6d8d2;--accent:#2f6b4f;--accent-ink:#fff;--warn:#a86a00;--err:#b3261e;--ok:#2f6b4f;--info:#3b3f9a}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--warn:#e7b04a;--err:#f08b84;--ok:#5fae86;--info:#8c92f0}}
+:root[data-theme=dark]{--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--warn:#e7b04a;--err:#f08b84;--ok:#5fae86;--info:#8c92f0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+.mock-banner{background:#3b3f9a;color:#fff;font-size:12px;padding:4px 16px}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:16px;margin:0;flex:1}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:5px 10px;cursor:pointer}
+button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.switch{display:flex;gap:4px}
+[hidden]{display:none!important}
+/* token sign-in */
+#token-screen{flex:1;display:flex;align-items:center;justify-content:center;padding:16px}
+.signin{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px;max-width:400px;width:100%}
+.signin h2{margin:0 0 6px;font-size:18px}
+.signin input{width:100%;font:inherit;font-family:ui-monospace,Menlo,Consolas,monospace;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);margin:10px 0 4px}
+.hint{font-size:12px;color:var(--muted)}
+.signin .err{font-size:12px;color:var(--err);margin-bottom:8px}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+/* jobs */
+#jobs-screen{flex:1;display:grid;grid-template-columns:1fr 360px}
+.queue{padding:14px;overflow:auto}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;font-size:13px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+tr[aria-selected=true]{outline:2px solid var(--accent);outline-offset:-2px}
+.id{font-family:ui-monospace,Menlo,Consolas,monospace}
+.chip{font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid currentColor}
+.queued{color:var(--muted)}.running{color:var(--info)}.complete{color:var(--ok)}.failed{color:var(--err)}.cancelled{color:var(--warn)}
+.mini{height:6px;background:var(--line);border-radius:3px;width:90px;overflow:hidden}.mini i{display:block;height:100%;background:var(--accent)}
+.drawer{border-left:1px solid var(--line);background:var(--panel);padding:14px;overflow:auto}
+.drawer h2{font-size:15px;margin:0 0 4px}
+dl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px}
+dt{color:var(--muted)}dd{margin:0}
+.log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;height:220px;overflow:auto;white-space:pre-wrap}
+footer{border-top:1px solid var(--line);background:var(--panel);padding:8px 16px;font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:16px}
+@media (max-width:900px){#jobs-screen{grid-template-columns:1fr}.drawer{border-left:0;border-top:1px solid var(--line)}table{display:block;overflow-x:auto}}
+</style>
+</head>
+<body>
+<div class="mock-banner">Mockup: guidance, not a contract. Feature: team-server</div>
+<header>
+  <h1>ATAK Map Downloader — Server</h1>
+  <div class="switch" role="group" aria-label="Mockup state"><button data-s="token" aria-pressed="true">a. token</button><button data-s="jobs">b. jobs</button></div>
+  <button aria-label="Toggle dark theme" onclick="toggleTheme()">◐</button>
+</header>
+
+<div id="token-screen">
+  <form class="signin" onsubmit="event.preventDefault();show('jobs')">
+    <h2>This server needs an access token</h2>
+    <p class="hint" style="margin:0">The server listens on <code>192.168.1.40:5000</code>, which is not loopback, so every request needs the token.</p>
+    <label for="token" class="hint" style="display:block;margin-top:12px">Access token</label>
+    <input id="token" type="password" autocomplete="off" value="••••••••••••••••••••••••">
+    <div class="err">The token was not accepted. Check for extra spaces.</div>
+    <button class="btn-primary" style="width:100%">Sign in</button>
+    <p class="hint">Find the token in the server log or in <code>ATAKDL_TOKEN</code>.</p>
+  </form>
+</div>
+
+<div id="jobs-screen" hidden>
+  <div class="queue" id="job-queue">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><strong>Jobs (5)</strong><button class="btn-primary">New job</button></div>
+    <table>
+      <thead><tr><th>Job</th><th>Map source</th><th>Area</th><th>Zoom</th><th>State</th><th>Progress</th><th>Label</th><th>Created</th><th>Actions</th></tr></thead>
+      <tbody>
+        <tr aria-selected="true"><td class="id">a3f91c</td><td>USGS Imagery Topo</td><td>Mt Hood SAR</td><td>8–15</td><td><span class="chip running">running</span></td><td><div class="mini"><i style="width:62%"></i></div>62%</td><td>Team 2 — Sat. callout</td><td>14:02</td><td><button>Cancel</button></td></tr>
+        <tr><td class="id">7be204</td><td>OpenTopoMap</td><td>Timberline corridor</td><td>12–16</td><td><span class="chip queued">queued</span></td><td>—</td><td>K. ops</td><td>14:05</td><td><button>Cancel</button></td></tr>
+        <tr><td class="id">19c0d8</td><td>NAIP CONUS Prime</td><td>Clackamas County</td><td>8–14</td><td><span class="chip complete">complete</span></td><td>100%</td><td>Base layer v3</td><td>11:40</td><td><button>Download</button></td></tr>
+        <tr><td class="id">e44a12</td><td>CyclOSM</td><td>Sandy River trails</td><td>10–17</td><td><span class="chip failed">failed</span></td><td>71%</td><td>Bike patrol</td><td>09:12</td><td><button>Retry failed</button></td></tr>
+        <tr><td class="id">0d9f37</td><td>Esri World Topo</td><td>Zigzag test</td><td>10–12</td><td><span class="chip cancelled">cancelled</span></td><td>12%</td><td>—</td><td>yesterday</td><td><button>Retry failed</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <aside class="drawer" id="job-detail">
+    <h2>Job a3f91c</h2>
+    <span class="chip running">running</span>
+    <dl style="margin-top:10px">
+      <dt>Map source</dt><dd>USGS Imagery Topo</dd>
+      <dt>Area</dt><dd>Mt Hood SAR (polygon, 9 vertices)</dd>
+      <dt>Zoom range</dt><dd>8–15</dd>
+      <dt>Output format</dt><dd>MBTiles, in a data package</dd>
+      <dt>Tiles</dt><dd>8,811 / 14,212 · 64 skipped · 45 failed</dd>
+      <dt>Rate</dt><dd>11.4 tiles/s · ETA 8 min</dd>
+    </dl>
+    <h2 style="font-size:12px;text-transform:uppercase;color:var(--muted);margin-top:12px">Event log</h2>
+    <div class="log" aria-live="polite">14:02:11 job created by token session
+14:02:11 state queued → running
+14:02:12 output file Mt_Hood_SAR_z8-15.mbtiles created
+14:05:40 429 from basemap.nationalmap.gov, waiting 30 s (Retry-After)
+14:06:10 resumed at 4 req/s
+14:09:02 tile 15/5211/11720 rejected: body is HTML, not jpg
+14:11:47 progress 8,811 / 14,212</div>
+  </aside>
+</div>
+
+<footer id="server">
+  <span>atak-dl 2.0.0</span><span>Bind <code>192.168.1.40:5000</code></span><span>Data dir <code>/var/lib/atak-dl</code></span><span>2 workers</span><span>Token required</span>
+</footer>
+<script>
+function toggleTheme(){const r=document.documentElement;const d=r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=d?'light':'dark'}
+function show(s){document.getElementById('token-screen').hidden=s!=='token';document.getElementById('jobs-screen').hidden=s!=='jobs';document.querySelectorAll('.switch button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.s===s))}
+document.querySelectorAll('.switch button').forEach(b=>b.onclick=()=>show(b.dataset.s));
+</script>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Area tools mockup</title>
+<style>
+:root{--bg:#f4f3ef;--panel:#ffffff;--ink:#1d2321;--muted:#5d6763;--line:#d6d8d2;--accent:#2f6b4f;--accent-ink:#fff;--warn:#a86a00;--err:#b3261e;--map:#dfe6d6;--map2:#c9d6bd;--water:#b9d3df;--tile:rgba(47,107,79,.22);--tile2:rgba(59,63,154,.25);--route:#3b3f9a}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--warn:#e7b04a;--err:#f08b84;--map:#25302a;--map2:#2e3b33;--water:#1f3440;--tile:rgba(95,174,134,.25);--tile2:rgba(140,146,240,.28);--route:#8c92f0}}
+:root[data-theme=dark]{--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--warn:#e7b04a;--err:#f08b84;--map:#25302a;--map2:#2e3b33;--water:#1f3440;--tile:rgba(95,174,134,.25);--tile2:rgba(140,146,240,.28);--route:#8c92f0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.mock-banner{background:#3b3f9a;color:#fff;font-size:12px;padding:4px 16px}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:20px;margin:0;flex:1}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:6px 10px;cursor:pointer}
+button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.layout{display:grid;grid-template-columns:340px 1fr;min-height:calc(100vh - 80px)}
+aside{border-right:1px solid var(--line);background:var(--panel);padding:14px;overflow:auto}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 6px}
+section{margin-bottom:16px}
+.toolbar{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.buffer{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px}
+.buffer input{width:90px;font:inherit;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.drop{border:2px dashed var(--line);border-radius:8px;padding:16px;text-align:center;color:var(--muted);font-size:13px;margin-top:8px}
+.drop strong{color:var(--ink)}
+.areas{list-style:none;padding:0;margin:0}
+.areas li{border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px;background:var(--bg)}
+.areas .top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:0}
+.zr{display:flex;gap:6px;align-items:center;font-size:12px;margin-top:6px}
+.zr input{width:52px;font:inherit;padding:3px 5px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink)}
+.count{font-size:12px;color:var(--muted)}
+.total{border-top:1px solid var(--line);padding-top:8px;font-size:13px;display:flex;justify-content:space-between}
+.note{font-size:12px;color:var(--muted)}
+.err{font-size:12px;color:var(--err)}
+main{position:relative;background:var(--map)}
+main svg{width:100%;height:100%;display:block;min-height:420px}
+.legend{position:absolute;top:12px;right:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px}
+@media (max-width:800px){.layout{grid-template-columns:1fr}main svg{min-height:320px}}
+</style>
+</head>
+<body>
+<div class="mock-banner">Mockup: guidance, not a contract. Feature: area-selection</div>
+<header><h1>ATAK Map Downloader — Areas</h1><button aria-label="Toggle dark theme" onclick="toggleTheme()">◐</button></header>
+<div class="layout">
+<aside>
+  <section id="area-toolbar">
+    <h2>Draw an area</h2>
+    <div class="toolbar" role="group" aria-label="Area tools">
+      <button aria-pressed="false">▭ Rectangle</button>
+      <button aria-pressed="true">⬠ Polygon</button>
+      <button aria-pressed="false">〰 Route + buffer</button>
+      <button aria-pressed="false">⇪ Import file</button>
+    </div>
+    <div class="buffer"><label for="buf">Route buffer</label><input id="buf" type="number" value="500" min="50" max="10000" step="50"> m</div>
+    <div class="drop" id="import-drop"><strong>Drop a GeoJSON or KML file here</strong><br>Polygons and LineStrings are read. Points are ignored.<br><span class="err">timberline.kml: 1 LineString imported, 3 Placemarks ignored (points)</span></div>
+  </section>
+
+  <section id="area-list">
+    <h2>Areas (3)</h2>
+    <ul class="areas">
+      <li>
+        <div class="top"><span><span class="swatch" style="background:var(--accent)"></span>Base: whole county</span><button aria-label="Remove area">✕</button></div>
+        <div class="zr">Zoom range <input type="number" value="8"> – <input type="number" value="12"></div>
+        <div class="count">Polygon · 1,284 tiles · ~19 MB</div>
+      </li>
+      <li>
+        <div class="top"><span><span class="swatch" style="background:var(--route)"></span>Trailhead corridor</span><button aria-label="Remove area">✕</button></div>
+        <div class="zr">Zoom range <input type="number" value="13"> – <input type="number" value="17"></div>
+        <div class="count">Route + 500 m buffer · 9,630 tiles · ~144 MB</div>
+      </li>
+      <li>
+        <div class="top"><span><span class="swatch" style="background:var(--warn)"></span>Base camp</span><button aria-label="Remove area">✕</button></div>
+        <div class="zr">Zoom range <input type="number" value="15"> – <input type="number" value="18"></div>
+        <div class="count">Rectangle · 1,920 tiles · ~29 MB</div>
+      </li>
+    </ul>
+    <div class="total"><span>Total (overlaps counted once)</span><strong>12,388 tiles · ~186 MB</strong></div>
+    <p class="note">Only tiles that touch an area are downloaded. Tiles inside the bounding box but outside the polygon are skipped.</p>
+  </section>
+</aside>
+<main id="map" aria-label="Map">
+  <svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Polygon area with intersecting tiles shaded">
+    <rect width="800" height="560" fill="var(--map)"/>
+    <path d="M0 400 C140 360 260 440 400 380 S640 320 800 360 V560 H0Z" fill="var(--map2)"/>
+    <path d="M600 0 C580 120 640 200 610 300 S660 460 640 560" stroke="var(--water)" stroke-width="16" fill="none"/>
+    <!-- intersecting tiles (z12 grid, 64px) -->
+    <g fill="var(--tile)">
+      <rect x="192" y="128" width="64" height="64"/><rect x="256" y="128" width="64" height="64"/><rect x="320" y="128" width="64" height="64"/>
+      <rect x="128" y="192" width="64" height="64"/><rect x="192" y="192" width="64" height="64"/><rect x="256" y="192" width="64" height="64"/><rect x="320" y="192" width="64" height="64"/><rect x="384" y="192" width="64" height="64"/>
+      <rect x="128" y="256" width="64" height="64"/><rect x="192" y="256" width="64" height="64"/><rect x="256" y="256" width="64" height="64"/><rect x="320" y="256" width="64" height="64"/><rect x="384" y="256" width="64" height="64"/><rect x="448" y="256" width="64" height="64"/>
+      <rect x="192" y="320" width="64" height="64"/><rect x="256" y="320" width="64" height="64"/><rect x="320" y="320" width="64" height="64"/><rect x="384" y="320" width="64" height="64"/>
+      <rect x="320" y="384" width="64" height="64"/>
+    </g>
+    <g stroke="var(--line)" fill="none"><path d="M0 64H800M0 128H800M0 192H800M0 256H800M0 320H800M0 384H800M0 448H800M0 512H800M64 0V560M128 0V560M192 0V560M256 0V560M320 0V560M384 0V560M448 0V560M512 0V560M576 0V560M640 0V560M704 0V560M768 0V560"/></g>
+    <polygon id="area-polygon" points="210,140 370,150 440,220 500,300 400,370 350,430 230,360 150,280 160,210" fill="none" stroke="var(--accent)" stroke-width="3"/>
+    <g fill="var(--accent)"><circle cx="210" cy="140" r="5"/><circle cx="370" cy="150" r="5"/><circle cx="440" cy="220" r="5"/><circle cx="500" cy="300" r="5"/><circle cx="400" cy="370" r="5"/><circle cx="350" cy="430" r="5"/><circle cx="230" cy="360" r="5"/><circle cx="150" cy="280" r="5"/><circle cx="160" cy="210" r="5"/></g>
+    <path id="route" d="M520 520 C560 440 600 420 660 380 S720 300 760 260" stroke="var(--route)" stroke-width="3" fill="none"/>
+    <path d="M520 520 C560 440 600 420 660 380 S720 300 760 260" stroke="var(--tile2)" stroke-width="40" fill="none" stroke-linecap="round"/>
+    <rect x="80" y="440" width="110" height="80" fill="none" stroke="var(--warn)" stroke-width="3" stroke-dasharray="6 4"/>
+    <text x="220" y="135" font-size="13" fill="var(--ink)">Base: whole county</text>
+    <text x="640" y="250" font-size="13" fill="var(--ink)">Trailhead corridor</text>
+    <text x="84" y="434" font-size="13" fill="var(--ink)">Base camp</text>
+  </svg>
+  <div class="legend"><div><span class="swatch" style="background:var(--tile)"></span>Tile in download</div><div><span class="swatch" style="border:1px solid var(--line)"></span>Tile skipped</div></div>
+</main>
+</div>
+<script>
+function toggleTheme(){const r=document.documentElement;const d=r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=d?'light':'dark'}
+document.querySelectorAll('.toolbar button').forEach(b=>b.onclick=()=>document.querySelectorAll('.toolbar button').forEach(x=>x.setAttribute('aria-pressed',x===b)));
+</script>
+</body>
+</html>

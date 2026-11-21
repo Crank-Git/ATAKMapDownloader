@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Source policy warning mockup</title>
+<style>
+:root{--bg:#f4f3ef;--panel:#ffffff;--ink:#1d2321;--muted:#5d6763;--line:#d6d8d2;--accent:#2f6b4f;--accent-ink:#fff;--warn:#a86a00;--warn-bg:#fff4dc;--err:#b3261e;--err-bg:#fde8e6;--ok:#2f6b4f;--map:#dfe6d6;--scrim:rgba(20,24,22,.55)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--warn:#e7b04a;--warn-bg:#3a2e14;--err:#f08b84;--err-bg:#3d1c1a;--ok:#5fae86;--map:#25302a;--scrim:rgba(0,0,0,.65)}}
+:root[data-theme=dark]{--bg:#131715;--panel:#1c2220;--ink:#e6ebe8;--muted:#9aa5a0;--line:#2f3835;--accent:#5fae86;--accent-ink:#0d1210;--warn:#e7b04a;--warn-bg:#3a2e14;--err:#f08b84;--err-bg:#3d1c1a;--ok:#5fae86;--map:#25302a;--scrim:rgba(0,0,0,.65)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.mock-banner{background:#3b3f9a;color:#fff;font-size:12px;padding:4px 16px}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:20px;margin:0;flex:1}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:7px 12px;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.layout{display:grid;grid-template-columns:360px 1fr;min-height:calc(100vh - 80px)}
+aside{border-right:1px solid var(--line);background:var(--panel);padding:14px;overflow:auto}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid currentColor;white-space:nowrap}
+.badge.open{color:var(--ok)}.badge.conditional{color:var(--warn)}.badge.restricted{color:var(--err)}
+.catalog{list-style:none;padding:0;margin:0}
+.catalog li{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 8px;border-radius:6px;cursor:pointer}
+.catalog li[aria-selected=true]{background:var(--bg);outline:2px solid var(--accent)}
+.catalog small{display:block;color:var(--muted);font-size:11px}
+.group{font-size:11px;color:var(--muted);margin:10px 0 2px;text-transform:uppercase;letter-spacing:.05em}
+.legend{border-top:1px solid var(--line);margin-top:12px;padding-top:10px;font-size:12px}
+.legend div{margin:4px 0}
+main{position:relative;background:var(--map);min-height:480px}
+.scrim{position:absolute;inset:0;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:var(--panel);border-radius:10px;max-width:480px;width:100%;padding:18px;border:1px solid var(--err);box-shadow:0 10px 40px rgba(0,0,0,.3)}
+.modal h3{margin:0 0 4px;font-size:22px}
+.reason{background:var(--err-bg);color:var(--err);padding:8px 10px;border-radius:6px;margin:10px 0}
+dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;margin:10px 0}
+dt{color:var(--muted)}dd{margin:0}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+a{color:var(--accent)}
+.accept{display:flex;gap:8px;align-items:flex-start;margin:12px 0;font-size:13px}
+.actions{display:flex;justify-content:flex-end;gap:8px}
+@media (max-width:800px){.layout{grid-template-columns:1fr}main{min-height:560px}}
+</style>
+</head>
+<body>
+<div class="mock-banner">Mockup: guidance, not a contract. Feature: polite-downloading</div>
+<header><h1>ATAK Map Downloader</h1><button aria-label="Toggle dark theme" onclick="toggleTheme()">◐</button></header>
+<div class="layout">
+<aside id="source-catalog">
+  <h2>Map source</h2>
+  <ul class="catalog" role="listbox" aria-label="Source catalog">
+    <li class="group" role="presentation">Base</li>
+    <li role="option"><span>USGS Imagery Topo<small>usgs · jpg · z0–16</small></span><span class="badge open">open</span></li>
+    <li role="option"><span>USDA NAIP CONUS Prime<small>naip · jpg · z0–18</small></span><span class="badge open">open</span></li>
+    <li role="option"><span>OpenTopoMap<small>opentopo · png · z1–17 · 2 req/s</small></span><span class="badge conditional">conditional</span></li>
+    <li role="option"><span>CyclOSM<small>cycleosm · png · z0–20 · 2 req/s</small></span><span class="badge conditional">conditional</span></li>
+    <li role="option" aria-selected="true"><span>Google Satellite<small>google · jpg · z0–20 · 1 req/s</small></span><span class="badge restricted">restricted</span></li>
+    <li role="option"><span>Esri World Topo<small>esri · jpg · z0–19 · 1 req/s</small></span><span class="badge restricted">restricted</span></li>
+    <li class="group" role="presentation">Overlays</li>
+    <li role="option"><span>FEMA NFHL Flood Zones<small>WMS · png · z8–16</small></span><span class="badge open">open</span></li>
+    <li role="option"><span>OpenSeaMap Seamarks<small>openseamap · png · z0–18 · 2 req/s</small></span><span class="badge conditional">conditional</span></li>
+  </ul>
+  <div class="legend" id="policy-legend">
+    <div><span class="badge open">open</span> Public domain or an open license that allows bulk download.</div>
+    <div><span class="badge conditional">conditional</span> Allowed at a low rate. A volunteer or community server.</div>
+    <div><span class="badge restricted">restricted</span> The provider's terms prohibit bulk or offline download. You confirm before each job.</div>
+  </div>
+</aside>
+<main id="map" aria-label="Map">
+  <svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid slice" style="width:100%;height:100%;position:absolute;inset:0" aria-hidden="true">
+    <rect width="800" height="560" fill="var(--map)"/>
+    <g stroke="var(--line)" fill="none"><path d="M0 80H800M0 160H800M0 240H800M0 320H800M0 400H800M0 480H800M80 0V560M160 0V560M240 0V560M320 0V560M400 0V560M480 0V560M560 0V560M640 0V560M720 0V560"/></g>
+    <rect x="240" y="120" width="320" height="240" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="8 5"/>
+  </svg>
+  <div class="scrim">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pw-title">
+      <span class="badge restricted">restricted</span>
+      <h3 id="pw-title">Google Satellite</h3>
+      <div style="font-size:13px;color:var(--muted)">Provider: Google</div>
+      <div class="reason">Google's terms prohibit bulk download and offline caching.</div>
+      <a href="#">Read the Google Maps terms (opens the provider's page)</a>
+      <dl>
+        <dt>Rate limit</dt><dd><code>1 request/s</code> to <code>mt*.google.com</code></dd>
+        <dt>This job</dt><dd>14,212 tiles · about 4 h at this rate</dd>
+        <dt>User-Agent</dt><dd><code>atak-dl/2.0.0 (+project URL)</code></dd>
+      </dl>
+      <label class="accept"><input type="checkbox" id="accept"> I accept responsibility for this download and for my compliance with the provider's terms.</label>
+      <div class="actions"><button>Cancel</button><button class="btn-primary" id="go" disabled>Start download</button></div>
+    </div>
+  </div>
+</main>
+</div>
+<script>
+function toggleTheme(){const r=document.documentElement;const d=r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=d?'light':'dark'}
+document.getElementById('accept').onchange=e=>document.getElementById('go').disabled=!e.target.checked;
+</script>
+</body>
+</html>
