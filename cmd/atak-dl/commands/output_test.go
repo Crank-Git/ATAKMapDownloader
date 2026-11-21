@@ -51,79 +51,81 @@ func tileRows(t *testing.T, path string) int {
 	return n
 }
 
+// existingFileCases are the cases of TestDownloadIntoAnExistingOutputFile.
+var existingFileCases = []struct {
+	name string
+	// metadata is the metadata of the existing output file. A nil map writes a text file in place of an output file.
+	metadata   map[string]string
+	args       []string
+	exitCode   int
+	wantStderr string
+	requests   int
+	// unchanged requires the same file bytes after the command.
+	unchanged bool
+}{
+	{
+		name:       "refuses the job with exit code 3 and keeps the file without a flag",
+		exitCode:   3,
+		wantStderr: "output file exists: use --resume or --overwrite",
+		unchanged:  true,
+	},
+	{
+		name:     "deletes the file and downloads every tile with --overwrite",
+		args:     []string{"--overwrite"},
+		requests: 1,
+	},
+	{
+		name:     "skips the stored tile with --resume",
+		metadata: map[string]string{"atakdl_source": "Test TLS"},
+		args:     []string{"--resume"},
+	},
+	{
+		name:       "refuses a file of another map source with exit code 3 and --resume",
+		metadata:   map[string]string{"atakdl_source": "Other"},
+		args:       []string{"--resume"},
+		exitCode:   3,
+		wantStderr: "output file belongs to map source Other",
+		unchanged:  true,
+	},
+	{
+		name:       "refuses a file with no map source name with --resume and no --force",
+		metadata:   map[string]string{"name": "v0.1"},
+		args:       []string{"--resume"},
+		exitCode:   3,
+		wantStderr: "output file names no map source: use --resume --force",
+		unchanged:  true,
+	},
+	{
+		name:     "accepts a file with no map source name with --resume --force",
+		metadata: map[string]string{"name": "v0.1"},
+		args:     []string{"--resume", "--force"},
+	},
+	{
+		name:       "refuses a text file with exit code 3 and --resume",
+		args:       []string{"--resume"},
+		exitCode:   3,
+		wantStderr: "not an output file",
+		unchanged:  true,
+	},
+	{
+		name:       "keeps the file when --overwrite comes with a flag that is not valid",
+		args:       []string{"--overwrite", "--rate-limit", "-1"},
+		exitCode:   1,
+		wantStderr: "invalid_rate_limit",
+		unchanged:  true,
+	},
+	{
+		name:       "rejects --resume together with --overwrite",
+		metadata:   map[string]string{"atakdl_source": "Test TLS"},
+		args:       []string{"--resume", "--overwrite"},
+		exitCode:   1,
+		wantStderr: "none of the others can be",
+		unchanged:  true,
+	},
+}
+
 func TestDownloadIntoAnExistingOutputFile(t *testing.T) {
-	tests := []struct {
-		name string
-		// metadata is the metadata of the existing output file. A nil map writes a text file in place of an output file.
-		metadata   map[string]string
-		args       []string
-		exitCode   int
-		wantStderr string
-		requests   int
-		// unchanged requires the same file bytes after the command.
-		unchanged bool
-	}{
-		{
-			name:       "refuses the job with exit code 3 and keeps the file without a flag",
-			exitCode:   3,
-			wantStderr: "output file exists: use --resume or --overwrite",
-			unchanged:  true,
-		},
-		{
-			name:     "deletes the file and downloads every tile with --overwrite",
-			args:     []string{"--overwrite"},
-			requests: 1,
-		},
-		{
-			name:     "skips the stored tile with --resume",
-			metadata: map[string]string{"atakdl_source": "Test TLS"},
-			args:     []string{"--resume"},
-		},
-		{
-			name:       "refuses a file of another map source with exit code 3 and --resume",
-			metadata:   map[string]string{"atakdl_source": "Other"},
-			args:       []string{"--resume"},
-			exitCode:   3,
-			wantStderr: "output file belongs to map source Other",
-			unchanged:  true,
-		},
-		{
-			name:       "refuses a file with no map source name with --resume and no --force",
-			metadata:   map[string]string{"name": "v0.1"},
-			args:       []string{"--resume"},
-			exitCode:   3,
-			wantStderr: "output file names no map source: use --resume --force",
-			unchanged:  true,
-		},
-		{
-			name:     "accepts a file with no map source name with --resume --force",
-			metadata: map[string]string{"name": "v0.1"},
-			args:     []string{"--resume", "--force"},
-		},
-		{
-			name:       "refuses a text file with exit code 3 and --resume",
-			args:       []string{"--resume"},
-			exitCode:   3,
-			wantStderr: "not an output file",
-			unchanged:  true,
-		},
-		{
-			name:       "keeps the file when --overwrite comes with a flag that is not valid",
-			args:       []string{"--overwrite", "--rate-limit", "-1"},
-			exitCode:   1,
-			wantStderr: "invalid_rate_limit",
-			unchanged:  true,
-		},
-		{
-			name:       "rejects --resume together with --overwrite",
-			metadata:   map[string]string{"atakdl_source": "Test TLS"},
-			args:       []string{"--resume", "--overwrite"},
-			exitCode:   1,
-			wantStderr: "none of the others can be",
-			unchanged:  true,
-		},
-	}
-	for _, tt := range tests {
+	for _, tt := range existingFileCases {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := testtiles.New(t, nil)
 			output := filepath.Join(t.TempDir(), "out.sqlite")

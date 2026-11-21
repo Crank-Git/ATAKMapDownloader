@@ -49,7 +49,7 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 		fmt.Fprintf(os.Stderr, "Warning: No map sources found in %s\n", dir)
 	}
 
-	// mbtiles.Create makes the directory again and reports that error.
+	// mbtiles.Open makes the directory again and reports that error.
 	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
 
 	calc := tilecalc.NewTileCalculator()

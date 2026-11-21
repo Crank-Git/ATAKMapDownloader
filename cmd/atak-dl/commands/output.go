@@ -44,6 +44,7 @@ var errNoMapSource = &outputConflict{"output file names no map source: use --res
 //   - errOutputExists when rule is ifExistsFail.
 //   - A conflict that names the stored map source, when a resume finds another map source (FR-robust-downloads-10).
 //   - errNoMapSource when a resume finds no sourceKey row and force is false.
+//   - A "not an output file" conflict when a resume cannot read the metadata of the file.
 //
 // It returns other errors when the file cannot be read or deleted.
 func prepareOutput(path string, rule ifExists, sourceName string, force bool) error {
@@ -64,7 +65,8 @@ func prepareOutput(path string, rule ifExists, sourceName string, force bool) er
 	case ifExistsResume:
 		stored, ok, err := mbtiles.ReadMetadata(path, sourceKey)
 		if err != nil {
-			return fmt.Errorf("read the map source of the output file: %w", err)
+			// The file is not SQLite or has no metadata table, so the job cannot add tiles to it.
+			return &outputConflict{"not an output file: " + err.Error()}
 		}
 		if !ok && !force {
 			return errNoMapSource

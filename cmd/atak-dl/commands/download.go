@@ -100,12 +100,12 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		fname := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
 		output = filepath.Join(dlDir, fname)
 	}
-	if err := checkOutput(cmd, output, source.Name); err != nil {
-		return err
-	}
-
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {
+		return err
+	}
+	// --overwrite deletes the file, so the check runs after every flag is valid.
+	if err := checkOutput(cmd, output, source.Name); err != nil {
 		return err
 	}
 
@@ -134,6 +134,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 // finishDownload prints the final line of a job and returns the error that sets the exit code of atak-dl.
 // It returns an ExitError with exitCancelled for a cancelled job, and with exitJobFailed above the failure tolerance.
 // It returns other job errors with exit code 1.
+// A write failure outranks a cancel, because the output file lost tiles that the cancel line counts as stored.
 func finishDownload(ctx context.Context, cmd *cobra.Command, res download.Result, err error, output string) error {
 	out := cmd.OutOrStdout()
 	// The final line replaces the progress line, so it starts on a new line.
@@ -142,6 +143,9 @@ func finishDownload(ctx context.Context, cmd *cobra.Command, res download.Result
 	}
 	// The job error is not a flag error, so the usage text does not help the user.
 	cmd.SilenceUsage = true
+	if errors.Is(err, download.ErrWriteFailed) {
+		return err
+	}
 	if ctx.Err() != nil {
 		// The cancel line tells the user the result, so the error text adds nothing.
 		cmd.SilenceErrors = true

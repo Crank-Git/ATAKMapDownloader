@@ -456,6 +456,9 @@ func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source 
 
 	res := jobResult{state: jobComplete}
 	switch {
+	case errors.Is(err, download.ErrWriteFailed):
+		// The output file lost tiles, so a write failure outranks a cancel.
+		res = jobResult{state: jobFailed, err: err}
 	case ctx.Err() != nil:
 		res.state = jobCancelled
 	case err != nil:

@@ -233,14 +233,26 @@ func (w *Writer) Failed() ([]FailedTile, error) {
 }
 
 // Close commits the queued tiles, stops the writer goroutine and closes the output file.
-// It returns the first write error, joined with the close error.
+// It moves the WAL content into the file and sets journal_mode=DELETE, so no -wal or -shm file stays.
+// ATAK opens the file read-only, and a read-only reader cannot open a file in WAL mode.
+// It returns the first write error, joined with the journal error and the close error.
 func (w *Writer) Close() error {
 	close(w.queue)
 	<-w.done
 	w.mu.RLock()
-	err := w.err
+	errs := []error{w.err}
 	w.mu.RUnlock()
-	return errors.Join(err, w.db.Close())
+
+	// SQLite returns the old mode when another connection blocks the switch, so Close reads the result.
+	var mode string
+	if _, err := w.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		errs = append(errs, fmt.Errorf("checkpoint the WAL file: %w", err))
+	} else if err := w.db.QueryRow("PRAGMA journal_mode=DELETE").Scan(&mode); err != nil {
+		errs = append(errs, fmt.Errorf("set journal_mode=DELETE: %w", err))
+	} else if mode != "delete" {
+		errs = append(errs, fmt.Errorf("set journal_mode=DELETE: the mode stays %s", mode))
+	}
+	return errors.Join(append(errs, w.db.Close())...)
 }
 
 // run writes the queued operations until Close closes the queue.

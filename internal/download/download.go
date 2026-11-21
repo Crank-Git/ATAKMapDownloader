@@ -35,8 +35,10 @@ const (
 	maxRefusals = 20
 	// maxRetryAfter is the longest Retry-After wait that the engine accepts. A longer one stops the job.
 	maxRetryAfter = 300 * time.Second
-	// maxAttempts is the number of requests that the engine sends for one tile.
+	// maxAttempts is the number of requests that the main pass sends for one tile.
 	maxAttempts = 3
+	// retryAttempts is the number of requests that the retry pass sends for one tile (feature 07 behavior rules).
+	retryAttempts = 1
 )
 
 // Config holds download engine configuration.
@@ -391,6 +393,7 @@ func (c *tileCounters) snapshot() Progress {
 // fetchTile downloads one tile, sends it to w, and updates c.
 // The main pass skips a tile that w holds (FR-robust-downloads-8).
 // The retry pass sets retry, because a stale failed tile row can name a tile that w holds (FR-robust-downloads-24).
+// A tile that the end of the job context ends counts as neither downloaded nor failed.
 // It cancels the job when the callback returns false, and it stops the job when w fails.
 func (e *Engine) fetchTile(
 	ctx context.Context,
@@ -413,11 +416,20 @@ func (e *Engine) fetchTile(
 
 	serverPart := source.GetServerPart(int(c.downloaded.Load()))
 	url := source.FormatURL(x, y, z, serverPart)
+	attempts := maxAttempts
+	if retry {
+		attempts = retryAttempts
+	}
 
-	data, err := e.downloadTileWithRetry(ctx, jg, url, fmt.Sprintf("%d/%d/%d", z, x, y))
+	data, err := e.downloadTileWithRetry(ctx, jg, url, fmt.Sprintf("%d/%d/%d", z, x, y), attempts)
 	if err != nil {
+		reason := reasonOf(err)
+		if reason == "" {
+			// A cancel or a refusal stop ended the tile before it used its attempts, so a resume requests it again.
+			return
+		}
 		c.countFailure(z, x, y)
-		e.tileFailed(jg, w, z, x, y, reasonOf(err))
+		e.tileFailed(jg, w, z, x, y, reason)
 		report(cb, jg, c)
 		return
 	}
@@ -449,12 +461,8 @@ func report(cb ProgressCallback, jg *jobGate, c *tileCounters) {
 }
 
 // tileFailed records one failed tile and its reason in w (FR-robust-downloads-21).
-// A job stop or a cancel ends the tile with no reason, so the engine records nothing for it.
 // It stops the job when w fails.
 func (e *Engine) tileFailed(jg *jobGate, w *mbtiles.Writer, z, x, y int, reason Reason) {
-	if reason == "" {
-		return
-	}
 	if e.onTileFailed != nil {
 		e.onTileFailed(z, x, y, reason)
 	}
@@ -485,11 +493,17 @@ func (e *Engine) retryPass(
 		if Reason(f.Reason) == ReasonNotFound {
 			continue
 		}
-		if ctx.Err() != nil || c.cancelled.Load() {
+		if c.cancelled.Load() {
 			break
 		}
+		// A full semaphore waits for a free slot, and a cancel ends that wait at once (FR-robust-downloads-30).
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		}
 		wg.Add(1)
-		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
@@ -543,20 +557,20 @@ type tileResponse struct {
 	retryAfter string
 }
 
-// downloadTileWithRetry returns the data of the tile at url, with at most maxAttempts requests.
+// downloadTileWithRetry returns the data of the tile at url, with at most attempts requests.
 // The retry pass also calls it, so a tile from either pass gets the same validation.
 // A failed tile returns a *TileError that holds the failure reason.
 // It returns ErrServerRefused when a refusal stops the job, and the context error when the job ends.
-func (e *Engine) downloadTileWithRetry(ctx context.Context, jg *jobGate, url, tile string) ([]byte, error) {
+func (e *Engine) downloadTileWithRetry(ctx context.Context, jg *jobGate, url, tile string, attempts int) ([]byte, error) {
 	var lastErr error
-	for attempt := range maxAttempts {
+	for attempt := range attempts {
 		resp, err := e.downloadTile(ctx, jg, url)
 		switch {
 		case ctx.Err() != nil:
 			return nil, ctx.Err()
 		case err != nil:
 			lastErr = networkError(err)
-			if attempt < maxAttempts-1 {
+			if attempt < attempts-1 {
 				// A network error says nothing about the host load, so the wait holds only this tile.
 				if err := wait(ctx, backoffDelay(e.backoffBase, attempt+1, 0)); err != nil {
 					return nil, err
