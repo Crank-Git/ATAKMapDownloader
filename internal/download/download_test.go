@@ -26,7 +26,7 @@ var area = tilecalc.TileBounds{MinX: 300, MaxX: 302, MinY: 400, MaxY: 402, Zoom:
 // loadFixture returns the fixture map source in file, pointed at srv.
 func loadFixture(t *testing.T, file string, srv *testtiles.Server) *xmlparser.MapSource {
 	t.Helper()
-	source, err := xmlparser.New("").ParseFile(filepath.Join("..", "..", "testdata", "sources", file))
+	source, err := xmlparser.ParseFile(filepath.Join("..", "..", "testdata", "sources", file))
 	if err != nil || source == nil {
 		t.Fatalf("parse fixture %s: source %v, error %v", file, source, err)
 	}

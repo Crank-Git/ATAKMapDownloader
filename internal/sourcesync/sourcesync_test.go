@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -96,7 +97,6 @@ func newFakeGitHub(t *testing.T, tag string, body []byte) *fakeGitHub {
 func options(f *httptest.Server, dir string) Options {
 	return Options{
 		APIURL:    f.URL,
-		Repo:      "joshuafuller/ATAK-Maps",
 		Dir:       dir,
 		UserAgent: "atak-map-downloader/test",
 		Client:    f.Client(),
@@ -419,4 +419,140 @@ func TestSyncCountsAnArchivePathWithADotElementAsTheCleanPath(t *testing.T) {
 	if res.Added != 0 || res.Changed != 0 || res.Removed != 0 {
 		t.Errorf("Sync() = %+v, want 0 added, 0 changed and 0 removed", res)
 	}
+}
+
+// writeArchive returns a gzip tarball with the entries that write adds.
+func writeArchive(t *testing.T, write func(tw *tar.Writer)) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	write(tw)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// addFile adds a regular file entry with body to tw.
+func addFile(t *testing.T, tw *tar.Writer, name, body string) {
+	t.Helper()
+	if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: name, Mode: 0o644, Size: int64(len(body))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSyncRejectsAnArchiveAboveALimit(t *testing.T) {
+	tests := []struct {
+		name string
+		body func(t *testing.T) []byte
+		want string
+	}{
+		{"rejects a response above 64 MiB", func(_ *testing.T) []byte {
+			return make([]byte, maxArchiveBytes+1)
+		}, "larger than 64 MiB"},
+		{"rejects entry bodies above 256 MiB", func(t *testing.T) []byte {
+			return writeArchive(t, func(tw *tar.Writer) {
+				addFile(t, tw, "top/maps/a.xml", "<a/>")
+				// The entry is not an .xml file, so the tar reader skips its body and the test holds no 256 MiB buffer.
+				size := int64(maxExtractBytes + 1)
+				if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: "top/big.bin", Mode: 0o644, Size: size}); err != nil {
+					t.Fatal(err)
+				}
+				zeros := make([]byte, 1<<20)
+				for n := int64(0); n < size; n += int64(len(zeros)) {
+					if _, err := tw.Write(zeros[:min(int64(len(zeros)), size-n)]); err != nil {
+						t.Fatal(err)
+					}
+				}
+			})
+		}, "larger than 256 MiB"},
+		{"rejects more than 10000 entries", func(t *testing.T) []byte {
+			return writeArchive(t, func(tw *tar.Writer) {
+				addFile(t, tw, "top/maps/a.xml", "<a/>")
+				for i := range maxEntries {
+					addFile(t, tw, fmt.Sprintf("top/docs/%d.txt", i), "")
+				}
+			})
+		}, "more than 10000 entries"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			before := userTree(t, dir)
+			f := newFakeGitHub(t, "v2.4.0", tt.body(t))
+
+			_, err := Sync(t.Context(), options(f.Server, dir))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Sync() returned %v, want an error with %q", err, tt.want)
+			}
+			equalTrees(t, tree(t, dir), before)
+		})
+	}
+}
+
+func TestSyncSkipsASymlinkEntry(t *testing.T) {
+	dir := t.TempDir()
+	body := writeArchive(t, func(tw *tar.Writer) {
+		addFile(t, tw, "top/maps/a.xml", "<a/>")
+		if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeSymlink, Name: "top/maps/link.xml", Linkname: "/etc/passwd"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	f := newFakeGitHub(t, "v2.4.0", body)
+
+	res, err := Sync(t.Context(), options(f.Server, dir))
+	if err != nil {
+		t.Fatalf("Sync() returned %v", err)
+	}
+	if res.Added != 1 {
+		t.Errorf("Sync() added %d source files, want 1", res.Added)
+	}
+	equalTrees(t, tree(t, dir), map[string]string{
+		"atak-maps/maps/a.xml": "<a/>",
+		"atak-maps/VERSION":    "tag: v2.4.0\ncommit: unknown\n",
+	})
+	if _, err := os.Lstat(filepath.Join(dir, "atak-maps", "maps", "link.xml")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Lstat(link.xml) returned %v, want not exist", err)
+	}
+}
+
+func TestSyncKeepsTheOldFilesWhenTheRestoreFails(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "atak-maps/maps/old.xml", "<old/>")
+	target := filepath.Join(dir, Subdir)
+	// Both the swap and the restore rename a directory to target, so every such rename fails.
+	rename = func(from, to string) error {
+		if to == target {
+			return errors.New("injected rename failure")
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { rename = os.Rename })
+	f := newFakeGitHub(t, "v2.4.0", archive(t, entry{"top/maps/a.xml", "<a/>"}))
+
+	_, err := Sync(t.Context(), options(f.Server, dir))
+	if err == nil {
+		t.Fatal("Sync() returned nil, want an error")
+	}
+	// The pattern is a constant with no syntax error, so Glob returns no error.
+	kept, _ := filepath.Glob(filepath.Join(dir, ".atak-maps-kept-*"))
+	if len(kept) != 1 {
+		t.Fatalf("kept directories = %v, want one", kept)
+	}
+	if old := filepath.Join(kept[0], Subdir); !strings.Contains(err.Error(), old) {
+		t.Errorf("Sync() error %q does not name %s", err, old)
+	}
+
+	rename = os.Rename
+	if _, err := Sync(t.Context(), options(f.Server, dir)); err != nil {
+		t.Fatalf("second Sync() returned %v", err)
+	}
+	equalTrees(t, tree(t, kept[0]), map[string]string{"atak-maps/maps/old.xml": "<old/>"})
 }

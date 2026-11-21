@@ -35,7 +35,6 @@ func TestListSourcesShowsRestrictedForGoogleBingAndEsri(t *testing.T) {
 	// The test reads the snapshot source files, so a new Google, Bing or Esri file is checked too.
 	lines := strings.Split(runListSourcesCmd(t, filepath.Join(t.TempDir(), "missing")), "\n")
 
-	parser := xmlparser.New("")
 	for _, pattern := range []string{
 		"maps/base/google/*.xml",
 		"maps/base/bing/*.xml",
@@ -48,7 +47,7 @@ func TestListSourcesShowsRestrictedForGoogleBingAndEsri(t *testing.T) {
 		}
 		checked := 0
 		for _, file := range files {
-			src, err := parser.ParseFS(snapshot.FS(), file)
+			src, err := xmlparser.ParseFS(snapshot.FS(), file)
 			if err != nil || src == nil {
 				continue
 			}

@@ -179,3 +179,50 @@ func TestDiscoverSourcesReadsASourceFileThatChangedAfterTheLastScan(t *testing.T
 		t.Errorf("second DiscoverSources() Alpha = %+v, want the new URL", s)
 	}
 }
+
+func TestDiscoverSourcesLetsAUserFileReplaceASyncedFileOfTheSameName(t *testing.T) {
+	// fs.WalkDir reads in lexical order, so the user file names sort before and after the synced directory.
+	tests := []struct {
+		name   string
+		synced string
+		user   string
+	}{
+		{"a user file that sorts before atak-maps", "atak-maps/maps/bravo.xml", "Mine.xml"},
+		{"a user file that sorts after atak-maps", "atak-maps/maps/bravo.xml", "zulu.xml"},
+		{"a user file in a sub-directory", "atak-maps/maps/bravo.xml", "mine/bravo.xml"},
+		{"a user file that sorts before a kept sync directory", ".atak-maps-kept-1/atak-maps/maps/bravo.xml", "-mine.xml"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, rel := range []string{tt.synced, tt.user} {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o750); err != nil {
+					t.Fatal(err)
+				}
+			}
+			createTestXML(t, dir, tt.synced, sourceXML("Bravo", "https://synced.test/b/{$z}/{$x}/{$y}.png"))
+			createTestXML(t, dir, tt.user, sourceXML("Bravo", "https://user.test/b/{$z}/{$x}/{$y}.png"))
+
+			parser := NewWithSnapshot(testSnapshot(), dir)
+			if s := parser.DiscoverSources()["Bravo"]; s == nil || s.URL != "https://user.test/b/{$z}/{$x}/{$y}.png" {
+				t.Errorf("Bravo = %+v, want the map source of %s", s, tt.user)
+			}
+			if got := parser.SkippedSources(); len(got) != 0 {
+				t.Errorf("SkippedSources() = %+v, want none", got)
+			}
+		})
+	}
+}
+
+func TestDiscoverSourcesLetsASyncedFileReplaceTheSnapshotFileOfTheSameName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "atak-maps", "maps"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	createTestXML(t, dir, "atak-maps/maps/alpha.xml", sourceXML("Alpha", "https://synced.test/a/{$z}/{$x}/{$y}.png"))
+
+	s := NewWithSnapshot(testSnapshot(), dir).DiscoverSources()["Alpha"]
+	if s == nil || s.URL != "https://synced.test/a/{$z}/{$x}/{$y}.png" {
+		t.Errorf("Alpha = %+v, want the synced map source", s)
+	}
+}

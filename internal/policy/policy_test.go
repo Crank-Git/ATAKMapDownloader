@@ -105,7 +105,6 @@ func TestEmbeddedTableHasEveryField(t *testing.T) {
 }
 
 func TestUnverifiedLicenseSourcesAreConditionalAtTwo(t *testing.T) {
-	parser := xmlparser.New("")
 	files, err := fs.Glob(snapshot.FS(), "maps/base/ca-nrcan/*.xml")
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +114,7 @@ func TestUnverifiedLicenseSourcesAreConditionalAtTwo(t *testing.T) {
 	}
 	for _, file := range files {
 		t.Run(path.Base(file), func(t *testing.T) {
-			got := entryForFile(t, parser, file)
+			got := entryForFile(t, file)
 			if got.PolicyClass != Conditional || got.RequestsPerSecond != 2 {
 				t.Errorf("entry = {%q %q %v}, want conditional at 2", got.ID(), got.PolicyClass, got.RequestsPerSecond)
 			}
@@ -125,9 +124,9 @@ func TestUnverifiedLicenseSourcesAreConditionalAtTwo(t *testing.T) {
 
 // entryForFile returns the policy entry of a snapshot source file.
 // The parser skips customWmsMapSource files, so for those it looks up the host of the <url> element.
-func entryForFile(t *testing.T, parser *xmlparser.XMLParser, file string) Entry {
+func entryForFile(t *testing.T, file string) Entry {
 	t.Helper()
-	if src, err := parser.ParseFS(snapshot.FS(), file); err == nil && src != nil {
+	if src, err := xmlparser.ParseFS(snapshot.FS(), file); err == nil && src != nil {
 		return ForSource(src)
 	}
 	data, err := fs.ReadFile(snapshot.FS(), file)
