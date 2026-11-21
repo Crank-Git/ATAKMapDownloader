@@ -65,7 +65,10 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	parser := getParser(cmd)
 	source := sourceFlag(cmd, parser)
 
-	output, _ := cmd.Flags().GetString("output")
+	output, err := cmd.Flags().GetString("output")
+	if err != nil {
+		return fmt.Errorf("read --output: %w", err)
+	}
 	areas, err := downloadAreas(cmd, output)
 	if err != nil {
 		return err
