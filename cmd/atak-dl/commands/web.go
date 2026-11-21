@@ -359,15 +359,14 @@ func (h *WebHandler) apiValidateSource(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	source := h.parser.GetSource(req.SourceName)
-	if source == nil {
-		writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
+	source, ok := h.findWebSource(w, req.SourceName)
+	if !ok {
 		return
 	}
 	errors := h.parser.ValidateSource(source)
 	writeJSON(w, map[string]interface{}{
 		"valid":       len(errors) == 0,
-		"source_name": req.SourceName,
+		"source_name": source.Name,
 		"url":         source.URL,
 		"zoom_range":  []int{source.MinZoom, source.MaxZoom},
 		"format":      source.TileType,
@@ -397,9 +396,8 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_bounds", "Bounds must hold four numbers: west, south, east, north")
 		return
 	}
-	source := h.parser.GetSource(req.Source)
-	if source == nil {
-		writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
+	source, ok := h.findWebSource(w, req.Source)
+	if !ok {
 		return
 	}
 	if req.MinZoom == 0 {
@@ -447,7 +445,7 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"tiles":       tiles,
 		"zoom":        previewZoom,
-		"source":      req.Source,
+		"source":      source.Name,
 		"total_tiles": len(tiles),
 		"bounds":      req.Bounds,
 	})

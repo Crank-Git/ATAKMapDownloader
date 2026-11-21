@@ -147,11 +147,12 @@ func unknownPlaceholder(url string) string {
 }
 
 // The skip reasons of a source file (FR-source-sync-27).
-// Issue #41 records SkipUnsupportedCRS and issue #42 records SkipUnknownPlaceholder.
+// Issue #42 records SkipUnknownPlaceholder.
 const (
-	SkipParseError         = "parse_error"
-	SkipMissingName        = "missing_name"
-	SkipMissingURL         = "missing_url"
+	SkipParseError  = "parse_error"
+	SkipMissingName = "missing_name"
+	SkipMissingURL  = "missing_url"
+	// SkipUnsupportedCRS has no caller yet. The WMS parser of issue #41 records it, and the API documents it now.
 	SkipUnsupportedCRS     = "unsupported_crs"
 	SkipUnknownPlaceholder = "unknown_placeholder"
 	SkipDuplicateName      = "duplicate_name"
@@ -207,6 +208,7 @@ func New(mapsourcesDir string) *XMLParser {
 
 // NewWithSnapshot returns a parser that loads the source files of snapshot first, then the user source directory mapsourcesDir.
 // A map source from mapsourcesDir replaces a snapshot map source with the same name (FR-source-sync-5).
+// In mapsourcesDir, a user's own file replaces a synced file under atak-maps/ with the same name.
 func NewWithSnapshot(snapshot fs.FS, mapsourcesDir string) *XMLParser {
 	p := New(mapsourcesDir)
 	p.snapshot = snapshot
@@ -228,7 +230,12 @@ func (p *XMLParser) SkippedSources() []SkippedSource {
 	return skipped
 }
 
-// scan reads the snapshot, then the user source directory.
+// scan reads three layers in this order:
+//   - the snapshot
+//   - the synced files under atak-maps/ in the user source directory
+//   - the other files in the user source directory, which are the user's own files
+//
+// A map source of a later layer replaces a map source of the same name from an earlier layer.
 // It keeps no state, so concurrent HTTP handlers can call it.
 // A full scan of the snapshot takes less than 1 ms, so a cache saves no measurable time.
 func (p *XMLParser) scan() (map[string]*MapSource, []SkippedSource) {
@@ -258,29 +265,48 @@ func (p *XMLParser) scan() (map[string]*MapSource, []SkippedSource) {
 			return
 		}
 		first[key] = shown
-		// A later tree replaces a map source of the same name, so a user file replaces a snapshot file (FR-source-sync-5).
+		// A later layer replaces a map source of the same name, so a user file replaces a synced or snapshot file (FR-source-sync-5).
 		sources[source.Name] = source
 	}
 
 	if p.snapshot != nil {
 		walkXML(p.snapshot, func(rel string) {
-			source, err := p.ParseFS(p.snapshot, rel)
+			source, err := ParseFS(p.snapshot, rel)
 			add(rel, rel, source, err)
 		})
 	}
 	if p.MapsourcesDir != "" {
 		if _, err := os.Stat(p.MapsourcesDir); err == nil {
+			// A later layer replaces an earlier one, so the user's own files load after the synced files (FR-source-sync-5).
+			var synced, own []string
 			walkXML(os.DirFS(p.MapsourcesDir), func(rel string) {
-				full := filepath.Join(p.MapsourcesDir, filepath.FromSlash(rel))
-				source, err := p.ParseFile(full)
-				add(rel, full, source, err)
+				if isSynced(rel) {
+					synced = append(synced, rel)
+				} else {
+					own = append(own, rel)
+				}
 			})
+			for _, rel := range append(synced, own...) {
+				full := filepath.Join(p.MapsourcesDir, filepath.FromSlash(rel))
+				source, err := ParseFile(full)
+				add(rel, full, source, err)
+			}
 		} else {
 			slog.Debug("mapsources dir not found", "path", p.MapsourcesDir)
 		}
 	}
 	slog.Debug("loaded map sources", "count", len(sources), "skipped", len(skipped))
 	return sources, skipped
+}
+
+// isSynced reports whether rel, a slash path in the user source directory, is a file that sources sync wrote.
+// The sync writes atak-maps/ and its temporary directories, whose prefixes are in internal/sourcesync.
+func isSynced(rel string) bool {
+	top, _, _ := strings.Cut(rel, "/")
+	return top == "atak-maps" ||
+		strings.HasPrefix(top, ".atak-maps-new-") ||
+		strings.HasPrefix(top, ".atak-maps-old-") ||
+		strings.HasPrefix(top, ".atak-maps-kept-")
 }
 
 // walkXML calls load for each .xml file in fsys, at any depth.
@@ -297,7 +323,7 @@ func walkXML(fsys fs.FS, load func(path string)) {
 
 // ParseFile returns the map source of the source file at xmlPath, with origin user.
 // It returns a *SkipError when the file holds no valid customMapSource, and the read error when it cannot read the file.
-func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
+func ParseFile(xmlPath string) (*MapSource, error) {
 	data, err := os.ReadFile(xmlPath) //nolint:gosec // The operator chooses the map sources directory.
 	if err != nil {
 		return nil, err
@@ -307,7 +333,7 @@ func (p *XMLParser) ParseFile(xmlPath string) (*MapSource, error) {
 
 // ParseFS returns the map source of the snapshot source file name in fsys, with origin snapshot.
 // It returns a *SkipError when the file holds no valid customMapSource, and the read error when it cannot read the file.
-func (p *XMLParser) ParseFS(fsys fs.FS, name string) (*MapSource, error) {
+func ParseFS(fsys fs.FS, name string) (*MapSource, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err

@@ -31,16 +31,24 @@ const (
 	maxArchiveBytes = 64 << 20
 	// maxExtractBytes stops a gzip stream that expands without limit. It is the sum of all entry bodies.
 	maxExtractBytes = 256 << 20
+	// maxEntries stops an archive with many empty entries from holding the process. The v2.3.1 tarball has about 200.
+	maxEntries = 10000
 	// apiVersion is the REST API version of the GitHub documentation that this package follows.
 	apiVersion = "2026-03-10"
+	// repo is the owner and the repository of the ATAK-Maps project.
+	repo = "joshuafuller/ATAK-Maps"
+	// keptPrefix names the directory that keeps the old synced files after a failed restore.
+	// removeLeftovers does not remove it, so the path in the error stays valid for the user.
+	keptPrefix = ".atak-maps-kept-"
 )
+
+// rename is os.Rename. A test replaces it to make the swap and the restore fail.
+var rename = os.Rename
 
 // Options holds the parameters of one sync.
 type Options struct {
 	// APIURL is the base URL of the GitHub REST API, for example https://api.github.com.
 	APIURL string
-	// Repo is the owner and the repository, for example joshuafuller/ATAK-Maps.
-	Repo string
 	// Tag is the release tag. An empty Tag selects the latest release.
 	Tag string
 	// Dir is the user source directory.
@@ -71,6 +79,9 @@ type release struct {
 //   - a network error, or a response other than 200
 //   - an archive path that is absolute or holds ..
 //   - an archive with no .xml file under maps/
+//   - an archive above maxArchiveBytes, above maxExtractBytes of entry bodies, or above maxEntries entries
+//
+// If the swap and the restore both fail, the old files stay in a .atak-maps-kept- directory that the error names.
 func Sync(ctx context.Context, opts Options) (Result, error) {
 	rel, err := getRelease(ctx, opts)
 	if err != nil {
@@ -116,9 +127,9 @@ func Sync(ctx context.Context, opts Options) (Result, error) {
 // getRelease returns the release of opts.Tag, or the latest release when opts.Tag is empty.
 // GitHub documents both calls at https://docs.github.com/en/rest/releases/releases.
 func getRelease(ctx context.Context, opts Options) (release, error) {
-	endpoint := opts.APIURL + "/repos/" + opts.Repo + "/releases/latest"
+	endpoint := opts.APIURL + "/repos/" + repo + "/releases/latest"
 	if opts.Tag != "" {
-		endpoint = opts.APIURL + "/repos/" + opts.Repo + "/releases/tags/" + url.PathEscape(opts.Tag)
+		endpoint = opts.APIURL + "/repos/" + repo + "/releases/tags/" + url.PathEscape(opts.Tag)
 	}
 	data, err := get(ctx, opts, endpoint, "application/vnd.github+json")
 	if err != nil {
@@ -201,19 +212,20 @@ func extract(data []byte) (map[string][]byte, string, error) {
 	tr := tar.NewReader(limited)
 	files := map[string][]byte{}
 	commit := "unknown"
-	for {
+	for entries := 0; ; entries++ {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return nil, "", fmt.Errorf("read the archive: %w", err)
+			return nil, "", readError(limited, "the archive", err)
 		}
-		if hdr.Typeflag == tar.TypeXGlobalHeader {
-			if c := hdr.PAXRecords["comment"]; isHex(c) {
-				commit = c
-			}
-			continue
+		if entries == maxEntries {
+			return nil, "", fmt.Errorf("the archive has more than %d entries", maxEntries)
+		}
+		// A global header is not a regular file, so the check after mapsPath skips it.
+		if hdr.Typeflag == tar.TypeXGlobalHeader && isHex(hdr.PAXRecords["comment"]) {
+			commit = hdr.PAXRecords["comment"]
 		}
 		name, err := mapsPath(hdr.Name)
 		if err != nil {
@@ -224,18 +236,30 @@ func extract(data []byte) (map[string][]byte, string, error) {
 		}
 		body, err := io.ReadAll(tr)
 		if err != nil {
-			return nil, "", fmt.Errorf("read %s from the archive: %w", hdr.Name, err)
+			return nil, "", readError(limited, hdr.Name+" from the archive", err)
 		}
 		files[name] = body
 	}
 	// The limit can end the stream on an entry boundary, and then the tar reader sees a clean end.
 	if limited.N == 0 {
-		return nil, "", fmt.Errorf("the archive is larger than %d MiB", maxExtractBytes>>20)
+		return nil, "", errTooLarge
 	}
 	if len(files) == 0 {
 		return nil, "", errors.New("the archive has no .xml file under maps/, so the upstream layout changed")
 	}
 	return files, commit, nil
+}
+
+// errTooLarge is the error of an archive whose entry bodies are above maxExtractBytes.
+var errTooLarge = fmt.Errorf("the archive is larger than %d MiB", maxExtractBytes>>20)
+
+// readError returns errTooLarge when the extract limit ended the stream, and otherwise err with the name of what extract read.
+// The limit can end the stream inside an entry, and then the tar reader reports an unexpected end, not the limit.
+func readError(limited *io.LimitedReader, what string, err error) error {
+	if limited.N == 0 {
+		return errTooLarge
+	}
+	return fmt.Errorf("read %s: %w", what, err)
 }
 
 // isHex reports whether s is a non-empty string of lowercase hexadecimal digits.
@@ -338,14 +362,19 @@ func replace(dir string, files map[string][]byte, version string) error {
 		}
 	}()
 	old := filepath.Join(aside, Subdir)
-	if err := os.Rename(target, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := rename(target, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("move the old synced source files aside: %w", err)
 	}
-	if err := os.Rename(tmp, target); err != nil {
+	if err := rename(tmp, target); err != nil {
 		err = fmt.Errorf("move the new synced source files into place: %w", err)
-		if restoreErr := os.Rename(old, target); restoreErr != nil && !errors.Is(restoreErr, fs.ErrNotExist) {
+		if restoreErr := rename(old, target); restoreErr != nil && !errors.Is(restoreErr, fs.ErrNotExist) {
 			// The old files are then only in aside, so aside must stay for the user.
 			keepAside = true
+			kept := filepath.Join(dir, keptPrefix+strings.TrimPrefix(filepath.Base(aside), ".atak-maps-old-"))
+			// If the rename fails, the error names aside, and the next sync removes it.
+			if rename(aside, kept) == nil {
+				old = filepath.Join(kept, Subdir)
+			}
 			return errors.Join(err, fmt.Errorf("move the old synced source files back from %s: %w", old, restoreErr))
 		}
 		return err

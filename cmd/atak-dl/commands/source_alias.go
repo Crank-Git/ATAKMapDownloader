@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"log/slog"
+	"net/http"
 
 	"github.com/crank-git/atak-map-downloader/internal/snapshot"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
@@ -22,6 +24,25 @@ func findSource(parser *xmlparser.XMLParser, name string) (*xmlparser.MapSource,
 	}
 	warning := fmt.Sprintf("%q is an old map source name. The new name is %q.", name, newName)
 	return parser.GetSource(newName), warning, nil
+}
+
+// findWebSource returns the map source with name for a web API handler that starts no job.
+// The handler has no job log, so the deprecation warning of a v0.1 name goes to the server log.
+// It writes a 404 unknown_source response and returns false when no map source has the name or upstream removed it.
+func (h *WebHandler) findWebSource(w http.ResponseWriter, name string) (*xmlparser.MapSource, bool) {
+	source, warning, err := findSource(h.parser, name)
+	if warning != "" {
+		slog.Warn(warning)
+	}
+	if err != nil {
+		writeError(w, http.StatusNotFound, "unknown_source", err.Error())
+		return nil, false
+	}
+	if source == nil {
+		writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
+		return nil, false
+	}
+	return source, true
 }
 
 // sourceFlag returns the map source of the --source flag of cmd.

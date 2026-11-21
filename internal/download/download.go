@@ -415,7 +415,7 @@ func (e *Engine) fetchTile(
 	}
 
 	// Every server part shares the gate of the policy entry, so the part changes the host but not the request rate.
-	url := source.FormatURL(x, y, z, source.GetServerPart(x, y))
+	url := source.FormatURL(x, y, z, "")
 	attempts := maxAttempts
 	if retry {
 		attempts = retryAttempts

@@ -60,7 +60,6 @@ func syncSources(cmd *cobra.Command, userAgent string) error {
 
 	res, err := sourcesync.Sync(cmd.Context(), sourcesync.Options{
 		APIURL:    githubAPIURL,
-		Repo:      "joshuafuller/ATAK-Maps",
 		Tag:       tag,
 		Dir:       dir,
 		UserAgent: userAgent,
