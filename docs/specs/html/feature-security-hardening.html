@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Security hardening</h1>
-<p class="meta">Epic 1: Security hardening &nbsp; <span class="badge">planned</span></p>
+<p class="meta">Epic 1: Security hardening &nbsp; <span class="badge">issued</span></p>
 <h3 id="security-hardening-purpose">Purpose</h3>
 <p>Today any web page that the user visits can start a job on the local server. That is possible because the server sends <code>Access-Control-Allow-Origin: *</code> and accepts websocket connections from any origin (<code>cmd/atak-dl/commands/web.go:44,54</code>). Tile requests skip TLS verification by default (<code>internal/download/download.go:42,100</code>). Progress messages are written to one websocket from many goroutines with no lock, and gorilla/websocket does not allow that.</p>
 <p>This feature closes these gaps. It also replaces the websocket with a small job API over HTTP and SSE. The team server (feature 12) builds on that API.</p>

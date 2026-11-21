@@ -2,8 +2,8 @@
 id: area-selection
 feature: Area selection
 epic: "Epic 7: Area selection"
-status: planned
-issues: []
+status: issued
+issues: [50, 51, 52, 53, 54]
 mockups: [mockups/02-area-tools.html]
 ---
 

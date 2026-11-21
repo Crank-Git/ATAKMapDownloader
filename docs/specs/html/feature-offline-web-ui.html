@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Offline web UI</h1>
-<p class="meta">Epic 4: Offline web UI &nbsp; <span class="badge">planned</span></p>
+<p class="meta">Epic 4: Offline web UI &nbsp; <span class="badge">issued</span></p>
 <h3 id="offline-web-ui-purpose">Purpose</h3>
 <p>Today the web UI loads Leaflet, leaflet-draw, Bootstrap and Font Awesome from public CDNs (<code>web/index.html:9-16,241-243</code>). With no internet the page does not work, and ATAK users often prepare maps on poor connections. The finished output file stays on the server's disk with no route to fetch it, so a browser on another machine cannot get it. Errors appear only in a small status log. A loading modal exists but is never shown (<code>web/static/js/app.js:576-581</code>).</p>
 <p>This feature vendors every asset, removes Bootstrap and Font Awesome, and adds an output file list with downloads. It adds a local base map from an output file and gives every screen its full set of states.</p>

@@ -2,8 +2,8 @@
 id: security-hardening
 feature: Security hardening
 epic: "Epic 1: Security hardening"
-status: planned
-issues: []
+status: issued
+issues: [11, 12, 13, 14, 15, 16, 17]
 mockups: []
 ---
 

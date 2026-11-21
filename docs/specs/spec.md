@@ -431,8 +431,78 @@ Reconciliation of the existing documentation against the code (Phase 1):
   - the single global job lock
   - dark mode that inverts map tiles
 
+## Issue map
+
+Created by spec-to-issues on 2026-11-21. Features 01–04 are `built` and have no issues.
+
+| Epic | Epic issue | Sub-issues |
+|---|---|---|
+| Foundation | #4 | #5, #6, #7, #8, #9, #10 |
+| Security hardening | #11 | #12, #13, #14, #15, #16, #17 |
+| Polite downloading | #18 | #19, #20, #21, #22, #23 |
+| Robust downloads | #24 | #25, #26, #27, #28, #29 |
+| Offline web UI | #30 | #31, #32, #33, #34, #35 |
+| Source sync and WMS | #36 | #37, #38, #39, #40, #41, #42 |
+| Output formats | #43 | #44, #45, #46, #47, #48, #49 |
+| Area selection | #50 | #51, #52, #53, #54 |
+| Team server | #55 | #56, #57, #58, #59, #60 |
+
+FR coverage (each sub-issue and the requirements it quotes):
+
+| Sub-issue | Issue | Requirements |
+|---|---|---|
+| Replace the CGO SQLite driver with modernc.org/sqlite | #5 | FR-foundation-1, FR-foundation-2, FR-foundation-3, FR-foundation-4 |
+| Format the code and add golangci-lint v2 config | #6 | FR-foundation-5, FR-foundation-6, FR-foundation-7, FR-foundation-8 |
+| Add the test tile server, fixtures and engine integration tests | #7 | FR-foundation-9, FR-foundation-10, FR-foundation-11, FR-foundation-12 |
+| Add the smoke script and the CI workflow | #8 | FR-foundation-13, FR-foundation-14, FR-foundation-15, FR-foundation-16 |
+| Add GoReleaser releases, the GHCR image and --version | #9 | FR-foundation-19, FR-foundation-20, FR-foundation-21, FR-foundation-22 |
+| Create the develop branch and update the README build section | #10 | FR-foundation-17, FR-foundation-18, FR-foundation-23, FR-foundation-24 |
+| Return JSON errors with one error shape | #12 | FR-security-hardening-21, FR-security-hardening-22, FR-security-hardening-23, FR-security-hardening-24 |
+| Remove CORS headers and add cross-origin protection | #13 | FR-security-hardening-1, FR-security-hardening-2, FR-security-hardening-3 |
+| Verify TLS by default and add the --insecure flag | #14 | FR-security-hardening-4, FR-security-hardening-5, FR-security-hardening-6 |
+| Add the job API with an SSE event stream | #15 | FR-security-hardening-8, FR-security-hardening-9, FR-security-hardening-10, FR-security-hardening-11, FR-security-hardening-12, FR-security-hardening-13, FR-security-hardening-14, FR-security-hardening-15 |
+| Move the web UI to the job API and remove the websocket | #16 | FR-security-hardening-7, FR-security-hardening-16 |
+| Add request limits, server timeouts and input validation | #17 | FR-security-hardening-17, FR-security-hardening-18, FR-security-hardening-19, FR-security-hardening-20, FR-security-hardening-25 |
+| Add the embedded policy table and match map sources to it | #19 | FR-polite-downloading-1, FR-polite-downloading-2, FR-polite-downloading-3, FR-polite-downloading-4, FR-polite-downloading-5, FR-polite-downloading-6, FR-polite-downloading-15, FR-polite-downloading-16 |
+| Add per-host rate limits, backoff and the project User-Agent | #20 | FR-polite-downloading-7, FR-polite-downloading-8, FR-polite-downloading-9, FR-polite-downloading-10, FR-polite-downloading-11, FR-polite-downloading-12, FR-polite-downloading-13, FR-polite-downloading-14 |
+| Require accepted terms for restricted map sources | #21 | FR-polite-downloading-17, FR-polite-downloading-18, FR-polite-downloading-19 |
+| Add the policy warning dialog and source badges to the web UI | #22 | FR-polite-downloading-20, FR-polite-downloading-21 |
+| Rate-limit and cache geocode requests to Nominatim | #23 | FR-polite-downloading-22, FR-polite-downloading-23, FR-polite-downloading-24, FR-polite-downloading-25, FR-polite-downloading-26 |
+| Write tiles through one writer goroutine with batched transactions | #25 | FR-robust-downloads-1, FR-robust-downloads-2, FR-robust-downloads-3, FR-robust-downloads-4, FR-robust-downloads-5 |
+| Refuse to overwrite output files and add resume | #26 | FR-robust-downloads-6, FR-robust-downloads-7, FR-robust-downloads-8, FR-robust-downloads-9, FR-robust-downloads-10, FR-robust-downloads-11, FR-robust-downloads-12, FR-robust-downloads-13, FR-robust-downloads-14 |
+| Reject tiles that are not valid images | #27 | FR-robust-downloads-15, FR-robust-downloads-16, FR-robust-downloads-17, FR-robust-downloads-18, FR-robust-downloads-19, FR-robust-downloads-20 |
+| Record failed tiles and run a retry pass | #28 | FR-robust-downloads-21, FR-robust-downloads-22, FR-robust-downloads-23, FR-robust-downloads-24, FR-robust-downloads-25 |
+| Add the tile cap, processed-tile progress and fast cancel | #29 | FR-robust-downloads-26, FR-robust-downloads-27, FR-robust-downloads-28, FR-robust-downloads-29, FR-robust-downloads-30, FR-robust-downloads-31 |
+| Vendor Leaflet and Geoman and remove every CDN asset | #31 | FR-offline-web-ui-1, FR-offline-web-ui-2, FR-offline-web-ui-3, FR-offline-web-ui-4, FR-offline-web-ui-5, FR-offline-web-ui-6 |
+| Add the output file list and file download routes | #32 | FR-offline-web-ui-7, FR-offline-web-ui-8, FR-offline-web-ui-9, FR-offline-web-ui-10, FR-offline-web-ui-11, FR-offline-web-ui-12 |
+| Add a local base map from an output file | #33 | FR-offline-web-ui-13, FR-offline-web-ui-14, FR-offline-web-ui-15, FR-offline-web-ui-16 |
+| Add connection, loading and error states to the workspace | #34 | FR-offline-web-ui-17, FR-offline-web-ui-18, FR-offline-web-ui-19, FR-offline-web-ui-20, FR-offline-web-ui-21, FR-offline-web-ui-22, FR-offline-web-ui-23, FR-offline-web-ui-24 |
+| Fix accessibility and theme behavior in the web UI | #35 | FR-offline-web-ui-25, FR-offline-web-ui-26, FR-offline-web-ui-27, FR-offline-web-ui-28, FR-offline-web-ui-29, FR-offline-web-ui-30, FR-offline-web-ui-31 |
+| Embed the ATAK-Maps v2.3.1 snapshot with a user override | #37 | FR-source-sync-1, FR-source-sync-2, FR-source-sync-3, FR-source-sync-4, FR-source-sync-5, FR-source-sync-6, FR-source-sync-7, FR-source-sync-8, FR-source-sync-9 |
+| Report skipped source files in the CLI, API and web UI | #38 | FR-source-sync-26, FR-source-sync-27, FR-source-sync-28, FR-source-sync-29, FR-source-sync-30, FR-source-sync-31 |
+| Add the sources sync command | #39 | FR-source-sync-10, FR-source-sync-11, FR-source-sync-12, FR-source-sync-13, FR-source-sync-14 |
+| Map old map source names to their ATAK-Maps v2 names | #40 | FR-source-sync-15, FR-source-sync-16, FR-source-sync-17 |
+| Support WMS map sources | #41 | FR-source-sync-18, FR-source-sync-19, FR-source-sync-20 |
+| Read invertYCoordinate, comma server parts and every placeholder | #42 | FR-source-sync-21, FR-source-sync-22, FR-source-sync-23, FR-source-sync-24, FR-source-sync-25 |
+| Add the output writer interface and the --format flag | #44 | FR-output-formats-1, FR-output-formats-2, FR-output-formats-3, FR-output-formats-4, FR-output-formats-5 |
+| Complete the MBTiles metadata and add its conformance test | #45 | FR-output-formats-6, FR-output-formats-7, FR-output-formats-8, FR-output-formats-9, FR-output-formats-10, FR-output-formats-25, FR-output-formats-26 |
+| Add the OSMDroid writer | #46 | FR-output-formats-11, FR-output-formats-12, FR-output-formats-13, FR-output-formats-14, FR-output-formats-25 |
+| Add the GeoPackage writer | #47 | FR-output-formats-15, FR-output-formats-16, FR-output-formats-17, FR-output-formats-18, FR-output-formats-25, FR-output-formats-27 |
+| Export an output file as an ATAK data package | #48 | FR-output-formats-19, FR-output-formats-20, FR-output-formats-21, FR-output-formats-22, FR-output-formats-23 |
+| Add the export panel to the web UI | #49 | FR-output-formats-24 |
+| Select tiles that intersect a polygon or a route buffer | #51 | FR-area-selection-1, FR-area-selection-2, FR-area-selection-3, FR-area-selection-6, FR-area-selection-7 |
+| Run jobs with several areas and a zoom range per area | #52 | FR-area-selection-4, FR-area-selection-5, FR-area-selection-8, FR-area-selection-9, FR-area-selection-10, FR-area-selection-25, FR-area-selection-26, FR-area-selection-27, FR-area-selection-28, FR-area-selection-29 |
+| Read GeoJSON and KML areas in the CLI | #53 | FR-area-selection-11, FR-area-selection-12, FR-area-selection-13, FR-area-selection-14, FR-area-selection-15, FR-area-selection-16, FR-area-selection-17, FR-area-selection-18 |
+| Add polygon, route and import tools to the web UI | #54 | FR-area-selection-19, FR-area-selection-20, FR-area-selection-21, FR-area-selection-22, FR-area-selection-23, FR-area-selection-24 |
+| Queue jobs and run them on a worker pool | #56 | FR-team-server-1, FR-team-server-2, FR-team-server-3, FR-team-server-4, FR-team-server-5, FR-team-server-6 |
+| Persist jobs in jobs.jsonl and add the data directory | #57 | FR-team-server-7, FR-team-server-8, FR-team-server-9, FR-team-server-10, FR-team-server-11, FR-team-server-12, FR-team-server-13, FR-team-server-14, FR-team-server-15 |
+| Require a token for a server that is not on loopback | #58 | FR-team-server-16, FR-team-server-17, FR-team-server-18, FR-team-server-19, FR-team-server-20, FR-team-server-21, FR-team-server-22, FR-team-server-23, FR-team-server-24 |
+| Add the Jobs page and the sign-in page | #59 | FR-team-server-25, FR-team-server-26, FR-team-server-27, FR-team-server-28 |
+| Add the health route and the Docker server guide | #60 | FR-team-server-29, FR-team-server-30, FR-team-server-31 |
+
 ## Changelog
 
 - 2026-11-21: Created by project-inherit. Features 01–04 are built and documented from the code. Features 00 and 05–12 are planned from the roadmap interview.
 - 2026-11-21: Approved by the maintainer after review round 1. Mockups 02, 03 and 04 were adjusted for heading sizes and borders.
 - 2026-11-21: Removed the Homebrew tap from the release targets, at the maintainer's request, to make releases simpler.
+- 2026-11-21: Issued by spec-to-issues: 9 epics (#4, #11, #18, #24, #30, #36, #43, #50, #55) and 48 sub-issues. Epic 4 now depends on Epic 3.

@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Team server</h1>
-<p class="meta">Epic 8: Team server &nbsp; <span class="badge">planned</span></p>
+<p class="meta">Epic 8: Team server &nbsp; <span class="badge">issued</span></p>
 <h3 id="team-server-purpose">Purpose</h3>
 <p>Today the server holds one job in memory, and it rejects a second job with "Download already in progress" (<code>cmd/atak-dl/commands/web.go:479-484</code>). A job is lost when the server restarts. The server has no authentication, so binding it to a LAN address exposes it to every device on the network.</p>
 <p>The user wants the project to serve small teams from one LAN machine or a container. This feature adds a job queue, a persistent job store, a jobs page and a shared token for every address that is not loopback.</p>

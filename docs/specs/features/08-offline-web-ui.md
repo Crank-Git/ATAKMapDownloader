@@ -2,8 +2,8 @@
 id: offline-web-ui
 feature: Offline web UI
 epic: "Epic 4: Offline web UI"
-status: planned
-issues: []
+status: issued
+issues: [30, 31, 32, 33, 34, 35]
 mockups: [mockups/01-workspace.html]
 ---
 

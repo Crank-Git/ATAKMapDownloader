@@ -2,8 +2,8 @@
 id: robust-downloads
 feature: Robust downloads
 epic: "Epic 3: Robust downloads"
-status: planned
-issues: []
+status: issued
+issues: [24, 25, 26, 27, 28, 29]
 mockups: []
 ---
 

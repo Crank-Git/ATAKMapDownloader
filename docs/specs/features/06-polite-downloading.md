@@ -2,8 +2,8 @@
 id: polite-downloading
 feature: Polite downloading
 epic: "Epic 2: Polite downloading"
-status: planned
-issues: []
+status: issued
+issues: [18, 19, 20, 21, 22, 23]
 mockups: [mockups/04-source-policy-warning.html]
 ---
 

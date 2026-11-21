@@ -2,8 +2,8 @@
 id: source-sync
 feature: Source sync and WMS
 epic: "Epic 5: Source sync and WMS"
-status: planned
-issues: []
+status: issued
+issues: [36, 37, 38, 39, 40, 41, 42]
 mockups: []
 ---
 
