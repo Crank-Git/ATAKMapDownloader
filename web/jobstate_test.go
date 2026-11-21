@@ -119,7 +119,7 @@ const vendorBudget = 520 * 1024
 
 func TestVendoredAssetsStayWithinTheSizeBudget(t *testing.T) {
 	var total int64
-	err := fs.WalkDir(staticFS, "static/vendor", func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(staticFS, "static/vendor", func(_ string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}

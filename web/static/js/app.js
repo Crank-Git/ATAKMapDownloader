@@ -9,6 +9,8 @@ const SPINNER = '<span class="spinner" aria-hidden="true"></span>';
 const OFFLINE_AFTER_FAILURES = 3;
 // With no job and no user action, only a probe request shows that the server is back.
 const PROBE_INTERVAL_MS = 4000;
+// A running job makes these settings read-only (feature 08, downloading state). setJobLocked handles the map source picker.
+const JOB_SETTINGS = ['minZoom', 'maxZoom', 'customName', 'maxConcurrent', 'failureTolerance', 'ignoreErrors', 'verifyTLS', 'ifExists'];
 const CONNECTION_LOOK = {
     connected: ['ok', 'Connected'],
     reconnecting: ['warn', 'Reconnecting'],
@@ -26,6 +28,7 @@ class ATAKDownloader {
         this.isDarkMode = false;
         // themeChosen is true after the user selects a theme, so a change of the system theme no longer applies.
         this.themeChosen = false;
+        // isDownloading is true from the start request until the shown job ends, so a second start cannot begin.
         this.isDownloading = false;
         this.previewLayer = null;
         this.searchMarker = null;
@@ -142,6 +145,10 @@ class ATAKDownloader {
             removalMode: true,
             rotateMode: false
         });
+        // Geoman puts each title on the button container, so the link inside gets it as its accessible name.
+        this.map.getContainer().querySelectorAll('.button-container[title] > .leaflet-buttons-control-button').forEach(button => {
+            button.setAttribute('aria-label', button.parentElement.title);
+        });
 
         this.map.on('pm:create', (e) => {
             if (e.shape !== 'Rectangle') return;
@@ -201,14 +208,23 @@ class ATAKDownloader {
         chip.textContent = CONNECTION_LOOK[state][1];
         // The offline state disables Start, and a reconnect enables it again when it was ready (feature 08, offline state).
         this.setStartEnabled(this.startReady);
-        if (state === 'offline') this.fallBackToLocalBaseMap();
     }
 
     // setStartEnabled is the one place that sets the disabled state of Start.
-    // ready tells whether the job settings allow Start. Start stays disabled while the indicator reads offline.
+    // ready tells whether the job settings allow Start. Start stays disabled while the indicator reads offline or a job runs.
     setStartEnabled(ready) {
         this.startReady = ready;
-        document.getElementById('downloadBtn').disabled = !ready || this.connectionState === 'offline';
+        document.getElementById('downloadBtn').disabled = !ready || this.connectionState === 'offline' || this.isDownloading;
+    }
+
+    // setJobLocked makes Estimate, Start and the job settings read-only while locked is true.
+    setJobLocked(locked) {
+        this.isDownloading = locked;
+        document.getElementById('estimateBtn').disabled = locked || !this.selectedArea;
+        // An empty source list keeps the map source picker disabled after the job too.
+        document.getElementById('mapSourceSelect').disabled = locked || this.mapSources.length === 0;
+        JOB_SETTINGS.forEach(id => { document.getElementById(id).disabled = locked; });
+        this.setStartEnabled(this.startReady);
     }
 
     // setBaseMap draws the tiles of the output file name over the online base map. An empty name shows the online base map only.
@@ -247,10 +263,11 @@ class ATAKDownloader {
     }
 
     // fallBackToLocalBaseMap selects the most recent output file when the web UI loads with no internet (FR-offline-web-ui-16).
-    // Three signals mean offline: navigator.onLine, a failed first OpenStreetMap tile, and the connection indicator.
+    // Two signals mean no internet: navigator.onLine and a failed first OpenStreetMap tile.
+    // The offline indicator is not a signal, because the local tiles come from the same server that it reports on.
     // It selects a base map once, and never after the user selects one.
     fallBackToLocalBaseMap() {
-        const offline = navigator.onLine === false || this.onlineTileFailed || this.connectionState === 'offline';
+        const offline = navigator.onLine === false || this.onlineTileFailed;
         if (this.baseMapChosen || !offline || this.outputFiles === null) return;
         this.baseMapChosen = true;
         const newest = this.outputFiles[0];
@@ -341,7 +358,7 @@ class ATAKDownloader {
             if (this.jobEvents && this.jobEvents.readyState === EventSource.CLOSED) {
                 this.logStatus('Lost the job event stream', 'error');
                 this.closeJobEvents();
-                this.resetDownloadUI();
+                this.resetDownloadUI(id);
             } else {
                 this.recordFailure();
             }
@@ -358,18 +375,20 @@ class ATAKDownloader {
 
     // onJobComplete is the one refresh of the output file list after a job ends (FR-offline-web-ui-12).
     // A cancelled or failed job keeps its output file too, so every final state calls it.
-    onJobComplete(job) {
+    onJobComplete() {
         this.loadOutputFiles();
     }
 
     onJobState(record) {
         if (record.state !== 'running') {
-            this.onJobComplete(record);
+            this.onJobComplete();
         }
         switch (record.state) {
             case 'running':
-                this.isDownloading = true;
+                this.setJobLocked(true);
                 this.showCancelButton(true);
+                // The refresh marks the output file of the job in_progress, so its Download button is disabled.
+                this.loadOutputFiles();
                 // A client that connects late gets the counts from the state event before the next progress event.
                 this.updateDownloadProgress(record);
                 break;
@@ -377,7 +396,7 @@ class ATAKDownloader {
                 this.closeJobEvents();
                 this.logStatus('Download complete. Saved to ' + record.output_file, 'success');
                 this.showDownloadComplete(record);
-                this.resetDownloadUI();
+                this.resetDownloadUI(record.id);
                 break;
             case 'failed':
                 this.closeJobEvents();
@@ -386,12 +405,12 @@ class ATAKDownloader {
                     this.logStatus('Download failed: ' + record.error, 'error');
                 }
                 this.hideDownloadResults();
-                this.resetDownloadUI();
+                this.resetDownloadUI(record.id);
                 break;
             case 'cancelled':
                 this.closeJobEvents();
                 this.logStatus('Download cancelled', 'warning');
-                this.resetDownloadUI();
+                this.resetDownloadUI(record.id);
                 break;
         }
     }
@@ -410,7 +429,7 @@ class ATAKDownloader {
             this.logStatus('Error loading sources: ' + error.message, 'error');
             this.showError('sources', 'Map sources did not load: ' + error.message, () => this.loadMapSources());
         } finally {
-            select.disabled = this.mapSources.length === 0;
+            select.disabled = this.mapSources.length === 0 || this.isDownloading;
             loading.hidden = true;
         }
     }
@@ -499,7 +518,7 @@ class ATAKDownloader {
     }
     
     enableEstimation() {
-        document.getElementById('estimateBtn').disabled = false;
+        document.getElementById('estimateBtn').disabled = this.isDownloading;
         document.getElementById('previewBtn').disabled = false;
     }
     
@@ -513,6 +532,7 @@ class ATAKDownloader {
     }
     
     async estimateDownload() {
+        if (this.isDownloading) return;
         if (!this.selectedArea || !document.getElementById('mapSourceSelect').value) {
             this.logStatus('Select area and map source first', 'error');
             return;
@@ -551,6 +571,8 @@ class ATAKDownloader {
             this.showError('estimate', 'Estimate failed: ' + error.message, () => this.estimateDownload());
         } finally {
             this.setBusy(button, false);
+            // A job can start while the estimate runs, and then Estimate stays read-only.
+            button.disabled = this.isDownloading;
         }
     }
     
@@ -635,14 +657,11 @@ class ATAKDownloader {
     // loadOutputFiles reads GET /api/files and shows the list. The server sorts it newest first.
     async loadOutputFiles() {
         try {
-            const response = await fetch('/api/files');
-            const files = await response.json();
-            if (!response.ok) {
-                throw new Error((files.error && files.error.message) || 'The server did not return the output files');
-            }
-            this.renderOutputFiles(files);
+            this.renderOutputFiles(await this.requestJSON('/api/files'));
+            this.hideError('files');
         } catch (error) {
             this.logStatus('Error loading output files: ' + error.message, 'error');
+            this.showError('files', 'Output files did not load: ' + error.message, () => this.loadOutputFiles());
         }
     }
 
@@ -794,6 +813,10 @@ class ATAKDownloader {
     }
     
     async startDownload() {
+        if (this.isDownloading) {
+            this.logStatus('A job is running. Cancel it or wait for it to end', 'error');
+            return;
+        }
         const sourceName = document.getElementById('mapSourceSelect').value;
         // An empty select value matches no source, so this one check covers the case with no source selected.
         const source = this.mapSources.find(s => s.name === sourceName);
@@ -826,8 +849,16 @@ class ATAKDownloader {
             document.getElementById('policyTitle').textContent = source.name;
             document.getElementById('policyReason').textContent = source.policy_reason;
             document.getElementById('policyRate').textContent = source.requests_per_second + ' request/s to ' + source.policy_host;
-            link.hidden = !source.policy_reference_url;
-            link.href = source.policy_reference_url;
+            // A source file can hold a javascript: URL, so the link takes only an http: or https: URL.
+            let href = '';
+            try {
+                const url = new URL(source.policy_reference_url);
+                if (url.protocol === 'http:' || url.protocol === 'https:') href = url.href;
+            } catch {
+                // The reference URL is empty or does not parse, so the dialog shows no link.
+            }
+            link.hidden = !href;
+            link.href = href;
             accept.checked = false;
             start.disabled = true;
             accept.onchange = () => { start.disabled = !accept.checked; };
@@ -845,7 +876,8 @@ class ATAKDownloader {
         }
 
         this.hideDownloadResults();
-        this.setStartEnabled(false);
+        // The lock comes before the request, so no second start or estimate begins while the request runs.
+        this.setJobLocked(true);
         document.getElementById('downloadBtn').innerHTML = SPINNER + ' Downloading...';
         try {
             const result = await this.postJSON('/api/jobs', request);
@@ -859,7 +891,8 @@ class ATAKDownloader {
             this.logStatus('Download error: ' + error.message, 'error');
             // A 409 output_exists message names if_exists, so the user can pick Resume or Overwrite and then Retry.
             this.showError('job', 'The job did not start: ' + error.message, () => this.startDownload());
-            this.resetDownloadUI();
+            // This request got no job id, so the reset applies only when the panel shows no job.
+            this.resetDownloadUI(null);
         }
     }
 
@@ -884,12 +917,15 @@ class ATAKDownloader {
         document.getElementById('downloadProgress').hidden = false;
     }
 
-    resetDownloadUI() {
-        this.setStartEnabled(true);
+    // resetDownloadUI ends the display of the job jobId. It does nothing when the panel shows a different job.
+    resetDownloadUI(jobId) {
+        if (jobId !== this.jobId) return;
+        this.jobId = null;
+        this.setJobLocked(false);
+        this.setStartEnabled(Boolean(this.selectedArea && document.getElementById('mapSourceSelect').value));
         document.getElementById('downloadBtn').innerHTML = ICON_DOWNLOAD + ' Start Download';
         document.getElementById('downloadProgress').hidden = true;
         this.showCancelButton(false);
-        this.isDownloading = false;
     }
     
     onSourceChange(sourceName) {

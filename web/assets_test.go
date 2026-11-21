@@ -229,7 +229,7 @@ func TestAppJSSendsTheStateFieldsAndAcceptsOneZoomLevel(t *testing.T) {
 	app := string(b)
 	for _, want := range []string{
 		"if_exists: document.getElementById('ifExists').value",
-		"this.onJobComplete(record)",
+		"this.onJobComplete()",
 		"this.connectionState",
 	} {
 		if !strings.Contains(app, want) {
