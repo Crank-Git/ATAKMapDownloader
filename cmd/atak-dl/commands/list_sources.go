@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/crank-git/atak-map-downloader/internal/snapshot"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
@@ -22,8 +23,7 @@ func NewListSourcesCmd() *cobra.Command {
 }
 
 func runListSources(cmd *cobra.Command, _ []string) error {
-	dir, _ := cmd.Root().PersistentFlags().GetString("mapsources-dir")
-	parser := xmlparser.New(dir)
+	parser := getParser(cmd)
 	sources := parser.DiscoverSources(false)
 
 	var b strings.Builder
@@ -35,8 +35,8 @@ func runListSources(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintln(&b, "--------------------")
 		for _, name := range parser.ListSources() {
 			s := sources[name]
-			fmt.Fprintf(&b, "  %s (%s) - Zoom %d-%d - %s - %s\n",
-				name, s.TileType, s.MinZoom, s.MaxZoom, s.TileUpdate, sourcePolicy(s).PolicyClass)
+			fmt.Fprintf(&b, "  %s (%s) - Zoom %d-%d - %s - %s - %s - %s\n",
+				name, s.TileType, s.MinZoom, s.MaxZoom, s.TileUpdate, sourcePolicy(s).PolicyClass, s.Kind, s.Origin)
 		}
 		fmt.Fprintf(&b, "\nFound %d map sources\n", len(sources))
 	}
@@ -46,12 +46,15 @@ func runListSources(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// getParser returns the parser for the global --mapsources-dir and --no-snapshot flags.
+// A root command without a flag gives the zero value, so a test can define only the flags it needs.
 func getParser(cmd *cobra.Command) *xmlparser.XMLParser {
 	dir, _ := cmd.Root().PersistentFlags().GetString("mapsources-dir")
-	if dir == "" {
-		dir = "mapsources"
+	noSnapshot, _ := cmd.Root().PersistentFlags().GetBool("no-snapshot")
+	if noSnapshot {
+		return xmlparser.New(dir)
 	}
-	return xmlparser.New(dir)
+	return xmlparser.NewWithSnapshot(snapshot.FS(), dir)
 }
 
 func exitErr(msg string) {

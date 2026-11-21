@@ -59,7 +59,8 @@ The project exists because ATAK users often work with no network. Examples are s
 | map source | noun | One tile provider definition: name, URL template, zoom range, tile type. Code: `xmlparser.MapSource`. | provider, layer, map |
 | source file | noun | One MOBAC XML file that defines one map source. | config, definition |
 | source catalog | noun | The set of map sources that the project loaded. | library, source list |
-| snapshot | noun | The pinned copy of ATAK-Maps source files embedded in the binary (planned, feature 09). | bundle, vendor copy |
+| snapshot | noun | The pinned copy of ATAK-Maps source files embedded in the binary (feature 09). | bundle, vendor copy |
+| user source directory | noun | The directory that `--mapsources-dir` names. Its map sources replace snapshot map sources with the same name (feature 09). | override folder, mapsources folder |
 | overlay | noun | A map source with transparent tiles, drawn on top of another map source. | layer |
 | policy class | noun | The terms-of-use class of a map source: `open`, `conditional` or `restricted` (planned, feature 06). | license, tier |
 | rate limit | noun | The maximum number of requests per second that the project sends to one host. | throttle |

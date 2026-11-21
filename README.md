@@ -11,7 +11,7 @@ A Go implementation of the ATAK Tile Downloader. It downloads map tiles from man
 ATAK Map Downloader parses map sources from MOBAC XML files, computes tile coordinates in Web Mercator projection, and downloads tiles concurrently to produce MBTiles databases. Use the CLI for scripting or the web interface for interactive area selection.
 
 **Features:**
-- XML map source parser: discovers and parses the 30 map sources in the MOBAC XML files of `mapsources/`
+- Source catalog: the binary embeds the 53 source files of ATAK-Maps v2.3.1. A user source directory adds map sources or replaces them by name
 - Tile calculations: Web Mercator projection, coordinate transformations
 - CLI: `list-sources`, `estimate`, `tile-info`, `validate-source`, `download`
 - Web interface: interactive map, area selection, real-time download progress
@@ -31,14 +31,14 @@ You can install the project in two ways: a release archive or the Docker image.
 
 1. Open the [GitHub Releases](https://github.com/Crank-Git/ATAKMapDownloader/releases) page.
 2. Download the archive for your operating system and architecture. The Windows archive is a `.zip` file. The other archives are `.tar.gz` files.
-3. Extract the archive into a new directory. The archive contains the `atak-dl` binary and the `mapsources/` directory.
-4. Run `./atak-dl` from that directory. The binary reads its map sources from `mapsources/` in the current directory.
+3. Extract the archive into a new directory. The archive contains the `atak-dl` binary, `README.md` and `LICENSE`.
+4. Run `./atak-dl` from that directory. The binary carries its map sources, so it needs no other file.
 
 Each release also has a `checksums.txt` file. Use it to verify the archive.
 
 ### Docker image
 
-The image is `ghcr.io/crank-git/atak-map-downloader`. It contains the binary and the `mapsources/` directory. Replace `<tag>` with a release tag, for example `v1.0.0`.
+The image is `ghcr.io/crank-git/atak-map-downloader`. It contains the binary. Replace `<tag>` with a release tag, for example `v1.0.0`.
 
 ```bash
 # Start the web interface on port 5000
@@ -102,23 +102,24 @@ Then open http://localhost:5000 in your browser.
 ./atak-dl list-sources
 
 # Estimate download for an area
-./atak-dl estimate --source="Google - Satellite Only" --bbox=40.68,-74.05,40.88,-73.91
+./atak-dl estimate --source="Google Satellite" --bbox=40.68,-74.05,40.88,-73.91
 
 # Get tile info for coordinates
 ./atak-dl tile-info --lat=40.7589 --lon=-73.9851 --zoom=15
 
 # Validate a map source
-./atak-dl validate-source --source="Google - Satellite Only"
+./atak-dl validate-source --source="Google Satellite"
 
 # Download tiles
-./atak-dl download --source="Google - Satellite Only" --bbox=40.7,-74.1,40.8,-74.0 --min-zoom=10 --max-zoom=12 --accept-terms
+./atak-dl download --source="Google Satellite" --bbox=40.7,-74.1,40.8,-74.0 --min-zoom=10 --max-zoom=12 --accept-terms
 ```
 
 ### Options
 
 | Command | Flag | Default | Description |
 |---------|------|---------|-------------|
-| (global) | `--mapsources-dir` | `mapsources` | Directory containing XML map source files |
+| (global) | `--mapsources-dir` | `<user config dir>/atak-dl/mapsources` | User source directory. The project loads it after the snapshot, and it reads its subdirectories too. A missing directory is not an error. |
+| (global) | `--no-snapshot` | `false` | Load only the user source directory, without the embedded snapshot. |
 | `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, `serve` prints a warning, because the server has no authentication. |
 | `serve` | `--geocoder-url` | `https://nominatim.openstreetmap.org` | Base URL of the Nominatim geocoder for place search. The server sends at most 1 geocode request per second, waits at most 5 s for a slot, and caches each result for 24 hours. A URL that is not an absolute `http` or `https` URL fails. |
 | `serve` | `--no-geocode` | `false` | Turn off place search. `POST /api/geocode` returns 404 `not_found`, `GET /api/config` returns `{"geocode": false}`, and the web UI hides the search box. |
@@ -167,7 +168,15 @@ If you press Ctrl-C, the engine stops its requests within 500 ms and commits the
 
 ## Map Sources
 
-XML files in `mapsources/` are from [ATAK-Maps](https://github.com/joshuafuller/ATAK-Maps) by Joshua Fuller (MOBAC format). Place or symlink map source XMLs in the `mapsources` directory.
+The binary embeds a snapshot of the source files of [ATAK-Maps](https://github.com/joshuafuller/ATAK-Maps) v2.3.1, by Joshua Fuller (MIT License). The files are MOBAC XML, in `internal/snapshot/maps/`. `internal/snapshot/NOTICE.md` credits ATAK-Maps, and `internal/snapshot/VERSION` holds the tag and the commit.
+
+The project loads the snapshot first. Then it loads the user source directory, which `--mapsources-dir` names. The default user source directory is `<user config dir>/atak-dl/mapsources`, for example:
+
+- Linux: `~/.config/atak-dl/mapsources`
+- macOS: `~/Library/Application Support/atak-dl/mapsources`
+- Windows: `%AppData%\atak-dl\mapsources`
+
+A map source in the user source directory replaces the snapshot map source with the same name. `list-sources` shows the origin of each map source: `snapshot` or `user`. With `--no-snapshot`, the project loads only the user source directory.
 
 ## Project Structure
 
@@ -175,6 +184,7 @@ XML files in `mapsources/` are from [ATAK-Maps](https://github.com/joshuafuller/
 ATAKMapDownloader/
 ├── cmd/atak-dl/          # CLI entry and commands
 ├── internal/
+│   ├── snapshot/         # Embedded ATAK-Maps source files
 │   ├── xmlparser/        # XML map source parser
 │   ├── tilecalc/        # Tile coordinate calculations
 │   ├── download/        # Download engine
@@ -182,7 +192,6 @@ ATAKMapDownloader/
 ├── web/                 # Embedded web UI
 │   ├── index.html
 │   └── static/
-├── mapsources/          # XML map source definitions
 └── go.mod
 ```
 

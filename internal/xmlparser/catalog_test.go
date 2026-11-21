@@ -18,9 +18,9 @@ func sourceXML(name, url string) string {
 
 func testSnapshot() fstest.MapFS {
 	return fstest.MapFS{
-		"maps/base/alpha.xml":    {Data: []byte(sourceXML("Alpha", "https://snapshot.test/a/{$z}/{$x}/{$y}.png"))},
+		"maps/base/alpha.xml":     {Data: []byte(sourceXML("Alpha", "https://snapshot.test/a/{$z}/{$x}/{$y}.png"))},
 		"maps/overlays/bravo.xml": {Data: []byte(sourceXML("Bravo", "https://snapshot.test/b/{$z}/{$x}/{$y}.png"))},
-		"LICENSE":                {Data: []byte("MIT License")},
+		"LICENSE":                 {Data: []byte("MIT License")},
 	}
 }
 
