@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"mime/multipart"
 	"net/http"
@@ -92,6 +93,10 @@ func TestAreaFileErrorsExitWithCode1AndSendNoRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	trail := areaFixture("trail.kml")
+	dense := filepath.Join(t.TempDir(), "dense.geojson")
+	if err := os.WriteFile(dense, []byte(`{"type":"Feature","properties":{},"geometry":`+lineGeometryJSON(tilecalc.MaxAreaVertices+1)+`}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name    string
 		command string
@@ -104,6 +109,8 @@ func TestAreaFileErrorsExitWithCode1AndSendNoRequest(t *testing.T) {
 		{"download rejects an unknown extension", "download", []string{"--area", "trail.gpx"}, ".gpx"},
 		{"download rejects a line with no buffer", "download", []string{"--area", trail}, "buffer_m 0"},
 		{"estimate needs a zoom range for a feature with no zoom properties", "estimate", []string{"--area", trail, "--buffer", "300"}, "--zoom-range"},
+		{"download rejects an area with 20,001 vertices", "download", []string{"--area", dense, "--buffer", "300", "--min-zoom", "10", "--max-zoom", "10"}, "at most 20000"},
+		{"estimate rejects an area with 20,001 vertices", "estimate", []string{"--area", dense, "--buffer", "300", "--zoom-range", "10-10"}, "at most 20000"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -148,6 +155,92 @@ func TestEstimateAreaFileCountsEachAreaAndTheUniqueTiles(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "warning: ignored 2 Point features") {
 		t.Errorf("stderr = %q, want the Point warning", stderr)
+	}
+}
+
+// lineGeometryJSON returns a GeoJSON LineString with n vertices.
+func lineGeometryJSON(n int) string {
+	coords := make([]string, n)
+	for i := range coords {
+		coords[i] = fmt.Sprintf("[%f,45]", 10+float64(i)*1e-5)
+	}
+	return `{"type":"LineString","coordinates":[` + strings.Join(coords, ",") + `]}`
+}
+
+func TestEstimateAreaFileWarnsAboutZoomLevelsOutsideTheSourceRange(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	stdout, stderr, err := runEstimateArgs(t, srv, "--area", areaFixture("trail.kml"), "--buffer", "300", "--zoom-range", "17-20")
+	if err != nil {
+		t.Fatalf("estimate --area = %v, stderr %q", err, stderr)
+	}
+	for _, want := range []string{"Warning: Zoom 19 outside source range (0-18)", "Warning: Zoom 20 outside source range (0-18)"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to hold %q", stderr, want)
+		}
+	}
+	if strings.Contains(stderr, "Warning: Zoom 18") {
+		t.Errorf("stderr = %q, want no warning for zoom level 18", stderr)
+	}
+	if !strings.Contains(stdout, "Summit trail (route_buffer, zoom 17-18)") {
+		t.Errorf("stdout = %q, want the area to count zoom levels 17 to 18 only", stdout)
+	}
+
+	_, _, err = runEstimateArgs(t, srv, "--area", areaFixture("trail.kml"), "--buffer", "300", "--zoom-range", "19-20")
+	if err == nil || !strings.Contains(err.Error(), "No valid zoom levels for this source") || ExitCode(err) != 1 {
+		t.Errorf("estimate --area above the source range = %v (exit code %d), want exit code 1 and no valid zoom levels", err, ExitCode(err))
+	}
+}
+
+// writeNamedSource returns a map source directory whose one source is named name and points at srv.
+func writeNamedSource(t *testing.T, srv *testtiles.Server, name string) string {
+	t.Helper()
+	dir := writeSource(t, srv)
+	path := filepath.Join(dir, "tls.xml")
+	xml, err := os.ReadFile(path) //nolint:gosec // path is in the test directory.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, bytes.Replace(xml, []byte("Test TLS"), []byte(name), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// The v0.1 name "USGS - Usgsbasemap" has the v2 name "USGS Topo" in the alias table (FR-source-sync-16).
+func TestAreaFileCommandsAcceptAnOldSourceName(t *testing.T) {
+	const warning = `Warning: "USGS - Usgsbasemap" is an old map source name. The new name is "USGS Topo".`
+	srv := testtiles.New(t, nil)
+	dir := writeNamedSource(t, srv, "USGS Topo")
+	output := filepath.Join(t.TempDir(), "out.sqlite")
+	tests := []struct {
+		name       string
+		command    *cobra.Command
+		args       []string
+		wantStdout string
+	}{
+		{"estimate", NewEstimateCmd(), []string{"--zoom-range", "12-12"}, "Download Estimate for 'USGS Topo'"},
+		{"download", NewDownloadCmd(testUserAgent), []string{"--min-zoom", "12", "--max-zoom", "12", "--concurrent", "1", "--output", output}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := &cobra.Command{Use: "atak-dl"}
+			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.AddCommand(tt.command)
+			var out, errOut bytes.Buffer
+			root.SetOut(&out)
+			root.SetErr(&errOut)
+			root.SetArgs(append([]string{"--mapsources-dir", dir, tt.name, "--source", "USGS - Usgsbasemap",
+				"--area", areaFixture("trail.kml"), "--buffer", "300"}, tt.args...))
+			if err := root.Execute(); err != nil {
+				t.Fatalf("%s --area = %v, stderr %q", tt.name, err, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), warning) {
+				t.Errorf("stderr = %q, want it to hold %q", errOut.String(), warning)
+			}
+			if !strings.Contains(out.String(), tt.wantStdout) {
+				t.Errorf("stdout = %q, want it to hold %q", out.String(), tt.wantStdout)
+			}
+		})
 	}
 }
 

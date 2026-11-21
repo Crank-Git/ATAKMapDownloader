@@ -100,6 +100,45 @@ var areaListCases = []struct {
 	{"rejects a self-intersecting polygon", `"areas":[{"kind":"polygon","geometry":` + selfIntersecting + `,"min_zoom":1,"max_zoom":2}]`, "invalid_area"},
 	{"rejects a route buffer without buffer_m", `"areas":[{"kind":"route_buffer","geometry":{"type":"LineString","coordinates":[[0,0],[1,1]]},"min_zoom":1,"max_zoom":2}]`, "invalid_area"},
 	{"rejects an area with min_zoom above max_zoom", `"areas":[{"kind":"bounds","geometry":` + rectangleJSON(westTiles) + `,"min_zoom":5,"max_zoom":4}]`, "zoom_out_of_range"},
+	{"rejects an area with 20,001 vertices", `"areas":[` + lineAreaJSON(tilecalc.MaxAreaVertices+1) + `]`, "invalid_area"},
+	{"rejects three areas with 60,000 vertices", `"areas":[` + lineAreaJSON(20_000) + `,` + lineAreaJSON(20_000) + `,` + lineAreaJSON(20_000) + `]`, "invalid_area"},
+}
+
+// lineAreaJSON returns a route buffer area of a job request whose line has n vertices.
+func lineAreaJSON(n int) string {
+	coords := make([]string, n)
+	for i := range coords {
+		coords[i] = fmt.Sprintf("[%f,45]", 10+float64(i)*1e-5)
+	}
+	return `{"kind":"route_buffer","geometry":{"type":"LineString","coordinates":[` + strings.Join(coords, ",") + `]},"buffer_m":100,"min_zoom":1,"max_zoom":2}`
+}
+
+func TestJobAPIAcceptsAnAreaListOf2MiB(t *testing.T) {
+	s := newJobServer(t, nil)
+	// White space makes the body 2 MiB, so the body limit is the only new thing that the request meets.
+	body := `{"source":"Test Tiles","areas":[` + strings.Repeat(" ", 2<<20) + boundsAreaJSON("west", westTiles) + `]}`
+	rec := serve(newServerHandler(s.handler), http.MethodPost, "/api/jobs", body)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202: %s", rec.Code, rec.Body)
+	}
+	got := decodeRecord(t, rec.Body)
+	if final := s.finalRecord(t, got.ID); final.State != jobComplete {
+		t.Errorf("final record = %+v, want state complete", final)
+	}
+}
+
+func TestJobAPIWithAnOldSourceNameAndAnAreaListUsesTheV2Name(t *testing.T) {
+	s := newNamedJobServer(t, nil, "USGS Topo")
+	rec := s.startJob(t, `{"source":"USGS - Usgsbasemap",`+twoAreas+`}`)
+	if rec.Source != "USGS Topo" {
+		t.Errorf("record source = %q, want %q", rec.Source, "USGS Topo")
+	}
+	if !strings.HasPrefix(rec.OutputFile, "USGS_Topo") {
+		t.Errorf("output file = %q, want a name that starts with the v2 name", rec.OutputFile)
+	}
+	if got := s.finalRecord(t, rec.ID); got.State != jobComplete {
+		t.Errorf("final record = %+v, want state complete", got)
+	}
 }
 
 func TestJobAPIRejectsAnInvalidAreaList(t *testing.T) {

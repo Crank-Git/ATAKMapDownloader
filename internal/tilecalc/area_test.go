@@ -255,6 +255,15 @@ func TestAreaBoundsSelectsTheSameTilesAsTheRectangle(t *testing.T) {
 	}
 }
 
+// lineOf returns a line of n vertices that runs east from 10, 45.
+func lineOf(n int) orb.LineString {
+	line := make(orb.LineString, n)
+	for i := range line {
+		line[i] = orb.Point{10 + float64(i)*1e-5, 45}
+	}
+	return line
+}
+
 func TestAreaValidateRejectsAnInvalidArea(t *testing.T) {
 	square := orb.Polygon{{{10, 45}, {11, 45}, {11, 46}, {10, 46}, {10, 45}}}
 	line := orb.LineString{{10, 45}, {10.1, 45}}
@@ -289,6 +298,12 @@ func TestAreaValidateRejectsAnInvalidArea(t *testing.T) {
 		{"rejects an unknown kind", Area{Kind: "lasso", Geometry: square}, "lasso"},
 		{"rejects a ring with two points", Area{Kind: AreaPolygon, Geometry: orb.Polygon{{{10, 45}, {11, 45}, {10, 45}}}}, "invalid polygon"},
 		{"rejects a latitude above 90", Area{Kind: AreaRouteBuffer, Geometry: orb.LineString{{10, 45}, {10, 91}}, BufferM: 100}, "latitude"},
+		{"accepts a line with 20,000 vertices", Area{Kind: AreaRouteBuffer, Geometry: lineOf(MaxAreaVertices), BufferM: 100}, ""},
+		{"rejects a line with 20,001 vertices", Area{Kind: AreaRouteBuffer, Geometry: lineOf(MaxAreaVertices + 1), BufferM: 100},
+			"the area has 20001 vertices, and an area holds at most 20000"},
+		{"rejects a polygon with 20,001 vertices before the self-intersection check",
+			Area{Kind: AreaPolygon, Geometry: orb.Polygon{orb.Ring(lineOf(MaxAreaVertices + 1))}},
+			"the area has 20001 vertices, and an area holds at most 20000"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
