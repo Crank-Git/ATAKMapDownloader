@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -85,7 +84,7 @@ func (p Progress) ProgressPercent() float64 {
 	if p.TotalTiles == 0 {
 		return 0
 	}
-	return float64(p.Downloaded) / float64(p.TotalTiles) * 100
+	return float64(p.Downloaded+p.Skipped) / float64(p.TotalTiles) * 100
 }
 
 // Elapsed returns elapsed time.
@@ -108,7 +107,7 @@ func (p Progress) ETASeconds() float64 {
 	if rate == 0 {
 		return 0
 	}
-	remaining := p.TotalTiles - int(p.Downloaded)
+	remaining := p.TotalTiles - int(p.Downloaded+p.Skipped)
 	return float64(remaining) / rate
 }
 
@@ -157,8 +156,9 @@ func NewEngine(cfg Config) *Engine {
 }
 
 // DownloadTiles downloads the tiles of bounds at zoomLevels, and one writer goroutine writes them to outputPath.
+// It opens an existing output file and skips each tile that the file holds, so the caller decides whether a file may exist.
 // The error is ErrServerRefused or ErrWriteFailed when either stops the job.
-// It is the context error when the job is cancelled.
+// It is the context error when the job is cancelled. Every outcome keeps the output file.
 func (e *Engine) DownloadTiles(
 	ctx context.Context,
 	source *xmlparser.MapSource,
@@ -178,7 +178,7 @@ func (e *Engine) DownloadTiles(
 
 	slog.Info("starting download", "tiles", totalTiles, "zoom_levels", len(zoomLevels))
 
-	w, err := mbtiles.Create(outputPath, outputMetadata(source, bounds, zoomLevels))
+	w, err := mbtiles.Open(outputPath, outputMetadata(source, bounds, zoomLevels))
 	if err != nil {
 		return Result{}, err
 	}
@@ -198,7 +198,7 @@ func (e *Engine) DownloadTiles(
 
 			select {
 			case <-jobCtx.Done():
-				// A refusal also ends jobCtx, but only a cancel of ctx removes the output file.
+				// A refusal also ends jobCtx, but only a cancel of ctx is a cancelled job.
 				if ctx.Err() != nil {
 					c.cancelled.Store(true)
 				}
@@ -219,7 +219,7 @@ func (e *Engine) DownloadTiles(
 wait:
 	wg.Wait()
 
-	// Close commits the last transaction, so the output file is complete before result reads or removes it.
+	// Close commits the last transaction, so the output file holds every tile that the job downloaded.
 	closeErr := w.Close()
 	progress := c.snapshot()
 	if cb != nil {
@@ -228,18 +228,18 @@ wait:
 
 	slog.Info("download complete",
 		"downloaded", progress.Downloaded,
+		"skipped", progress.Skipped,
 		"failed", progress.Failed,
 		"total", totalTiles,
 		"cancelled", c.cancelled.Load())
 
-	ok, err := e.result(ctx, jobCtx, &c, closeErr, outputPath)
+	ok, err := e.result(ctx, jobCtx, &c, closeErr)
 	return Result{OK: ok, Progress: progress}, err
 }
 
 // result returns the result of a job after its tile goroutines end and its writer closes.
-// A refusal stop or a write failure returns its cause and keeps the output file.
-// A cancel removes the output file and returns the context error.
-func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr error, outputPath string) (bool, error) {
+// A refusal stop or a write failure returns its cause. A cancel returns the context error.
+func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr error) (bool, error) {
 	if cause := context.Cause(jobCtx); errors.Is(cause, ErrServerRefused) || errors.Is(cause, ErrWriteFailed) {
 		return false, cause
 	}
@@ -247,11 +247,9 @@ func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr e
 		return false, fmt.Errorf("%w: %w", ErrWriteFailed, closeErr)
 	}
 	if c.cancelled.Load() || ctx.Err() != nil {
-		// A failed removal leaves a partial output file. #26 owns the output file rules.
-		_ = os.Remove(outputPath)
 		return false, ctx.Err()
 	}
-	return e.outcome(c.downloaded.Load(), c.failed.Load())
+	return e.outcome(c.downloaded.Load(), c.skipped.Load(), c.failed.Load())
 }
 
 // outputMetadata returns the MBTiles metadata rows for a job.
@@ -265,17 +263,23 @@ func outputMetadata(source *xmlparser.MapSource, bounds *tilecalc.GeographicBoun
 		"bounds":      fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", bounds.MinLon, bounds.MinLat, bounds.MaxLon, bounds.MaxLat),
 		"minzoom":     fmt.Sprintf("%d", zoomLevels[0]),
 		"maxzoom":     fmt.Sprintf("%d", zoomLevels[len(zoomLevels)-1]),
+		// The resume check of the CLI reads this row (FR-robust-downloads-10).
+		"atakdl_source": source.Name,
 	}
 }
 
 // outcome returns the result of a job that was not cancelled.
 // It returns an error when no tile was processed or when the failure rate is above the limit.
-func (e *Engine) outcome(downloaded, failed int64) (bool, error) {
+// A job that skips every tile succeeds, because a resume of a complete output file is not an error.
+func (e *Engine) outcome(downloaded, skipped, failed int64) (bool, error) {
 	if e.cfg.IgnoreErrors {
 		return true, nil
 	}
 
 	processed := downloaded + failed
+	if processed == 0 && skipped > 0 {
+		return true, nil
+	}
 	if processed == 0 {
 		return false, fmt.Errorf("no tiles processed")
 	}
@@ -309,6 +313,7 @@ func (c *tileCounters) snapshot() Progress {
 }
 
 // fetchTile downloads one tile, sends it to w, and updates c.
+// It skips a tile that w holds (FR-robust-downloads-8).
 // It sets c.cancelled when the callback returns false, and it stops the job when w fails.
 func (e *Engine) fetchTile(
 	ctx context.Context,
@@ -320,6 +325,13 @@ func (e *Engine) fetchTile(
 	x, y, z int,
 ) {
 	if c.cancelled.Load() {
+		return
+	}
+	if w.Has(z, x, y) {
+		c.skipped.Add(1)
+		if cb != nil && !cb(c.snapshot()) {
+			c.cancelled.Store(true)
+		}
 		return
 	}
 

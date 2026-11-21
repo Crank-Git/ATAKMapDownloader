@@ -60,17 +60,6 @@ type Writer struct {
 	commits int
 }
 
-// Create returns a writer for a new output file at path, with the metadata rows in metadata.
-// It deletes an existing file at path first.
-func Create(path string, metadata map[string]string) (*Writer, error) {
-	if _, err := os.Stat(path); err == nil {
-		if err := os.Remove(path); err != nil {
-			return nil, err
-		}
-	}
-	return Open(path, metadata)
-}
-
 // Open returns a writer for the output file at path, and it creates the file when it does not exist.
 // It stores the rows in metadata, and it replaces a stored row with the same name.
 // It loads the keys of the stored tiles, so that Has needs no query.
@@ -105,6 +94,27 @@ func Open(path string, metadata map[string]string) (*Writer, error) {
 	}
 	go w.run()
 	return w, nil
+}
+
+// ReadMetadata returns the value of the metadata row name in the output file at path, and true when the row exists.
+// It never writes to the file. Call it only for a file that exists, because the driver creates a missing file.
+// It returns an error when the file is not an SQLite database or has no metadata table.
+func ReadMetadata(path, name string) (string, bool, error) {
+	db, err := sql.Open("sqlite", path+"?_busy_timeout=5000&_query_only=1")
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = db.Close() }() // The file is read-only here, so a close error loses no data.
+
+	var value string
+	err = db.QueryRow("SELECT value FROM metadata WHERE name = ?", name).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read metadata %s: %w", name, err)
+	}
+	return value, true, nil
 }
 
 // writeMetadata stores the rows in metadata in one transaction.

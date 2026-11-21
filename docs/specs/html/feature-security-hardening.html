@@ -336,7 +336,7 @@ body.rv-open .layout { padding-right:21rem; }
 <h3 id="security-hardening-interfaces">Interfaces</h3>
 <div class="table-wrap"><table>
 <tr><th>Method</th><th>Path</th><th>Request</th><th>Success</th><th>Errors</th></tr>
-<tr><td>POST</td><td><code>/api/jobs</code></td><td><code>{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?}</code></td><td>202 job record</td><td>400, 403, 404 <code>unknown_source</code>, 409, 413</td></tr>
+<tr><td>POST</td><td><code>/api/jobs</code></td><td><code>{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?, if_exists?}</code></td><td>202 job record</td><td>400, 403, 404 <code>unknown_source</code>, 409 <code>job_running</code> or <code>output_exists</code>, 413</td></tr>
 <tr><td>GET</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>200 job record</td><td>404 <code>job_not_found</code></td></tr>
 <tr><td>GET</td><td><code>/api/jobs/{id}/events</code></td><td>—</td><td>200 <code>text/event-stream</code></td><td>404</td></tr>
 <tr><td>DELETE</td><td><code>/api/jobs/{id}</code></td><td>—</td><td>202 job record</td><td>403, 404</td></tr>

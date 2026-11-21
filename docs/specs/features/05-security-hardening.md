@@ -145,7 +145,7 @@ Feature 08 redesigns the screens.
 
 | Method | Path | Request | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/jobs` | `{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?}` | 202 job record | 400, 403, 404 `unknown_source`, 409, 413 |
+| POST | `/api/jobs` | `{source, bounds:[w,s,e,n], min_zoom, max_zoom, name?, concurrency?, failure_tolerance?, ignore_errors?, verify_tls?, if_exists?}` | 202 job record | 400, 403, 404 `unknown_source`, 409 `job_running` or `output_exists`, 413 |
 | GET | `/api/jobs/{id}` | — | 200 job record | 404 `job_not_found` |
 | GET | `/api/jobs/{id}/events` | — | 200 `text/event-stream` | 404 |
 | DELETE | `/api/jobs/{id}` | — | 202 job record | 403, 404 |

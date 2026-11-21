@@ -3,6 +3,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -36,6 +37,10 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().Bool("insecure", false, "Do not verify the TLS certificates of the tile server")
 	cmd.Flags().Float64("rate-limit", 0, "Requests per second, below the policy rate of the source (default: the policy rate)")
 	cmd.Flags().Bool("accept-terms", false, "Accept the terms of use of a restricted map source and start the job")
+	cmd.Flags().Bool("resume", false, "Continue the job into the existing output file and skip the tiles it holds")
+	cmd.Flags().Bool("overwrite", false, "Delete the existing output file before the job starts")
+	cmd.Flags().Bool("force", false, "With --resume, accept an output file that names no map source (a v0.1 file)")
+	cmd.MarkFlagsMutuallyExclusive("resume", "overwrite")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
@@ -76,6 +81,9 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		fname := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
 		output = filepath.Join(dlDir, fname)
 	}
+	if err := checkOutput(cmd, output, source.Name); err != nil {
+		return err
+	}
 
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {
@@ -95,7 +103,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		percent := p.ProgressPercent()
 		if percent-lastPercent >= 1 || percent >= 100 {
 			fmt.Printf("\r%.1f%% (%d/%d) - %.1f tiles/s - ETA: %.0fs   ",
-				percent, p.Downloaded, p.TotalTiles, p.TilesPerSecond(), p.ETASeconds())
+				percent, p.Downloaded+p.Skipped, p.TotalTiles, p.TilesPerSecond(), p.ETASeconds())
 			lastPercent = percent
 		}
 		return true
@@ -116,6 +124,36 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	}
 	fmt.Printf("Download complete. Saved to %s\n", output)
 	return nil
+}
+
+// checkOutput applies the --resume, --overwrite and --force flags of cmd to the output file at output.
+// It returns an ExitError with exitOutputConflict when the flags do not accept the existing file.
+func checkOutput(cmd *cobra.Command, output, sourceName string) error {
+	rule := ifExistsFail
+	for _, flag := range []struct {
+		name string
+		rule ifExists
+	}{{"resume", ifExistsResume}, {"overwrite", ifExistsOverwrite}} {
+		set, err := cmd.Flags().GetBool(flag.name)
+		if err != nil {
+			return fmt.Errorf("read --%s: %w", flag.name, err)
+		}
+		if set {
+			rule = flag.rule
+		}
+	}
+	force, err := cmd.Flags().GetBool("force")
+	if err != nil {
+		return fmt.Errorf("read --force: %w", err)
+	}
+	err = prepareOutput(output, rule, sourceName, force)
+	var conflict *outputConflict
+	if errors.As(err, &conflict) {
+		// The refusal protects the file and is not a flag error, so the usage text does not help the user.
+		cmd.SilenceUsage = true
+		return &ExitError{Code: exitOutputConflict, Err: err}
+	}
+	return err
 }
 
 // downloadConfig returns the engine configuration of the download command for source.
