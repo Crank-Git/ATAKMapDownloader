@@ -3,6 +3,7 @@ package download
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -131,6 +132,10 @@ type Engine struct {
 	gates  *gateRegistry
 	// backoffBase is the first wait of the backoff schedule. A test makes it short.
 	backoffBase time.Duration
+	// blocked is the set of SHA-256 hashes of the tiles that the engine rejects. A test adds a fixture hash.
+	blocked map[[sha256.Size]byte]struct{}
+	// onTileFailed gets each failed tile and its reason. It is nil until the writer stores failed tiles (#28).
+	onTileFailed func(z, x, y int, reason Reason)
 }
 
 // NewEngine creates a new download engine.
@@ -153,6 +158,7 @@ func NewEngine(cfg Config) *Engine {
 		client:      client,
 		gates:       hostGates,
 		backoffBase: time.Second,
+		blocked:     blockedHashes,
 	}
 }
 
@@ -295,6 +301,8 @@ type tileCounters struct {
 	skipped    atomic.Int64
 	failed     atomic.Int64
 	cancelled  atomic.Bool
+	// placeholder counts the hashes of the first tiles of the job (FR-robust-downloads-20).
+	placeholder placeholderCheck
 }
 
 // snapshot returns a copy of the counters in c.
@@ -329,15 +337,22 @@ func (e *Engine) fetchTile(
 	data, err := e.downloadTileWithRetry(ctx, jg, url, fmt.Sprintf("%d/%d/%d", z, x, y))
 	if err != nil {
 		c.failed.Add(1)
+		e.tileFailed(z, x, y, reasonOf(err))
 		if cb != nil && !cb(c.snapshot()) {
 			c.cancelled.Store(true)
 		}
 		return
 	}
 
+	if c.placeholder.add(sha256.Sum256(data)) {
+		slog.Warn("the map source may return a placeholder image",
+			"source", source.Name, "tile", fmt.Sprintf("%d/%d/%d", z, x, y))
+	}
+
 	if err := w.Put(z, x, y, data); err != nil {
 		slog.Error("write tile failed", "x", x, "y", y, "z", z, "err", err)
 		c.failed.Add(1)
+		e.tileFailed(z, x, y, ReasonWriteFailed)
 		jg.stop(fmt.Errorf("%w: %w", ErrWriteFailed, err))
 		return
 	}
@@ -346,6 +361,15 @@ func (e *Engine) fetchTile(
 	if cb != nil && !cb(c.snapshot()) {
 		c.cancelled.Store(true)
 	}
+}
+
+// tileFailed reports one failed tile and its reason.
+// A job stop or a cancel ends the tile with no reason, so the engine reports nothing for it.
+func (e *Engine) tileFailed(z, x, y int, reason Reason) {
+	if reason == "" || e.onTileFailed == nil {
+		return
+	}
+	e.onTileFailed(z, x, y, reason)
 }
 
 // jobGate holds the request limits of one job.
@@ -393,6 +417,8 @@ type tileResponse struct {
 }
 
 // downloadTileWithRetry returns the data of the tile at url, with at most maxAttempts requests.
+// The retry pass also calls it, so a tile from either pass gets the same validation.
+// A failed tile returns a *TileError that holds the failure reason.
 // It returns ErrServerRefused when a refusal stops the job, and the context error when the job ends.
 func (e *Engine) downloadTileWithRetry(ctx context.Context, jg *jobGate, url, tile string) ([]byte, error) {
 	var lastErr error
@@ -402,7 +428,7 @@ func (e *Engine) downloadTileWithRetry(ctx context.Context, jg *jobGate, url, ti
 		case ctx.Err() != nil:
 			return nil, ctx.Err()
 		case err != nil:
-			lastErr = err
+			lastErr = networkError(err)
 			if attempt < maxAttempts-1 {
 				// A network error says nothing about the host load, so the wait holds only this tile.
 				if err := wait(ctx, backoffDelay(e.backoffBase, attempt+1, 0)); err != nil {
@@ -411,15 +437,19 @@ func (e *Engine) downloadTileWithRetry(ctx context.Context, jg *jobGate, url, ti
 			}
 		case resp.status == http.StatusOK:
 			jg.refusals.Store(0)
+			// The same body comes back on a retry, so the engine does not retry a rejected body.
+			if reason := validateTile(resp.data, e.blocked); reason != "" {
+				return nil, &TileError{Reason: reason}
+			}
 			return resp.data, nil
 		case resp.status == http.StatusForbidden || resp.status == http.StatusTooManyRequests || resp.status == http.StatusServiceUnavailable:
-			lastErr = fmt.Errorf("HTTP %d", resp.status)
+			lastErr = &TileError{Reason: HTTPReason(resp.status)}
 			if err := e.refuse(jg, resp, tile); err != nil {
 				return nil, err
 			}
 		default:
 			jg.refusals.Store(0)
-			return nil, fmt.Errorf("HTTP %d", resp.status)
+			return nil, &TileError{Reason: HTTPReason(resp.status)}
 		}
 	}
 	return nil, lastErr

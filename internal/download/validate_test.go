@@ -235,61 +235,27 @@ func TestTileErrorUnwrapsItsCause(t *testing.T) {
 }
 
 func TestPlaceholderCheck(t *testing.T) {
-	same := sha256.Sum256([]byte("placeholder"))
-	other := func(i int) [sha256.Size]byte { return sha256.Sum256(fmt.Appendf(nil, "tile %d", i)) }
 	tests := []struct {
 		name string
-		sums func() [][sha256.Size]byte
-		want int
+		// total is the number of tiles. same reports whether tile i has the shared hash.
+		total int
+		same  func(i int) bool
+		want  int
 	}{
-		{
-			name: "warns once when 51 of the first 100 tiles share one hash",
-			sums: func() [][sha256.Size]byte {
-				var s [][sha256.Size]byte
-				for i := range 200 {
-					if i < 51 {
-						s = append(s, same)
-					} else {
-						s = append(s, other(i))
-					}
-				}
-				return s
-			},
-			want: 1,
-		},
-		{
-			name: "does not warn when 50 of the first 100 tiles share one hash",
-			sums: func() [][sha256.Size]byte {
-				var s [][sha256.Size]byte
-				for i := range 100 {
-					if i%2 == 0 {
-						s = append(s, same)
-					} else {
-						s = append(s, other(i))
-					}
-				}
-				return s
-			},
-		},
-		{
-			name: "does not count the tiles after the first 100",
-			sums: func() [][sha256.Size]byte {
-				var s [][sha256.Size]byte
-				for i := range 100 {
-					s = append(s, other(i))
-				}
-				for range 100 {
-					s = append(s, same)
-				}
-				return s
-			},
-		},
+		{"warns once when 51 of the first 100 tiles share one hash", 200, func(i int) bool { return i < 51 }, 1},
+		{"does not warn when 50 of the first 100 tiles share one hash", 100, func(i int) bool { return i%2 == 0 }, 0},
+		{"does not count the tiles after the first 100", 200, func(i int) bool { return i >= 100 }, 0},
 	}
+	shared := sha256.Sum256([]byte("placeholder"))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var p placeholderCheck
 			warnings := 0
-			for _, sum := range tt.sums() {
+			for i := range tt.total {
+				sum := sha256.Sum256(fmt.Appendf(nil, "tile %d", i))
+				if tt.same(i) {
+					sum = shared
+				}
 				if p.add(sum) {
 					warnings++
 				}
@@ -331,7 +297,8 @@ func TestEngineWarnsWhenTheMapSourceReturnsOnePlaceholderImage(t *testing.T) {
 	source := loadFixture(t, "xyz.xml", srv)
 	cfg := testConfig()
 	cfg.MaxConcurrent = 8
-	res, err := NewEngine(cfg).DownloadTiles(t.Context(), source, boundsOf(t, tb), []int{tb.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil)
+	// The default rate of a local host gives a job of 121 tiles about 30 s, so the test raises it.
+	res, err := politeEngine(cfg, 1000).DownloadTiles(t.Context(), source, boundsOf(t, tb), []int{tb.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil)
 	if !res.OK || err != nil {
 		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
