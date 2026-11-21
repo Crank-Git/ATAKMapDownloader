@@ -2,8 +2,12 @@ package download
 
 import (
 	"database/sql"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,14 +52,10 @@ func boundsOf(t *testing.T, tb tilecalc.TileBounds) *tilecalc.GeographicBounds {
 	return bounds
 }
 
-// testConfig returns an engine configuration for one tile request at a time.
+// testConfig returns the default engine configuration with a short request timeout.
 func testConfig() Config {
 	cfg := DefaultConfig()
 	cfg.Timeout = 5 * time.Second
-	// TODO(#25): Raise MaxConcurrent when the engine updates progress with atomic operations only.
-	// Every tile goroutine writes the shared Progress fields, so a concurrent job fails under -race.
-	// With one slot, the semaphore orders the goroutines and the race detector reports no race.
-	cfg.MaxConcurrent = 1
 	return cfg
 }
 
@@ -128,9 +128,9 @@ func TestEngineDownloadsA3x3TileArea(t *testing.T) {
 			source := loadFixture(t, tt.fixture, srv)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			ok, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
-			if !ok || err != nil {
-				t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+			res, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+			if !res.OK || err != nil {
+				t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 			}
 
 			tiles := storedTiles(t, output)
@@ -178,9 +178,9 @@ func TestEngineFailureTolerance(t *testing.T) {
 			source := loadFixture(t, "xyz.xml", srv)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			ok, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
-			if ok != tt.wantOK {
-				t.Errorf("DownloadTiles ok = %v, want %v", ok, tt.wantOK)
+			res, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+			if res.OK != tt.wantOK {
+				t.Errorf("DownloadTiles ok = %v, want %v", res.OK, tt.wantOK)
 			}
 			if got := errorText(err); got != tt.wantError {
 				t.Errorf("DownloadTiles error = %q, want %q", got, tt.wantError)
@@ -206,8 +206,8 @@ func TestEngineRejectsASelfSignedCertificateByDefault(t *testing.T) {
 	source := loadFixture(t, "xyz.xml", srv)
 	output := filepath.Join(t.TempDir(), "out.sqlite")
 
-	ok, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
-	if ok {
+	res, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
+	if res.OK {
 		t.Errorf("DownloadTiles ok = true, want false")
 	}
 	if want := "failure rate 100.0% exceeds threshold 20.0%"; errorText(err) != want {
@@ -229,9 +229,9 @@ func TestEngineAcceptsASelfSignedCertificateWhenInsecure(t *testing.T) {
 	cfg := testConfig()
 	cfg.VerifyTLS = false
 
-	ok, err := NewEngine(cfg).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
-	if !ok || err != nil {
-		t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+	res, err := NewEngine(cfg).DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+	if !res.OK || err != nil {
+		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
 	tiles := storedTiles(t, output)
 	if len(tiles) != 9 {
@@ -239,5 +239,74 @@ func TestEngineAcceptsASelfSignedCertificateWhenInsecure(t *testing.T) {
 	}
 	for pair := range area.IterTiles() {
 		checkTile(t, srv, tiles, pair[0], pair[1])
+	}
+}
+
+// largeArea is a 100×100 tile area at zoom level 10, for FR-robust-downloads-5.
+var largeArea = tilecalc.TileBounds{MinX: 300, MaxX: 399, MinY: 400, MaxY: 499, Zoom: 10}
+
+func TestEngineDownloadsA10000TileJobWith16Slots(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	source := loadFixture(t, "xyz.xml", srv)
+	output := filepath.Join(t.TempDir(), "out.sqlite")
+	cfg := testConfig()
+	cfg.MaxConcurrent = 16
+
+	var calls atomic.Int64
+	res, err := politeEngine(cfg, 1e6).DownloadTiles(t.Context(), source, boundsOf(t, largeArea), []int{largeArea.Zoom}, output,
+		func(Progress) bool {
+			calls.Add(1)
+			return true
+		})
+	if !res.OK || err != nil {
+		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
+	}
+
+	const want = 10000
+	if res.Downloaded != want || res.Failed != 0 || res.TotalTiles != want {
+		t.Errorf("result = %d downloaded, %d failed of %d; want %d, 0 of %d", res.Downloaded, res.Failed, res.TotalTiles, want, want)
+	}
+	if n := len(storedTiles(t, output)); n != want {
+		t.Errorf("output file holds %d tile rows, want %d", n, want)
+	}
+	if n := srv.TotalRequests(); n != want {
+		t.Errorf("server got %d tile requests, want %d", n, want)
+	}
+	// The engine calls back once per tile and once when the job ends.
+	if n := calls.Load(); n != want+1 {
+		t.Errorf("callback ran %d times, want %d", n, want+1)
+	}
+}
+
+func TestEngineStopsTheJobWhenTheWriterFails(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	source := loadFixture(t, "xyz.xml", srv)
+	output := filepath.Join(t.TempDir(), "out.sqlite")
+	// 600 tiles fill one transaction of 500 tiles, so the writer fails during the job.
+	tiles := tilecalc.TileBounds{MinX: 300, MaxX: 329, MinY: 400, MaxY: 419, Zoom: 10}
+
+	// The writer has no open transaction before tile 500, so a second connection can drop the table.
+	// A missing tiles table makes the writer fail, as a full disk does.
+	var drop sync.Once
+	cb := func(Progress) bool {
+		drop.Do(func() {
+			db, err := sql.Open("sqlite", output+"?_busy_timeout=5000")
+			if err != nil {
+				t.Errorf("open output file: %v", err)
+				return
+			}
+			defer func() { _ = db.Close() }() // The DROP below already reports a failure of the file.
+			if _, err := db.ExecContext(t.Context(), "DROP TABLE tiles"); err != nil {
+				t.Errorf("drop the tiles table: %v", err)
+			}
+		})
+		return true
+	}
+	res, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, boundsOf(t, tiles), []int{tiles.Zoom}, output, cb)
+	if res.OK || !errors.Is(err, ErrWriteFailed) || !strings.HasPrefix(errorText(err), "write_failed") {
+		t.Errorf("DownloadTiles = %v, %v; want false and an error that starts with write_failed", res.OK, err)
+	}
+	if _, err := os.Stat(output); err != nil {
+		t.Errorf("output file after a write failure: %v, want the file kept", err)
 	}
 }

@@ -74,9 +74,9 @@ func TestEngineLimitsTheRequestRateOfAHost(t *testing.T) {
 			cfg.RateLimit = tt.rateLimit
 			output := filepath.Join(t.TempDir(), "out.sqlite")
 
-			ok, err := politeEngine(cfg, tt.policyRPS).DownloadTiles(t.Context(), source, boundsOf(t, wideArea), []int{wideArea.Zoom}, output, nil)
-			if !ok || err != nil {
-				t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+			res, err := politeEngine(cfg, tt.policyRPS).DownloadTiles(t.Context(), source, boundsOf(t, wideArea), []int{wideArea.Zoom}, output, nil)
+			if !res.OK || err != nil {
+				t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 			}
 			log := srv.Log()
 			if len(log) != wideArea.TileCount() {
@@ -95,9 +95,9 @@ func TestEngineWaitsForRetryAfterBeforeTheNextRequest(t *testing.T) {
 	source := loadFixture(t, "xyz.xml", srv)
 	output := filepath.Join(t.TempDir(), "out.sqlite")
 
-	ok, err := politeEngine(testConfig(), 1000).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
-	if !ok || err != nil {
-		t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+	res, err := politeEngine(testConfig(), 1000).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
+	if !res.OK || err != nil {
+		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
 	log := srv.Log()
 	if len(log) != 2 {
@@ -134,9 +134,9 @@ func TestEngineStopsTheJobWithServerRefused(t *testing.T) {
 			// A short base keeps 20 backoff waits inside the test time.
 			e.backoffBase = time.Millisecond
 
-			ok, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
-			if ok || !errors.Is(err, ErrServerRefused) || !strings.HasPrefix(errorText(err), "server_refused") {
-				t.Errorf("DownloadTiles = %v, %v; want false and an error that starts with server_refused", ok, err)
+			res, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil)
+			if res.OK || !errors.Is(err, ErrServerRefused) || !strings.HasPrefix(errorText(err), "server_refused") {
+				t.Errorf("DownloadTiles = %v, %v; want false and an error that starts with server_refused", res.OK, err)
 			}
 			if n := srv.TotalRequests(); n != tt.wantRequests {
 				t.Errorf("server got %d requests, want %d", n, tt.wantRequests)
@@ -186,8 +186,8 @@ func TestEngineSendsTheUserAgentOnEveryRequest(t *testing.T) {
 	e := politeEngine(testConfig(), 1000)
 	e.backoffBase = time.Millisecond
 
-	if ok, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil); !ok || err != nil {
-		t.Fatalf("DownloadTiles = %v, %v; want true, nil", ok, err)
+	if res, err := e.DownloadTiles(t.Context(), source, areaBounds(t), []int{area.Zoom}, output, nil); !res.OK || err != nil {
+		t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 	}
 	log := srv.Log()
 	// The 9 tiles and the retry of the refused tile give 10 requests.
@@ -296,8 +296,8 @@ func TestTwoSourcesOfOnePolicyEntryShareOneRate(t *testing.T) {
 		source := loadFixture(t, "xyz.xml", srv)
 		output := filepath.Join(t.TempDir(), "out.sqlite")
 		go func() {
-			ok, err := e.DownloadTiles(t.Context(), source, boundsOf(t, twoTiles), []int{twoTiles.Zoom}, output, nil)
-			if err == nil && !ok {
+			res, err := e.DownloadTiles(t.Context(), source, boundsOf(t, twoTiles), []int{twoTiles.Zoom}, output, nil)
+			if err == nil && !res.OK {
 				err = errors.New("the job failed")
 			}
 			errs <- err

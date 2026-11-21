@@ -4,7 +4,6 @@ package download
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -27,6 +26,9 @@ import (
 
 // ErrServerRefused is the failure reason of a job that the tile server refuses (FR-polite-downloading-12).
 var ErrServerRefused = errors.New("server_refused")
+
+// ErrWriteFailed is the failure reason of a job whose output file write fails, for example on a full disk.
+var ErrWriteFailed = errors.New("write_failed")
 
 const (
 	// maxRefusals is the number of consecutive refusals that stops a job (FR-polite-downloading-12).
@@ -67,50 +69,59 @@ func DefaultConfig() Config {
 	}
 }
 
-// Progress reports download progress.
+// Progress is a copy of the progress counters of a job at one time.
+// The engine updates the counters with atomic operations, and each callback gets a new copy (FR-robust-downloads-4).
 type Progress struct {
-	TotalTiles  int
-	Downloaded  int64
-	Failed      int64
-	CurrentTile [3]int
-	CurrentURL  string
-	StartTime   time.Time
+	TotalTiles int
+	Downloaded int64
+	// Skipped counts the tiles that the output file already holds.
+	Skipped   int64
+	Failed    int64
+	StartTime time.Time
 }
 
 // ProgressPercent returns 0-100.
-func (p *Progress) ProgressPercent() float64 {
+func (p Progress) ProgressPercent() float64 {
 	if p.TotalTiles == 0 {
 		return 0
 	}
-	return float64(atomic.LoadInt64(&p.Downloaded)) / float64(p.TotalTiles) * 100
+	return float64(p.Downloaded) / float64(p.TotalTiles) * 100
 }
 
 // Elapsed returns elapsed time.
-func (p *Progress) Elapsed() time.Duration {
+func (p Progress) Elapsed() time.Duration {
 	return time.Since(p.StartTime)
 }
 
 // TilesPerSecond returns download rate.
-func (p *Progress) TilesPerSecond() float64 {
+func (p Progress) TilesPerSecond() float64 {
 	elapsed := p.Elapsed().Seconds()
 	if elapsed == 0 {
 		return 0
 	}
-	return float64(atomic.LoadInt64(&p.Downloaded)) / elapsed
+	return float64(p.Downloaded) / elapsed
 }
 
 // ETASeconds estimates remaining time.
-func (p *Progress) ETASeconds() float64 {
+func (p Progress) ETASeconds() float64 {
 	rate := p.TilesPerSecond()
 	if rate == 0 {
 		return 0
 	}
-	remaining := p.TotalTiles - int(atomic.LoadInt64(&p.Downloaded))
+	remaining := p.TotalTiles - int(p.Downloaded)
 	return float64(remaining) / rate
 }
 
 // ProgressCallback is called with progress updates. Return false to cancel.
-type ProgressCallback func(*Progress) bool
+type ProgressCallback func(Progress) bool
+
+// Result is the result of one job.
+type Result struct {
+	// OK is true when the job ends within its failure tolerance.
+	OK bool
+	// Progress holds the counters of the job when it ends.
+	Progress
+}
 
 // Engine downloads map tiles.
 type Engine struct {
@@ -145,7 +156,9 @@ func NewEngine(cfg Config) *Engine {
 	}
 }
 
-// DownloadTiles downloads tiles and writes to MBTiles.
+// DownloadTiles downloads the tiles of bounds at zoomLevels, and one writer goroutine writes them to outputPath.
+// The error is ErrServerRefused or ErrWriteFailed when either stops the job.
+// It is the context error when the job is cancelled.
 func (e *Engine) DownloadTiles(
 	ctx context.Context,
 	source *xmlparser.MapSource,
@@ -153,7 +166,7 @@ func (e *Engine) DownloadTiles(
 	zoomLevels []int,
 	outputPath string,
 	cb ProgressCallback,
-) (success bool, err error) {
+) (Result, error) {
 	var totalTiles int
 	var tileBoundsList []*tilecalc.TileBounds
 
@@ -165,23 +178,18 @@ func (e *Engine) DownloadTiles(
 
 	slog.Info("starting download", "tiles", totalTiles, "zoom_levels", len(zoomLevels))
 
-	db, err := mbtiles.Create(outputPath, outputMetadata(source, bounds, zoomLevels))
+	w, err := mbtiles.Create(outputPath, outputMetadata(source, bounds, zoomLevels))
 	if err != nil {
-		return false, err
+		return Result{}, err
 	}
-	defer db.Close() //nolint:errcheck // A close error does not change the result today (#25).
 
-	progress := &Progress{
-		TotalTiles: totalTiles,
-		StartTime:  time.Now(),
-	}
+	c := tileCounters{total: totalTiles, start: time.Now()}
 
 	jobCtx, jg := e.newJobGate(ctx, source)
 	defer jg.stop(nil)
 
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
 	var wg sync.WaitGroup
-	var c tileCounters
 
 	for _, tb := range tileBoundsList {
 		for pair := range tb.IterTiles() {
@@ -192,7 +200,7 @@ func (e *Engine) DownloadTiles(
 			case <-jobCtx.Done():
 				// A refusal also ends jobCtx, but only a cancel of ctx removes the output file.
 				if ctx.Err() != nil {
-					atomic.StoreInt32(&c.cancelled, 1)
+					c.cancelled.Store(true)
 				}
 				goto wait
 			default:
@@ -203,7 +211,7 @@ func (e *Engine) DownloadTiles(
 			go func(x, y, z int) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				e.fetchTile(jobCtx, jg, db, source, progress, cb, &c, x, y, z)
+				e.fetchTile(jobCtx, jg, w, source, cb, &c, x, y, z)
 			}(x, y, z)
 		}
 	}
@@ -211,35 +219,39 @@ func (e *Engine) DownloadTiles(
 wait:
 	wg.Wait()
 
-	downloaded, failed := c.downloaded, c.failed
-	progress.Downloaded = atomic.LoadInt64(&c.downloaded)
-	progress.Failed = atomic.LoadInt64(&c.failed)
+	// Close commits the last transaction, so the output file is complete before result reads or removes it.
+	closeErr := w.Close()
+	progress := c.snapshot()
 	if cb != nil {
 		cb(progress)
 	}
 
 	slog.Info("download complete",
-		"downloaded", downloaded,
-		"failed", failed,
+		"downloaded", progress.Downloaded,
+		"failed", progress.Failed,
 		"total", totalTiles,
-		"cancelled", atomic.LoadInt32(&c.cancelled) == 1)
+		"cancelled", c.cancelled.Load())
 
-	return e.result(ctx, jobCtx, &c, outputPath)
+	ok, err := e.result(ctx, jobCtx, &c, closeErr, outputPath)
+	return Result{OK: ok, Progress: progress}, err
 }
 
-// result returns the result of a job after its tile goroutines end.
-// A refusal stop returns its ErrServerRefused cause and keeps the output file.
+// result returns the result of a job after its tile goroutines end and its writer closes.
+// A refusal stop or a write failure returns its cause and keeps the output file.
 // A cancel removes the output file and returns the context error.
-func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, outputPath string) (bool, error) {
-	if cause := context.Cause(jobCtx); errors.Is(cause, ErrServerRefused) {
+func (e *Engine) result(ctx, jobCtx context.Context, c *tileCounters, closeErr error, outputPath string) (bool, error) {
+	if cause := context.Cause(jobCtx); errors.Is(cause, ErrServerRefused) || errors.Is(cause, ErrWriteFailed) {
 		return false, cause
 	}
-	if atomic.LoadInt32(&c.cancelled) == 1 || ctx.Err() != nil {
+	if closeErr != nil {
+		return false, fmt.Errorf("%w: %w", ErrWriteFailed, closeErr)
+	}
+	if c.cancelled.Load() || ctx.Err() != nil {
 		// A failed removal leaves a partial output file. #26 owns the output file rules.
 		_ = os.Remove(outputPath)
 		return false, ctx.Err()
 	}
-	return e.outcome(atomic.LoadInt64(&c.downloaded), atomic.LoadInt64(&c.failed))
+	return e.outcome(c.downloaded.Load(), c.failed.Load())
 }
 
 // outputMetadata returns the MBTiles metadata rows for a job.
@@ -277,54 +289,62 @@ func (e *Engine) outcome(downloaded, failed int64) (bool, error) {
 
 // tileCounters holds the counts that the tile goroutines of one job share.
 type tileCounters struct {
-	downloaded int64
-	failed     int64
-	cancelled  int32
+	total      int
+	start      time.Time
+	downloaded atomic.Int64
+	skipped    atomic.Int64
+	failed     atomic.Int64
+	cancelled  atomic.Bool
 }
 
-// fetchTile downloads one tile, stores it in db, and updates c and progress.
-// It sets c.cancelled when the callback returns false.
+// snapshot returns a copy of the counters in c.
+func (c *tileCounters) snapshot() Progress {
+	return Progress{
+		TotalTiles: c.total,
+		Downloaded: c.downloaded.Load(),
+		Skipped:    c.skipped.Load(),
+		Failed:     c.failed.Load(),
+		StartTime:  c.start,
+	}
+}
+
+// fetchTile downloads one tile, sends it to w, and updates c.
+// It sets c.cancelled when the callback returns false, and it stops the job when w fails.
 func (e *Engine) fetchTile(
 	ctx context.Context,
 	jg *jobGate,
-	db *sql.DB,
+	w *mbtiles.Writer,
 	source *xmlparser.MapSource,
-	progress *Progress,
 	cb ProgressCallback,
 	c *tileCounters,
 	x, y, z int,
 ) {
-	if atomic.LoadInt32(&c.cancelled) == 1 {
+	if c.cancelled.Load() {
 		return
 	}
 
-	serverPart := source.GetServerPart(int(atomic.LoadInt64(&c.downloaded)))
+	serverPart := source.GetServerPart(int(c.downloaded.Load()))
 	url := source.FormatURL(x, y, z, serverPart)
-
-	progress.CurrentTile = [3]int{x, y, z}
-	progress.CurrentURL = url
 
 	data, err := e.downloadTileWithRetry(ctx, jg, url, fmt.Sprintf("%d/%d/%d", z, x, y))
 	if err != nil {
-		atomic.AddInt64(&c.failed, 1)
-		if cb != nil && !cb(progress) {
-			atomic.StoreInt32(&c.cancelled, 1)
+		c.failed.Add(1)
+		if cb != nil && !cb(c.snapshot()) {
+			c.cancelled.Store(true)
 		}
 		return
 	}
 
-	tmsY := (1 << z) - 1 - y
-	if err := mbtiles.InsertTile(db, z, x, tmsY, data); err != nil {
-		slog.Error("insert tile failed", "x", x, "y", y, "z", z, "err", err)
-		atomic.AddInt64(&c.failed, 1)
+	if err := w.Put(z, x, y, data); err != nil {
+		slog.Error("write tile failed", "x", x, "y", y, "z", z, "err", err)
+		c.failed.Add(1)
+		jg.stop(fmt.Errorf("%w: %w", ErrWriteFailed, err))
 		return
 	}
 
-	atomic.AddInt64(&c.downloaded, 1)
-	progress.Downloaded = atomic.LoadInt64(&c.downloaded)
-	progress.Failed = atomic.LoadInt64(&c.failed)
-	if cb != nil && !cb(progress) {
-		atomic.StoreInt32(&c.cancelled, 1)
+	c.downloaded.Add(1)
+	if cb != nil && !cb(c.snapshot()) {
+		c.cancelled.Store(true)
 	}
 }
 

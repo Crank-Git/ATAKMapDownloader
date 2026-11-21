@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
@@ -85,8 +86,12 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// The engine calls the callback from every tile goroutine, so the mutex guards lastPercent.
+	var mu sync.Mutex
 	var lastPercent float64
-	success, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, output, func(p *download.Progress) bool {
+	res, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, output, func(p download.Progress) bool {
+		mu.Lock()
+		defer mu.Unlock()
 		percent := p.ProgressPercent()
 		if percent-lastPercent >= 1 || percent >= 100 {
 			fmt.Printf("\r%.1f%% (%d/%d) - %.1f tiles/s - ETA: %.0fs   ",
@@ -105,7 +110,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		}
 		return err
 	}
-	if !success {
+	if !res.OK {
 		exitErr("Download failed - too many errors")
 		return nil
 	}

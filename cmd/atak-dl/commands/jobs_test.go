@@ -70,9 +70,7 @@ func boundsOf(tb tilecalc.TileBounds) [4]float64 {
 // jobBody returns a POST /api/jobs body for the tiles of tb.
 func jobBody(tb tilecalc.TileBounds) string {
 	b := boundsOf(tb)
-	// TODO(#25): Remove the concurrency of 1 when the engine updates progress with atomic operations only.
-	// Every tile goroutine writes the shared Progress fields, so a concurrent job fails under -race.
-	return fmt.Sprintf(`{"source":"Test Tiles","bounds":[%f,%f,%f,%f],"min_zoom":%d,"max_zoom":%d,"concurrency":1}`,
+	return fmt.Sprintf(`{"source":"Test Tiles","bounds":[%f,%f,%f,%f],"min_zoom":%d,"max_zoom":%d}`,
 		b[0], b[1], b[2], b[3], tb.Zoom, tb.Zoom)
 }
 
