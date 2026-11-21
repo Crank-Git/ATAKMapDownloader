@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crank-git/atak-map-downloader/internal/datapackage"
 	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 )
@@ -335,4 +336,46 @@ func TestJobsFileHoldsNoToken(t *testing.T) {
 	if strings.Contains(data, testToken) {
 		t.Errorf("jobs.jsonl holds the token: %q", data)
 	}
+}
+
+func TestASuffixKeepsThePackageNameInside64Characters(t *testing.T) {
+	s := newJobServer(t, slowTables(100*time.Millisecond, slowArea))
+	name := strings.Repeat("a", 64)
+	body := func(tb tilecalc.TileBounds) string {
+		return strings.TrimSuffix(jobBody(tb), "}") + `,"data_package":true,"package_name":"` + name + `"}`
+	}
+	running := s.startJob(t, body(slowArea))
+	s.waitState(t, running.ID, jobRunning)
+	second := s.startJob(t, body(fourTiles))
+	s.cancelAndWait(t, running.ID)
+
+	final := s.finalRecord(t, second.ID)
+	want := strings.Repeat("a", 62) + "-2.zip"
+	if final.State != jobComplete || final.OutputFile != want {
+		t.Errorf("final record = state %q, output file %q, want complete with %q", final.State, final.OutputFile, want)
+	}
+	if pkg := strings.TrimSuffix(final.OutputFile, ".zip"); !datapackage.ValidName(pkg) {
+		t.Errorf("package name %q is not valid", pkg)
+	}
+}
+
+func TestResumeRefusesAJobWhoseOutputFileAnActiveJobHolds(t *testing.T) {
+	s := newJobServer(t, slowTables(100*time.Millisecond, slowArea))
+	first := s.startJob(t, jobBody(slowArea))
+	s.waitState(t, first.ID, jobRunning)
+	if final := s.cancelAndWait(t, first.ID); final.State != jobCancelled {
+		t.Fatalf("first job state = %q, want cancelled", final.State)
+	}
+	// The first job is not active, so the second job gets its output file name with no suffix.
+	second := s.startJob(t, strings.TrimSuffix(jobBody(slowArea), "}")+`,"if_exists":"resume"}`)
+	if second.OutputFile != first.OutputFile {
+		t.Fatalf("output file of the second job = %q, want %q", second.OutputFile, first.OutputFile)
+	}
+	s.waitState(t, second.ID, jobRunning)
+
+	checkError(t, s.request(t, http.MethodPost, "/api/jobs/"+first.ID+"/resume", ""), http.StatusConflict, "output_in_use")
+	if got := s.getRecord(t, first.ID); got.State != jobCancelled {
+		t.Errorf("first job state after the refused resume = %q, want cancelled", got.State)
+	}
+	s.cancelAndWait(t, second.ID)
 }
