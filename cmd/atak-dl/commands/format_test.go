@@ -20,7 +20,6 @@ func TestDownloadRejectsAnOutputFormatThatIsNotValid(t *testing.T) {
 	}{
 		{"rejects an unknown format and lists the valid values", "kmz", `invalid_output_format: --format "kmz" is not one of mbtiles, osmdroid, gpkg`},
 		{"rejects osmdroid until its writer is registered", "osmdroid", "not_implemented: output format osmdroid is not implemented"},
-		{"rejects gpkg until its writer is registered", "gpkg", "not_implemented: output format gpkg is not implemented"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -69,6 +68,27 @@ func TestDownloadResumesAnMBTilesFile(t *testing.T) {
 	}
 }
 
+func TestDownloadResumesAGeoPackageFileAndSkipsTheStoredTiles(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	path := filepath.Join(t.TempDir(), "out.gpkg")
+	if stderr, err := runDownloadInto(t, srv, path, []string{"--format", "gpkg"}); err != nil {
+		t.Fatalf("download --format gpkg error = %v, stderr %q", err, stderr)
+	}
+	if n := srv.TotalRequests(); n != 1 {
+		t.Fatalf("server got %d tile requests for the first job, want 1", n)
+	}
+	if info, err := output.ReadInfo(path); err != nil || info.Format != output.GeoPackage {
+		t.Fatalf("ReadInfo(%s) = %+v, %v; want format gpkg", path, info, err)
+	}
+
+	if stderr, err := runDownloadInto(t, srv, path, []string{"--resume", "--format", "gpkg"}); err != nil {
+		t.Fatalf("download --resume --format gpkg error = %v, stderr %q", err, stderr)
+	}
+	if n := srv.TotalRequests(); n != 1 {
+		t.Errorf("server got %d tile requests in total, want 1, because the resume skips the stored tile", n)
+	}
+}
+
 func TestPrepareOutputRefusesAResumeIntoAFileOfAnotherFormat(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.sqlite")
 	writeOutputFile(t, path, map[string]string{"atakdl_source": "Test TLS"}, oneTile)
@@ -92,7 +112,6 @@ func TestJobAPIOutputFormat(t *testing.T) {
 	}{
 		{"rejects an unknown output_format and lists the valid values", `,"output_format":"kmz"`, http.StatusBadRequest, "invalid_output_format", "mbtiles, osmdroid, gpkg"},
 		{"returns not_implemented for osmdroid until its writer is registered", `,"output_format":"osmdroid"`, http.StatusBadRequest, "not_implemented", "osmdroid"},
-		{"returns not_implemented for gpkg until its writer is registered", `,"output_format":"gpkg"`, http.StatusBadRequest, "not_implemented", "gpkg"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
