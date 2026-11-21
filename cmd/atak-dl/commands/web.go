@@ -230,6 +230,8 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		// Source is optional. With no source, the estimate uses the size per tile of an unknown tile type.
+		Source  string    `json:"source"`
 		Bounds  []float64 `json:"bounds"`
 		MinZoom int       `json:"min_zoom"`
 		MaxZoom int       `json:"max_zoom"`
@@ -240,6 +242,15 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 	if len(req.Bounds) != 4 {
 		writeError(w, http.StatusBadRequest, "invalid_bounds", "Bounds must hold four numbers: west, south, east, north")
 		return
+	}
+	tileType := ""
+	if req.Source != "" {
+		source := h.parser.GetSource(req.Source)
+		if source == nil {
+			writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
+			return
+		}
+		tileType = source.TileType
 	}
 	west, south, east, north := req.Bounds[0], req.Bounds[1], req.Bounds[2], req.Bounds[3]
 	if req.MinZoom == 0 {
@@ -263,7 +274,7 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		totalTiles += tb.TileCount()
 		zoomBreakdown[z] = tb.TileCount()
 	}
-	estMB := float64(totalTiles*20) / 1024
+	estMB := float64(totalTiles) * tilecalc.TileSizeKB(tileType) / 1024
 	writeJSON(w, map[string]interface{}{
 		"total_tiles":       totalTiles,
 		"estimated_size_mb": estMB,

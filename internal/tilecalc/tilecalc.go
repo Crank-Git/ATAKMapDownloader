@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 )
 
 // EarthRadius is the WGS84 earth radius in meters.
@@ -169,6 +170,20 @@ func (t *TileCalculator) CalculateZoomForArea(bounds *GeographicBounds, maxTiles
 		}
 	}
 	return 18
+}
+
+// TileSizeKB returns the assumed size of one tile in KB for a tile type.
+// The values are guesses from feature 08: jpg 18 KB, png 25 KB, and 20 KB for any other type.
+// The match ignores case, and jpeg counts as jpg.
+func TileSizeKB(tileType string) float64 {
+	switch strings.ToLower(tileType) {
+	case "jpg", "jpeg":
+		return 18
+	case "png":
+		return 25
+	default:
+		return 20
+	}
 }
 
 // EstimateDownloadSize returns size estimates for tiles.
