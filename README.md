@@ -132,8 +132,9 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon (required) |
 | `download` | `--min-zoom` | 1 | Minimum zoom level. It must not be below the map source's minimum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--max-zoom` | 15 | Maximum zoom level. It must not be above the map source's maximum zoom level, or the command fails with `zoom_out_of_range`. |
-| `download` | `--output` | `downloads/<name>.sqlite` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
-| `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, the command exits with code 3. |
+| `download` | `--format` | `mbtiles` | Output format: `mbtiles`, `osmdroid` or `gpkg`. The extension of the default output file is `.mbtiles`, `.sqlite` or `.gpkg`. An unknown value fails with `invalid_output_format` and lists the valid values. A valid format without a writer in this build fails with `not_implemented`. `POST /api/jobs` accepts the same values in `output_format`, and returns 400 with the same error codes. |
+| `download` | `--output` | `downloads/<name>.mbtiles` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
+| `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, or if its output format is not the `--format` value, the command exits with code 3 and prints `output file is <format>` for a format mismatch. |
 | `download` | `--overwrite` | `false` | Delete the existing output file before the job starts. You cannot use it together with `--resume`. |
 | `download` | `--force` | `false` | With `--resume`, accept an output file that names no map source, for example a file from v0.1. |
 | `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
@@ -153,7 +154,7 @@ While a job runs, `download` prints a progress line. The percentage counts downl
 When the job ends, it prints one summary line:
 
 ```
-Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -> downloads/OpenTopoMap_Mt_Hood_z8-15.sqlite
+Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -> downloads/OpenTopoMap_Mt_Hood_z8-15.mbtiles
 ```
 
 If you press Ctrl-C, the engine stops its requests within 500 ms and commits the stored tiles. The command prints the stored count and the hint `Run again with --resume.`
@@ -165,7 +166,7 @@ If you press Ctrl-C, the engine stops its requests within 500 ms and commits the
 | 0 | The job succeeded. |
 | 1 | An error that has no other code. |
 | 2 | The map source is restricted, and the command has no `--accept-terms`. |
-| 3 | The output file exists, it belongs to another map source, or it is not an output file. With `--resume` and no `--force`, a file with no map source name also exits with 3. |
+| 3 | The output file exists, it belongs to another map source, it has another output format, or it is not an output file. With `--resume` and no `--force`, a file with no map source name also exits with 3. |
 | 4 | The job has more tiles than `--max-tiles`. |
 | 5 | The failure rate of the job is above the failure tolerance. |
 | 130 | Ctrl-C or SIGTERM cancelled the job. |
@@ -229,7 +230,8 @@ ATAKMapDownloader/
 │   ├── xmlparser/        # XML map source parser
 │   ├── tilecalc/        # Tile coordinate calculations
 │   ├── download/        # Download engine
-│   └── mbtiles/         # MBTiles database
+│   ├── output/          # Output writer interface and format registry
+│   └── mbtiles/         # MBTiles writer
 ├── web/                 # Embedded web UI
 │   ├── index.html
 │   └── static/

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 )
 
 // outputFileItem is one output file in the GET /api/files response (FR-offline-web-ui-7).
@@ -174,8 +175,8 @@ func (h *WebHandler) runningOutputFile() string {
 }
 
 // outputFile returns the list item of the entry name in root, and false when the entry is not an output file.
-// An entry is an output file when it is a regular file with an allowed name and a readable metadata table.
-// The metadata of a running job can be absent for a moment after the engine creates the file, so inProgress keeps that file.
+// An entry is an output file when it is a regular file with an allowed name that output.ReadInfo accepts.
+// The schema of a running job can be absent for a moment after the engine creates the file, so inProgress keeps that file.
 func (h *WebHandler) outputFile(root *os.Root, name string, inProgress bool) (outputFileItem, bool) {
 	if !validOutputFileName(name) {
 		return outputFileItem{}, false
@@ -187,26 +188,20 @@ func (h *WebHandler) outputFile(root *os.Root, name string, inProgress bool) (ou
 	defer func() { _ = f.Close() }() // The file is read-only here, so a close error loses nothing.
 	item := outputFileItem{Name: name, Size: info.Size(), Modified: info.ModTime(), InProgress: inProgress}
 
-	// SQLite opens a file by path, so ReadMetadata gets the path of the file that openOutputFile checked.
-	path := filepath.Join(h.outputDir, name)
-	meta := map[string]string{}
-	for _, key := range []string{"format", "atakdl_source", "minzoom", "maxzoom", "bounds"} {
-		value, _, err := mbtiles.ReadMetadata(path, key)
-		if err != nil {
-			if !inProgress {
-				slog.Debug("omit a file that is not an output file", "name", name, "error", err)
-				return outputFileItem{}, false
-			}
-			break
+	// SQLite opens a file by path, so ReadInfo gets the path of the file that openOutputFile checked.
+	meta, err := output.ReadInfo(filepath.Join(h.outputDir, name))
+	if err != nil {
+		if !inProgress {
+			slog.Debug("omit a file that is not an output file", "name", name, "error", err)
+			return outputFileItem{}, false
 		}
-		meta[key] = value
+		return item, true
 	}
-	item.Format = meta["format"]
-	item.Source = meta["atakdl_source"]
-	// A v0.1 output file can lack a row, so a missing or bad zoom row gives 0.
-	item.MinZoom, _ = strconv.Atoi(meta["minzoom"])
-	item.MaxZoom, _ = strconv.Atoi(meta["maxzoom"])
-	item.Bounds = parseBounds(meta["bounds"])
+	item.Format = meta.TileFormat
+	item.Source = meta.Source
+	item.MinZoom = meta.MinZoom
+	item.MaxZoom = meta.MaxZoom
+	item.Bounds = meta.Bounds
 	return item, true
 }
 
@@ -229,24 +224,6 @@ func openOutputFile(root *os.Root, name string) (*os.File, fs.FileInfo, bool) {
 	}
 	_ = f.Close() // The file is read-only here, so a close error loses nothing.
 	return nil, nil, false
-}
-
-// parseBounds returns the four numbers of an MBTiles bounds row "west,south,east,north".
-// It returns nil when the row does not hold four numbers.
-func parseBounds(row string) []float64 {
-	parts := strings.Split(row, ",")
-	if len(parts) != 4 {
-		return nil
-	}
-	bounds := make([]float64, 4)
-	for i, p := range parts {
-		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
-		if err != nil {
-			return nil
-		}
-		bounds[i] = v
-	}
-	return bounds
 }
 
 // downloadFile writes the output file name as an attachment (FR-offline-web-ui-8).

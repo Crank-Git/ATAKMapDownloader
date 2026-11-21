@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/spf13/cobra"
 )
@@ -26,12 +28,12 @@ const (
 	exitCancelled = 130
 )
 
-// NewDownloadCmd returns the download command, which writes the tiles of an area to an MBTiles file.
+// NewDownloadCmd returns the download command, which writes the tiles of an area to an output file.
 // Every tile request of the command sends userAgent.
 func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "download",
-		Short: "Download tiles for an area to MBTiles file",
+		Short: "Download tiles for an area to an output file",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDownload(cmd, userAgent)
 		},
@@ -40,7 +42,8 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required)")
 	cmd.Flags().Int("min-zoom", 1, "Minimum zoom level")
 	cmd.Flags().Int("max-zoom", 15, "Maximum zoom level")
-	cmd.Flags().String("output", "", "Output file path (default: downloads/<name>.sqlite)")
+	cmd.Flags().String("format", output.MBTiles, "Output format: "+strings.Join(output.Formats, ", "))
+	cmd.Flags().String("output", "", "Output file path (default: downloads/<name> with the extension of --format)")
 	cmd.Flags().String("name", "", "Custom filename (without extension)")
 	cmd.Flags().Int("concurrent", 5, "Concurrent downloads")
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
@@ -63,6 +66,14 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 
 	bboxStr, _ := cmd.Flags().GetString("bbox")
 	bounds, _ := parseBBox(bboxStr)
+
+	format, err := cmd.Flags().GetString("format")
+	if err != nil {
+		return fmt.Errorf("read --format: %w", err)
+	}
+	if code, message := checkFormat("--format", format); code != "" {
+		return fmt.Errorf("%s: %s", code, message)
+	}
 
 	minZoom, _ := cmd.Flags().GetInt("min-zoom")
 	maxZoom, _ := cmd.Flags().GetInt("max-zoom")
@@ -93,15 +104,16 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	customName, _ := cmd.Flags().GetString("name")
 	if output == "" {
 		dlDir := download.DownloadsDir()
-		fname := download.GenerateOutputFilename(source.Name, bounds, minZoom, maxZoom, customName)
+		fname := download.GenerateOutputFilename(source.Name, bounds, minZoom, maxZoom, customName, format)
 		output = filepath.Join(dlDir, fname)
 	}
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)
 	if err != nil {
 		return err
 	}
+	cfg.Format = format
 	// --overwrite deletes the file, so the check runs after every flag is valid.
-	if err := checkOutput(cmd, output, source.Name); err != nil {
+	if err := checkOutput(cmd, output, source.Name, format); err != nil {
 		return err
 	}
 
@@ -164,9 +176,9 @@ func finishDownload(ctx context.Context, cmd *cobra.Command, res download.Result
 	return nil
 }
 
-// checkOutput applies the --resume, --overwrite and --force flags of cmd to the output file at output.
+// checkOutput applies the --resume, --overwrite and --force flags of cmd to the output file at output of format.
 // It returns an ExitError with exitOutputConflict when the flags do not accept the existing file.
-func checkOutput(cmd *cobra.Command, output, sourceName string) error {
+func checkOutput(cmd *cobra.Command, output, sourceName, format string) error {
 	rule := ifExistsFail
 	for _, flag := range []struct {
 		name string
@@ -184,7 +196,7 @@ func checkOutput(cmd *cobra.Command, output, sourceName string) error {
 	if err != nil {
 		return fmt.Errorf("read --force: %w", err)
 	}
-	err = prepareOutput(output, rule, sourceName, force)
+	err = prepareOutput(output, rule, sourceName, format, force)
 	var conflict *outputConflict
 	if errors.As(err, &conflict) {
 		// The refusal protects the file and is not a flag error, so the usage text does not help the user.
