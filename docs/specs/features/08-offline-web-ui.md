@@ -180,7 +180,7 @@ Regions:
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| GET | `/api/files` | 200 `[{name, size, modified, format, source, min_zoom, max_zoom, bounds}]` | — |
+| GET | `/api/files` | 200 `[{name, size, modified, format, source, min_zoom, max_zoom, bounds, in_progress}]` | — |
 | GET | `/api/files/{name}` | 200 attachment, `Content-Disposition: attachment` | 404 `file_not_found` |
 | GET | `/api/files/{name}/tiles/{z}/{x}/{y}` | 200 image, or 204 | 404 |
 

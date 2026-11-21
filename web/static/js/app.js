@@ -42,6 +42,7 @@ class ATAKDownloader {
         this.initMap();
         this.loadMapSources();
         this.loadConfig();
+        this.loadOutputFiles();
         this.bindEvents();
         this.logStatus('Application initialized');
     }
@@ -243,7 +244,16 @@ class ATAKDownloader {
         }
     }
 
+    // onJobComplete is the one refresh of the output file list after a job ends (FR-offline-web-ui-12).
+    // A cancelled or failed job keeps its output file too, so every final state calls it.
+    onJobComplete(job) {
+        this.loadOutputFiles();
+    }
+
     onJobState(record) {
+        if (record.state !== 'running') {
+            this.onJobComplete(record);
+        }
         switch (record.state) {
             case 'running':
                 this.isDownloading = true;
@@ -272,13 +282,7 @@ class ATAKDownloader {
                 this.resetDownloadUI();
                 break;
         }
-        if (record.state !== 'running') {
-            this.onJobComplete(record);
-        }
     }
-
-    // TODO(#32): Replace this empty body with the output file list refresh. The job panel calls it once for each final state event.
-    onJobComplete(record) {}
 
     async loadMapSources() {
         const select = document.getElementById('mapSourceSelect');
@@ -507,6 +511,69 @@ class ATAKDownloader {
         this.logStatus('Preview cleared');
     }
     
+    // loadOutputFiles reads GET /api/files and shows the list. The server sorts it newest first.
+    async loadOutputFiles() {
+        try {
+            const response = await fetch('/api/files');
+            const files = await response.json();
+            if (!response.ok) {
+                throw new Error((files.error && files.error.message) || 'The server did not return the output files');
+            }
+            this.renderOutputFiles(files);
+        } catch (error) {
+            this.logStatus('Error loading output files: ' + error.message, 'error');
+        }
+    }
+
+    // renderOutputFiles replaces the list with one row per file. Server strings go in through textContent only.
+    renderOutputFiles(files) {
+        const list = document.getElementById('outputFileList');
+        list.replaceChildren();
+        document.getElementById('outputFileEmpty').hidden = files.length > 0;
+        files.forEach(file => {
+            const row = document.createElement('li');
+            const info = document.createElement('div');
+            info.className = 'file-info';
+            const name = document.createElement('div');
+            name.className = 'file-name';
+            name.textContent = file.name;
+            const details = document.createElement('div');
+            details.className = 'hint';
+            details.textContent = [
+                this.formatSize(file.size),
+                file.source,
+                file.format,
+                'Zoom ' + file.min_zoom + '-' + file.max_zoom,
+                new Date(file.modified).toLocaleString()
+            ].filter(Boolean).join(' · ');
+            info.append(name, details);
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-sm';
+            // ICON_DOWNLOAD is a constant with no server text, so innerHTML is safe for it.
+            button.innerHTML = ICON_DOWNLOAD;
+            button.append(' Download');
+            // A running job still writes the file, so a download would get a part of it.
+            button.disabled = file.in_progress;
+            if (file.in_progress) {
+                button.title = 'A job is writing this file';
+            }
+            // The server sends Content-Disposition: attachment, so the browser saves the file and stays on the page.
+            button.addEventListener('click', () => {
+                window.location.href = '/api/files/' + encodeURIComponent(file.name);
+            });
+            row.append(info, button);
+            list.appendChild(row);
+        });
+    }
+
+    formatSize(bytes) {
+        if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        return Math.ceil(bytes / 1024) + ' KB';
+    }
+
     // serve --no-geocode removes place search, so the web UI hides the search box (FR-polite-downloading-26).
     async loadConfig() {
         try {
