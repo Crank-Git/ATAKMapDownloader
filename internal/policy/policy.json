@@ -97,9 +97,9 @@
     "host_patterns": [
       "*.openrailwaymap.org"
     ],
-    "policy_class": "conditional",
-    "requests_per_second": 2,
-    "reason": "Volunteers run this tile server. Its usage policy forbids bulk requests and publishes no numeric limit.",
+    "policy_class": "restricted",
+    "requests_per_second": 1,
+    "reason": "Volunteers run this tile server. Its usage policy says: \"Bulk requests are forbidden.\"",
     "reference_url": "https://wiki.openstreetmap.org/wiki/OpenRailwayMap/API",
     "retrieved": "2026-11-21"
   },
