@@ -24,7 +24,7 @@ import (
 // Config holds download engine configuration.
 type Config struct {
 	MaxConcurrent       int
-	Timeout              time.Duration
+	Timeout             time.Duration
 	DelayBetweenBatches time.Duration
 	MaxFailureRate      float64
 	IgnoreErrors        bool
@@ -35,22 +35,22 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		MaxConcurrent:       5,
-		Timeout:              30 * time.Second,
-		DelayBetweenBatches:  200 * time.Millisecond,
-		MaxFailureRate:       0.2,
-		IgnoreErrors:         false,
-		VerifySSL:            false,
+		Timeout:             30 * time.Second,
+		DelayBetweenBatches: 200 * time.Millisecond,
+		MaxFailureRate:      0.2,
+		IgnoreErrors:        false,
+		VerifySSL:           false,
 	}
 }
 
 // Progress reports download progress.
 type Progress struct {
-	TotalTiles     int
-	Downloaded     int64
-	Failed         int64
-	CurrentTile    [3]int
-	CurrentURL     string
-	StartTime      time.Time
+	TotalTiles  int
+	Downloaded  int64
+	Failed      int64
+	CurrentTile [3]int
+	CurrentURL  string
+	StartTime   time.Time
 }
 
 // ProgressPercent returns 0-100.
@@ -139,7 +139,7 @@ func (e *Engine) DownloadTiles(
 	metadata := map[string]string{
 		"name":        fmt.Sprintf("%s - %.4f,%.4f to %.4f,%.4f", source.Name, bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon),
 		"type":        "baselayer",
-		"version":    "1.0",
+		"version":     "1.0",
 		"description": "Downloaded from " + source.Name,
 		"format":      source.TileType,
 		"bounds":      fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", bounds.MinLon, bounds.MinLat, bounds.MaxLon, bounds.MaxLat),

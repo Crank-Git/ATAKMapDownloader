@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -8,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"context"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"

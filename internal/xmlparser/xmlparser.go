@@ -14,15 +14,15 @@ import (
 
 // MapSource represents a map tile source configuration.
 type MapSource struct {
-	Name           string
-	URL            string
-	MinZoom        int
-	MaxZoom        int
-	TileType       string
-	TileUpdate     string
+	Name            string
+	URL             string
+	MinZoom         int
+	MaxZoom         int
+	TileType        string
+	TileUpdate      string
 	BackgroundColor string
-	IgnoreErrors   bool
-	ServerParts    []string
+	IgnoreErrors    bool
+	ServerParts     []string
 }
 
 // FileExtension returns the file extension for this tile type.
@@ -91,9 +91,9 @@ type customMapSourceXML struct {
 
 // XMLParser parses map source XML configuration files.
 type XMLParser struct {
-	MapsourcesDir  string
-	sourcesCache   map[string]*MapSource
-	lastScanTime   time.Time
+	MapsourcesDir string
+	sourcesCache  map[string]*MapSource
+	lastScanTime  time.Time
 }
 
 // New creates a new XMLParser.

@@ -38,7 +38,7 @@ type WebHandler struct {
 func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, mapsDir string) *WebHandler {
 	return &WebHandler{
 		parser:  parser,
-		calc:   calc,
+		calc:    calc,
 		mapsDir: mapsDir,
 		upgrader: websocket.Upgrader{
 			CheckOrigin:     func(r *http.Request) bool { return true },
@@ -262,10 +262,10 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Source   string    `json:"source"`
-		Bounds   []float64 `json:"bounds"`
-		MinZoom  int       `json:"min_zoom"`
-		MaxZoom  int       `json:"max_zoom"`
+		Source  string    `json:"source"`
+		Bounds  []float64 `json:"bounds"`
+		MinZoom int       `json:"min_zoom"`
+		MaxZoom int       `json:"max_zoom"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"Invalid request"}`, http.StatusBadRequest)
@@ -354,12 +354,12 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	var results []struct {
-		DisplayName string `json:"display_name"`
-		Lat         string `json:"lat"`
-		Lon         string `json:"lon"`
+		DisplayName string   `json:"display_name"`
+		Lat         string   `json:"lat"`
+		Lon         string   `json:"lon"`
 		Boundingbox []string `json:"boundingbox"`
-		Type        string `json:"type"`
-		Class       string `json:"class"`
+		Type        string   `json:"type"`
+		Class       string   `json:"class"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
 		http.Error(w, `{"error":"Geocoding failed"}`, http.StatusInternalServerError)
@@ -380,7 +380,7 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"query":  req.Query,
+		"query":   req.Query,
 		"results": locations,
 		"count":   len(locations),
 	})
@@ -496,7 +496,7 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	engine := download.NewEngine(cfg)
 	success, err := engine.DownloadTiles(ctx, source, bounds, zoomLevels, outputPath, func(p *download.Progress) bool {
 		conn.WriteJSON(map[string]interface{}{
-			"type": "download_progress",
+			"type":       "download_progress",
 			"progress":   p.ProgressPercent(),
 			"downloaded": p.Downloaded,
 			"total":      p.TotalTiles,
@@ -520,18 +520,18 @@ func (h *WebHandler) handleStartDownload(conn *websocket.Conn, data map[string]i
 	}
 	if success {
 		conn.WriteJSON(map[string]interface{}{
-			"type": "download_progress",
+			"type":     "download_progress",
 			"progress": 100, "message": "Download completed successfully!",
 		})
 		conn.WriteJSON(map[string]interface{}{
-			"type":    "download_complete",
-			"message": "Download complete! Saved to " + outputFilename,
+			"type":     "download_complete",
+			"message":  "Download complete! Saved to " + outputFilename,
 			"filename": outputFilename,
-			"path":    outputPath,
+			"path":     outputPath,
 		})
 	} else {
 		conn.WriteJSON(map[string]interface{}{
-			"type": "download_error",
+			"type":    "download_error",
 			"message": "Download failed - too many tile errors. Try reducing concurrent downloads or enabling Ignore Errors.",
 		})
 	}
