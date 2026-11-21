@@ -26,3 +26,6 @@ CLAUDE.local.md
 
 # Browser tooling
 .playwright-mcp/
+
+# GoReleaser output
+dist/
