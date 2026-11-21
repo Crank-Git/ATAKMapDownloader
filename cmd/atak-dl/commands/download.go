@@ -59,11 +59,7 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 
 func runDownload(cmd *cobra.Command, userAgent string) error {
 	parser := getParser(cmd)
-	sourceName, _ := cmd.Flags().GetString("source")
-	source := parser.GetSource(sourceName)
-	if source == nil {
-		exitErr("Source '" + sourceName + "' not found")
-	}
+	source := sourceFlag(cmd, parser)
 
 	bboxStr, _ := cmd.Flags().GetString("bbox")
 	bounds, _ := parseBBox(bboxStr)
@@ -97,7 +93,7 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 	customName, _ := cmd.Flags().GetString("name")
 	if output == "" {
 		dlDir := download.DownloadsDir()
-		fname := download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
+		fname := download.GenerateOutputFilename(source.Name, bounds, minZoom, maxZoom, customName)
 		output = filepath.Join(dlDir, fname)
 	}
 	cfg, err := downloadConfig(cmd, source, concurrent, userAgent)

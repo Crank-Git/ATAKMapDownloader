@@ -178,6 +178,13 @@ The project loads the snapshot first. Then it loads the user source directory, w
 
 A map source in the user source directory replaces the snapshot map source with the same name. `list-sources` shows the origin of each map source: `snapshot` or `user`. With `--no-snapshot`, the project loads only the user source directory.
 
+ATAK-Maps v2.0.0 renamed every map source. `internal/snapshot/aliases.json` maps each v0.1 name to its v2 name. These old names stay until v0.6.0 at the earliest:
+
+- `--source` with an old name uses the v2 name and prints a warning on stderr, for example `Warning: "Google - Satellite Only" is an old map source name. The new name is "Google Satellite".`
+- `POST /api/jobs` with an old `source` uses the v2 name in the job record. The SSE stream of the job sends the warning as `event: log` with `level` `warning`.
+- An old name with no v2 equivalent fails with `map source removed upstream in ATAK-Maps <version>`, for example v1.10.1 for Michelin.
+- A loaded map source with the old name comes first, so a user source file with a v0.1 name keeps that name.
+
 A source file that does not load is a skipped source file. `atak-dl list-sources --skipped` prints each one as `path  reason  detail`. `GET /api/sources/skipped` returns the same list as `[{path, reason, detail}]`, and the web UI shows "N sources skipped" under the source picker. The reasons are:
 
 - `parse_error`: the file is not valid XML, or its root element is not `customMapSource`.

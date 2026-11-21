@@ -1,0 +1,56 @@
+{
+  "references": [
+    "https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md",
+    "https://github.com/joshuafuller/ATAK-Maps/pull/100",
+    "https://github.com/joshuafuller/ATAK-Maps/commit/66be3339976b399b9b65546beb8eb485b1fe8661"
+  ],
+  "aliases": {
+    "Bing - Hybrid": "Bing Hybrid",
+    "Bing - Maps": "Bing Road",
+    "Canada - Toporama": "CA Toporama",
+    "Canada Base Map – Transportation": "CA Base Map",
+    "CycleOSM - OSM Cycle": "CyclOSM",
+    "Esri - Clarity": "Esri Clarity",
+    "Esri - Nat Geo World": "Esri NatGeo",
+    "Esri - USA Topo Maps": "Esri USA Topo",
+    "Esri - World Topo": "Esri Topo",
+    "FEMA NFHL - Flood Hazard Zones (WMS)": "+ FEMA Flood",
+    "GRG - Google Road Only Overlay": "+ Google Roads",
+    "GRG - Google Terrain Shading Overlay": "Google Relief",
+    "GRG - WaymarkedTrails Cycle Routes Overlay": "+ Waymarked Cycling",
+    "Google - Hybrid": "Google Hybrid",
+    "Google - Roadmap Alt": "Google Road Alt",
+    "Google - Roadmap No Poi": "Google Road No POI",
+    "Google - Roadmap Standard": "Google Road",
+    "Google - Satellite Only": "Google Satellite",
+    "Google - Terrain": "Google Terrain",
+    "MTBMap.cz - MTB Map Europe": "MTBMap Europe",
+    "NAIP – USDA CONUS Prime": "NAIP Imagery",
+    "OpenSeaMap – Base Chart": "OpenSeaMap Base",
+    "OpenSeaMap – Seamarks": "+ OpenSeaMap",
+    "OpenTopo - Opentopomap": "OpenTopoMap",
+    "PL Ortofoto Std (WMTS EPSG3857)": "PL Ortho",
+    "USGS - Usgsbasemap": "USGS Topo",
+    "USGS - Usgsimageryonly": "USGS Imagery",
+    "USGS - Usgsimagerytopo": "USGS Imagery Topo",
+    "USGS - Usgsshadedrelief": "USGS Relief"
+  },
+  "removed": {
+    "GRG - USDA Fstopo Overlay": {
+      "version": "v1.7.0",
+      "reason": "USDA decommissioned the FSTopo service (upstream commit 66be333)."
+    },
+    "Michelin - OSM Michelin": {
+      "version": "v1.10.1",
+      "reason": "Every ViaMichelin host returns 503 (upstream PR #100)."
+    },
+    "NAIP – USGS National Map": {
+      "version": "v1.7.0",
+      "reason": "The ImageServer has no tile cache (upstream commit 66be333)."
+    },
+    "National Land Survey of Finland - MML": {
+      "version": "v1.7.0",
+      "reason": "The Kapsi proxy returns 410 Gone (upstream commit 66be333)."
+    }
+  }
+}
