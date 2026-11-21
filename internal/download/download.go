@@ -24,23 +24,23 @@ import (
 
 // Config holds download engine configuration.
 type Config struct {
-	MaxConcurrent       int
-	Timeout             time.Duration
-	DelayBetweenBatches time.Duration
-	MaxFailureRate      float64
-	IgnoreErrors        bool
-	VerifySSL           bool
+	MaxConcurrent  int
+	Timeout        time.Duration
+	MaxFailureRate float64
+	IgnoreErrors   bool
+	// VerifyTLS makes the engine reject a tile server whose TLS certificate does not verify.
+	// A tile that fails verification counts as failed.
+	VerifyTLS bool
 }
 
 // DefaultConfig returns default download config.
 func DefaultConfig() Config {
 	return Config{
-		MaxConcurrent:       5,
-		Timeout:             30 * time.Second,
-		DelayBetweenBatches: 200 * time.Millisecond,
-		MaxFailureRate:      0.2,
-		IgnoreErrors:        false,
-		VerifySSL:           false,
+		MaxConcurrent:  5,
+		Timeout:        30 * time.Second,
+		MaxFailureRate: 0.2,
+		IgnoreErrors:   false,
+		VerifyTLS:      true,
 	}
 }
 
@@ -99,8 +99,8 @@ type Engine struct {
 // NewEngine creates a new download engine.
 func NewEngine(cfg Config) *Engine {
 	tlsConfig := &tls.Config{}
-	if !cfg.VerifySSL {
-		tlsConfig.InsecureSkipVerify = true
+	if !cfg.VerifyTLS {
+		tlsConfig.InsecureSkipVerify = true //nolint:gosec // The user turns verification off for one job, and the CLI warns about it.
 	}
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,

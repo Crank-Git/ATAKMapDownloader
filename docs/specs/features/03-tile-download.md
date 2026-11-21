@@ -15,7 +15,8 @@ command and the web UI both start a job through the same engine
 (`internal/download/download.go`).
 
 This file describes the behavior that exists today. It records the defects plainly and
-points each defect at the planned feature that repairs it.
+points each defect at the planned feature that repairs it. A statement that an Epic 0 or
+Epic 1 pull request changed names that pull request, for example (#75).
 
 ## User stories
 
@@ -36,8 +37,8 @@ points each defect at the planned feature that repairs it.
 - FR-tile-download-3 — The engine sends the header `User-Agent: ATAK-Map-Downloader/1.0`
   with each tile request.
 - FR-tile-download-4 — The engine stops each tile request after 30 seconds.
-- FR-tile-download-5 — The engine skips TLS certificate verification unless `VerifySSL`
-  is true. The default is false.
+- FR-tile-download-5 — The engine verifies TLS certificates unless `VerifyTLS` is false.
+  The default is true (#75).
 - FR-tile-download-6 — The engine makes at most 3 attempts per tile.
 - FR-tile-download-7 — The engine waits 1 second after the first failed attempt and
   2 seconds after the second.
@@ -64,6 +65,12 @@ points each defect at the planned feature that repairs it.
 - FR-tile-download-19 — The `download` command prints progress on one line each time the
   percentage grows by 1 or more.
 - FR-tile-download-20 — The `download` command cancels the job on SIGINT or SIGTERM.
+- FR-tile-download-21 — `download --insecure` turns off TLS verification for the job and
+  prints `warning: TLS certificate verification is off for this job` to stderr (#75).
+- FR-tile-download-22 — The `download` command rejects a zoom range outside the zoom range
+  of the map source with the error code `zoom_out_of_range` (#81).
+- FR-tile-download-23 — The `download` command rejects a `--concurrent` value below 1 or
+  above 32 with the error code `invalid_concurrency` (#81).
 
 ## User flows
 
@@ -75,10 +82,13 @@ flowchart TD
     B -- no --> X1[Print Source not found, exit 1]
     B -- yes --> C{bounds valid?}
     C -- no --> X2[Print the bounds error, exit 1]
-    C -- yes --> D{min-zoom not greater than max-zoom?}
-    D -- no --> X3[Print min-zoom cannot be greater than max-zoom, exit 1]
+    C -- yes --> D{Zoom range and concurrency in the limits?}
+    D -- no --> X3[Print Error: code: message, exit 1]
     D -- yes --> E[Choose the output path]
-    E --> F[Delete an old output file at that path]
+    E --> W{--insecure?}
+    W -- yes --> W1[Print the TLS warning to stderr]
+    W -- no --> F
+    W1 --> F[Delete an old output file at that path]
     F --> G[Create the output file and write the metadata]
     G --> H[Request the tiles and print progress]
     H --> I{Result}
@@ -91,19 +101,23 @@ flowchart TD
 2. If the map source is not in the source catalog, the CLI prints
    `Source 'NAME' not found` and exits with code 1.
 3. If the bounds are not valid, the CLI prints the error and exits with code 1.
-4. If `--min-zoom` is greater than `--max-zoom`, the CLI prints
-   `min-zoom cannot be greater than max-zoom` and exits with code 1.
+4. The CLI checks the zoom range and `--concurrent` with `checkJobLimits`
+   (`cmd/atak-dl/commands/download.go:50-55`, #81). If a check fails, the CLI prints
+   `Error: <code>: <message>` with no usage text and exits with code 1. Examples:
+   - `Error: zoom_out_of_range: min_zoom 12 is above max_zoom 10`
+   - `Error: invalid_concurrency: concurrency 0 is outside the range 1-32`
 5. The CLI uses `--output`, or builds a file name in `./downloads`.
-6. The engine deletes any file at the output path.
-7. The engine creates the output file and writes the metadata.
-8. The engine requests the tiles. The CLI prints progress.
-9. If the solo operator presses Ctrl-C, the engine deletes the output file. The CLI
-   prints `Download cancelled.`, then `Error: context canceled` and the usage text, and
-   exits with code 1.
-10. If the failure rate is above the failure tolerance, the CLI prints
+6. If `--insecure` is set, the CLI prints the TLS warning to stderr (#75).
+7. The engine deletes any file at the output path.
+8. The engine creates the output file and writes the metadata.
+9. The engine requests the tiles. The CLI prints progress.
+10. If the solo operator presses Ctrl-C, the engine deletes the output file. The CLI
+    prints `Download cancelled.`, then `Error: context canceled` and the usage text, and
+    exits with code 1.
+11. If the failure rate is above the failure tolerance, the CLI prints
     `Download failed: failure rate N% exceeds threshold 20.0%` and exits with code 1. The
     output file stays on disk.
-11. If the job succeeds, the CLI prints `Download complete. Saved to PATH` and exits with
+12. If the job succeeds, the CLI prints `Download complete. Saved to PATH` and exits with
     code 0.
 
 ### Flow 2 — The engine processes one tile
@@ -122,10 +136,11 @@ flowchart TD
     E -- other status --> I
     F --> J{Insert succeeded?}
     J -- yes --> K[Count the tile as downloaded and call the progress callback]
-    J -- no --> I
+    J -- no --> M[Log insert tile failed and count the tile as failed]
     I --> L[Call the progress callback]
     K --> Z
     L --> Z
+    M --> Z
 ```
 
 1. The engine takes a slot from the semaphore.
@@ -137,8 +152,11 @@ flowchart TD
    It makes at most 3 attempts.
 7. If any other status occurs, or the attempts run out, the engine counts the tile as
    failed.
-8. If the insert fails, the engine counts the tile as failed.
-9. The engine calls the progress callback and releases the slot.
+8. If the insert fails, the engine logs `insert tile failed` and counts the tile as
+   failed. It does not call the progress callback (`internal/download/download.go:272-276`).
+9. Otherwise, the engine calls the progress callback and releases the slot.
+10. After the last tile, the engine calls the progress callback once more with the final
+    counts (`download.go:181-185`).
 
 ## Screens & states
 
@@ -162,11 +180,13 @@ For the web UI screens of a job, see `04-web-ui.md`.
   `--concurrent` 5.
 - The CLI failure tolerance is fixed at 0.2. The web UI default is 0.3.
 - The engine does not check the zoom range against the zoom range of the map source.
+  The `download` command and `POST /api/jobs` check it before the job starts, with
+  `checkJobLimits` (`cmd/atak-dl/commands/jobs.go:320-337`, #81).
 - The engine does not limit the total tile count.
 - The engine does not skip tiles that an earlier job already wrote. Every job starts a
   new output file.
-- `DelayBetweenBatches` (default 200 ms) is set in `Config`, but the engine never reads
-  it.
+- `Config` has no `DelayBetweenBatches` field. #78 removed it, because the engine never
+  read it.
 - The engine chooses the server part from the count of downloaded tiles at that moment.
   Concurrent tile requests often read the same count.
 - `metadata.minzoom` is the first zoom level of the request, and `metadata.maxzoom` is
@@ -174,7 +194,7 @@ For the web UI screens of a job, see `04-web-ui.md`.
 
 ## Data touched
 
-The output file is a SQLite file. The schema is from `internal/mbtiles/mbtiles.go:29-34`:
+The output file is a SQLite file. The schema is from `internal/mbtiles/mbtiles.go:34-37`:
 
 ```sql
 CREATE TABLE metadata (name text, value text);
@@ -183,7 +203,7 @@ CREATE UNIQUE INDEX name ON metadata (name);
 CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);
 ```
 
-Metadata rows (`internal/download/download.go:139-148`):
+Metadata rows (`internal/download/download.go:202-214`):
 
 | Key | Value |
 |---|---|
@@ -198,7 +218,7 @@ Metadata rows (`internal/download/download.go:139-148`):
 
 The metadata has no `center` key.
 
-File name (`download.go:304-321`):
+File name (`download.go:333-351`):
 
 - With no custom name:
   `<source>_<minLat>_<minLon>_to_<maxLat>_<maxLon>_z<min>-<max>.sqlite`, coordinates at
@@ -208,7 +228,9 @@ File name (`download.go:304-321`):
   `_`.
 
 The engine writes one autocommit `INSERT OR REPLACE` per tile. It uses one `*sql.DB`
-for all goroutines, with no PRAGMA settings.
+for all goroutines. The driver opens the output file with `_busy_timeout=5000`, so an
+insert waits up to 5 seconds for a locked file (`mbtiles.go:26-28`, #63). The project
+sets no other PRAGMA.
 
 ### How ATAK reads the output file
 
@@ -235,8 +257,12 @@ known.
 | `--max-zoom` | 15 | |
 | `--output` | — | Full output path. Overrides the generated name |
 | `--name` | — | Custom file name without extension |
-| `--concurrent` | 5 | Not validated |
+| `--concurrent` | 5 | From 1 to 32. Another value fails with `invalid_concurrency` (#81) |
 | `--ignore-errors` | false | |
+| `--insecure` | false | Turns off TLS verification for the job, with a warning (#75) |
+
+`--min-zoom` and `--max-zoom` must be inside the zoom range of the map source, or the
+command fails with `zoom_out_of_range` (#81).
 
 Exit codes: 0 on success, 1 on any error, failure or cancel.
 
@@ -260,7 +286,8 @@ Exit codes: 0 on success, 1 on any error, failure or cancel.
 - `Create(path, metadata) (*sql.DB, error)`
 - `InsertTile(db, z, x, tmsY, data) error`
 
-The driver is `github.com/mattn/go-sqlite3` v1.14.24, which needs CGO.
+The driver is `modernc.org/sqlite` v1.62.0, a pure-Go driver, so the build needs no CGO
+(`mbtiles.go:11-12`, #63). See [ADR 0005](../../adr/0005-pure-go-sqlite.md).
 
 ## Edge cases & failures
 
@@ -269,45 +296,45 @@ What the code handles:
 - Rate-limit statuses (403, 429, 503) get two retries.
 - SIGINT and SIGTERM stop new tile requests and delete the partial output file.
 - A failed tile insert counts as a failed tile.
+- TLS verification is on by default. A tile that fails verification counts as failed
+  (#75).
+- `--concurrent` outside 1–32 and a zoom range outside the map source's zoom range stop
+  the command before the job starts (#81).
+- The build needs no CGO. `CGO_ENABLED=0` builds succeed for linux, darwin and windows on
+  amd64 and arm64 (#63, #69).
 
 What the code does not handle:
 
-- **TLS verification is off by default.** `InsecureSkipVerify = true` unless
-  `VerifySSL` is set (`download.go:100-103`). The CLI has no flag to turn it on.
 - **The engine stores any HTTP 200 body as a tile.** It does not check the content type
   or decode the image. An HTML error page or a "blocked" image goes into the output file.
 - **The engine logs no detail for a failed tile.** It counts the tile and drops the
-  error (`download.go:194-200`).
+  error (`download.go:262-268`).
 - **Progress uses only the downloaded count.** With any failed tile, the percentage never
   reaches 100, and the ETA is too long.
 - **Data races.** Many goroutines write `progress.CurrentTile`, `progress.CurrentURL`,
-  `progress.Downloaded` and `progress.Failed` with no lock (`download.go:191-212`). The
-  CLI callback updates `lastPercent` with no lock (`commands/download.go:92-99`).
+  `progress.Downloaded` and `progress.Failed` with no lock (`download.go:259-260`,
+  `:279-280`). The CLI callback updates `lastPercent` with no lock
+  (`commands/download.go:83-89`).
 - **The failure path calls the callback before it updates `progress.Failed`**
-  (`download.go:196-198`).
+  (`download.go:263-267`).
 - **The retry waits ignore cancel.** `time.Sleep` does not watch the context, and the
   request does not use `NewRequestWithContext`. A cancel can wait for running requests.
 - **Retries do not read `Retry-After` and have no jitter.**
 - **A cancel leaves the tile producer goroutine blocked** after `goto wait`
-  (`download.go:174`).
+  (`download.go:163`).
 - **A late cancel is lost.** The engine checks the context only in the loop that starts
-  tile requests (`download.go:171-176`). If the signal arrives after the last tile
+  tile requests (`download.go:160-165`). If the signal arrives after the last tile
   request starts, the job ends as a normal job. The CLI callback always returns true.
-- **The engine deletes an existing output file with no warning** (`mbtiles.go:18-22`).
+- **The engine deletes an existing output file with no warning** (`mbtiles.go:20-24`).
   The generated name has no time stamp, so a repeat of the same request replaces the
   earlier output file.
 - **A cancel throws away every tile already fetched.** There is no resume.
-- **`--concurrent 0` blocks forever.** The semaphore has no capacity. A negative value
-  makes `make(chan)` panic.
-- **No limit on the tile count or the zoom range.**
-- **`serve` ignores the `os.MkdirAll` error for the downloads directory** (`commands/serve.go`).
+- **No limit on the tile count.**
+- **`serve` ignores the `os.MkdirAll` error for the downloads directory**
+  (`commands/serve.go:44`).
   `mbtiles.Create` creates the directory again and returns the error, so a `download` run reports it.
 - **The CLI prints `Error: context canceled` and the usage text after a cancel**, because
-  `SilenceUsage` is not set.
-- **The CGO dependency breaks cross-compiles.** The README shows plain `GOOS`/`GOARCH`
-  builds, which fail or produce a binary with no SQLite. On the maintainer's macOS 27
-  machine, `go run ./cmd/atak-dl` fails to link today:
-  `ld: multiple errors: tapi error: malformed file ... unknown architecture`.
+  only the limit checks set `SilenceUsage` (`commands/download.go:53`).
 - **Rate limits do not exist.** The engine sends requests as fast as the semaphore
   allows.
 
@@ -315,13 +342,11 @@ Known defects and the planned feature that repairs each:
 
 | Defect | Repaired by |
 |---|---|
-| TLS off by default | `security-hardening` (05) |
-| No rate limit, no `Retry-After`, fixed User-Agent, unused `DelayBetweenBatches` | `polite-downloading` (06) |
+| No rate limit, no `Retry-After`, fixed User-Agent | `polite-downloading` (06) |
 | No check of tile content, no failed-tile log, no resume, no tile cap | `robust-downloads` (07) |
 | Silent delete of an existing output file, delete on cancel | `robust-downloads` (07) |
-| Data races, cancel that ignores retry waits, `--concurrent 0` | `robust-downloads` (07) |
+| Data races, cancel that ignores retry waits | `robust-downloads` (07) |
 | Progress that never reaches 100 with failures | `robust-downloads` (07) |
-| CGO driver and broken cross-compiles | `foundation` (00) |
 | No `center` key, no other output formats | `output-formats` (10) |
 
 ## Acceptance criteria
@@ -335,7 +360,10 @@ Known defects and the planned feature that repairs each:
 - [ ] Ctrl-C during a job prints `Download cancelled.`, leaves no output file and exits
       with code 1.
 - [ ] `atak-dl download --source="USGS - Usgsbasemap" --bbox=40.75,-74.0,40.76,-73.99 --min-zoom=12 --max-zoom=10`
-      prints `min-zoom cannot be greater than max-zoom` and exits with code 1.
+      prints `Error: zoom_out_of_range: min_zoom 12 is above max_zoom 10` and exits with
+      code 1 (#81).
+- [ ] `atak-dl download --insecure` prints
+      `warning: TLS certificate verification is off for this job` to stderr (#75).
 
 ## Out of scope
 

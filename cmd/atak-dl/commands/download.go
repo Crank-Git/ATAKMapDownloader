@@ -28,6 +28,7 @@ func NewDownloadCmd() *cobra.Command {
 	cmd.Flags().String("name", "", "Custom filename (without extension)")
 	cmd.Flags().Int("concurrent", 5, "Concurrent downloads")
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
+	cmd.Flags().Bool("insecure", false, "Do not verify the TLS certificates of the tile server")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
@@ -46,8 +47,14 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 
 	minZoom, _ := cmd.Flags().GetInt("min-zoom")
 	maxZoom, _ := cmd.Flags().GetInt("max-zoom")
-	if minZoom > maxZoom {
-		exitErr("min-zoom cannot be greater than max-zoom")
+	concurrent, err := cmd.Flags().GetInt("concurrent")
+	if err != nil {
+		return fmt.Errorf("read --concurrent: %w", err)
+	}
+	if code, message := checkJobLimits(source, minZoom, maxZoom, concurrent); code != "" {
+		// The flags are valid in form, so the usage text does not help the user.
+		cmd.SilenceUsage = true
+		return fmt.Errorf("%s: %s", code, message)
 	}
 
 	zoomLevels := zoomLevelsBetween(minZoom, maxZoom)
@@ -61,8 +68,19 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 	}
 
 	cfg := download.DefaultConfig()
-	cfg.MaxConcurrent, _ = cmd.Flags().GetInt("concurrent")
+	cfg.MaxConcurrent = concurrent
 	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
+	insecure, err := cmd.Flags().GetBool("insecure")
+	if err != nil {
+		return fmt.Errorf("read --insecure: %w", err)
+	}
+	cfg.VerifyTLS = !insecure
+	if insecure {
+		// The job does not start without the warning, because FR-security-hardening-6 requires it.
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: TLS certificate verification is off for this job"); err != nil {
+			return fmt.Errorf("print the TLS warning: %w", err)
+		}
+	}
 
 	engine := download.NewEngine(cfg)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -1,6 +1,6 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port and checks two endpoints.
-# FR-foundation-13 and FR-foundation-14 define the checks.
+# smoke.sh builds atak-dl, starts serve on a free port, checks five responses and checks the bind warning.
+# FR-foundation-13, FR-foundation-14 and FR-security-hardening-3, -9, -17 and -25 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -39,5 +39,47 @@ if not isinstance(body, list) or not body:
     sys.exit("smoke: GET /api/sources did not return a non-empty JSON array")
 print("smoke: GET /api/sources returned %d sources" % len(body))
 '
+
+# No job runs yet, so the job API returns the job_not_found error shape.
+curl -s "$base/api/jobs/000000000000" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("error", {}).get("code") != "job_not_found":
+    sys.exit("smoke: GET /api/jobs/{id} did not return job_not_found")
+print("smoke: GET /api/jobs/{id} returned job_not_found")
+'
+
+# A browser adds Sec-Fetch-Site: cross-site to a request from another web page.
+curl -s -X POST -H 'Sec-Fetch-Site: cross-site' -H 'Content-Type: application/json' -d '{}' "$base/api/jobs" | python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+if body.get("error", {}).get("code") != "cross_origin":
+    sys.exit("smoke: a cross-site POST /api/jobs did not return cross_origin")
+print("smoke: a cross-site POST /api/jobs returned cross_origin")
+'
+
+# A body larger than 1 MiB returns 413 (FR-security-hardening-17).
+status=$(head -c 2097152 /dev/zero | curl -s -o /dev/null -w '%{http_code}' --data-binary @- "$base/api/jobs")
+if [ "$status" != "413" ]; then
+	echo "smoke: POST /api/jobs with a 2 MiB body returned $status, want 413" >&2
+	exit 1
+fi
+echo "smoke: POST /api/jobs with a 2 MiB body returned 413"
+
+# A server on an address that is not loopback prints the warning of FR-security-hardening-25.
+stderr_file=$(mktemp)
+./atak-dl serve --addr "0.0.0.0:0" >/dev/null 2>"$stderr_file" &
+open_pid=$!
+trap 'kill "$pid" "$open_pid" 2>/dev/null || true; rm -f "$stderr_file"' EXIT INT TERM
+attempt=0
+until grep -q "warning: the server has no authentication" "$stderr_file"; do
+	attempt=$((attempt + 1))
+	if [ "$attempt" -ge 50 ]; then
+		echo "smoke: serve --addr 0.0.0.0:0 did not print the no-authentication warning within 10 s" >&2
+		exit 1
+	fi
+	sleep 0.2
+done
+echo "smoke: serve --addr 0.0.0.0:0 printed the no-authentication warning"
 
 echo "smoke: pass"
