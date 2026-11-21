@@ -351,7 +351,7 @@ func parse(data []byte, origin string) (*MapSource, error) {
 		raw.BackgroundColor = "#000000"
 	}
 
-	// ATAK splits on whitespace only, but FR-source-sync-22 also splits on commas, so "a,b,c" gives three parts.
+	// ATAK splits on white space only, but FR-source-sync-22 also splits on commas, so "a,b,c" gives three parts.
 	serverParts := strings.FieldsFunc(raw.ServerParts, func(r rune) bool { return unicode.IsSpace(r) || r == ',' })
 	if serverParts == nil {
 		serverParts = []string{}
