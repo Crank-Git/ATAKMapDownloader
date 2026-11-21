@@ -111,6 +111,7 @@ func TestAreaFileErrorsExitWithCode1AndSendNoRequest(t *testing.T) {
 		{"estimate needs a zoom range for a feature with no zoom properties", "estimate", []string{"--area", trail, "--buffer", "300"}, "--zoom-range"},
 		{"download rejects an area with 20,001 vertices", "download", []string{"--area", dense, "--buffer", "300", "--min-zoom", "10", "--max-zoom", "10"}, "at most 20000"},
 		{"estimate rejects an area with 20,001 vertices", "estimate", []string{"--area", dense, "--buffer", "300", "--zoom-range", "10-10"}, "at most 20000"},
+		{"estimate rejects an inverted zoom range", "estimate", []string{"--area", trail, "--buffer", "300", "--zoom-range", "12-10"}, "min_zoom 12 is above max_zoom 10"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

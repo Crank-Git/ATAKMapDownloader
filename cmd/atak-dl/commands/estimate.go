@@ -178,6 +178,11 @@ func sourceZoomAreas(cmd *cobra.Command, areas []tilecalc.JobArea, source *xmlpa
 	removed := map[int]bool{}
 	kept := make([]tilecalc.JobArea, 0, len(areas))
 	for _, a := range areas {
+		// checkAreas reports an empty zoom range with its own message, so the cut leaves it as it is.
+		if a.MinZoom > a.MaxZoom {
+			kept = append(kept, a)
+			continue
+		}
 		for z := a.MinZoom; z <= a.MaxZoom; z++ {
 			if z < source.MinZoom || z > source.MaxZoom {
 				removed[z] = true
