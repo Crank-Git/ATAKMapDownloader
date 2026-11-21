@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // Create creates an MBTiles database with the given metadata.
@@ -21,7 +21,9 @@ func Create(outputPath string, metadata map[string]string) (*sql.DB, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite3", outputPath)
+	// The engine inserts tiles from many goroutines over the connection pool.
+	// mattn/go-sqlite3 waited 5000 ms on a locked file by default, and modernc.org/sqlite does not.
+	db, err := sql.Open("sqlite", outputPath+"?_busy_timeout=5000")
 	if err != nil {
 		return nil, err
 	}
