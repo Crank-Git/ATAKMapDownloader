@@ -513,7 +513,7 @@ func TestJobAPIErrorResponses(t *testing.T) {
 		{"get rejects an unknown job", http.MethodGet, "/api/jobs/000000000000", "", http.StatusNotFound, "job_not_found"},
 		{"events rejects an unknown job", http.MethodGet, "/api/jobs/000000000000/events", "", http.StatusNotFound, "job_not_found"},
 		{"delete rejects an unknown job", http.MethodDelete, "/api/jobs/000000000000", "", http.StatusNotFound, "job_not_found"},
-		{"jobs rejects GET", http.MethodGet, "/api/jobs", "", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"jobs rejects PUT", http.MethodPut, "/api/jobs", "", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{"job rejects POST", http.MethodPost, "/api/jobs/000000000000", "", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{"jobs rejects an unknown route", http.MethodGet, "/api/jobs/a/b", "", http.StatusNotFound, "not_found"},
 		{"post rejects a body that is not JSON", http.MethodPost, "/api/jobs", "{", http.StatusBadRequest, "invalid_json"},

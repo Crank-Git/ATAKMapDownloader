@@ -34,7 +34,7 @@ func writeStoreFile(t *testing.T, lines ...string) string {
 // fileLines returns the lines of the file at path.
 func fileLines(t *testing.T, path string) []string {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // The test reads the file in its own temporary directory.
 	if err != nil {
 		t.Fatal(err)
 	}

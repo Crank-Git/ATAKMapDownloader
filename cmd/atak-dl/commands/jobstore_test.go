@@ -44,11 +44,7 @@ func writeJobsFile(t *testing.T, jobs ...storedJob) string {
 // readJobsFile returns the bytes of the jobs.jsonl file of the data directory dir.
 func readJobsFile(t *testing.T, dir string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "jobs.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
+	return string(readFile(t, filepath.Join(dir, "jobs.jsonl")))
 }
 
 func TestRestartFailsRunningJobsAndRunsQueuedJobs(t *testing.T) {
@@ -169,15 +165,7 @@ func TestListJobsPagesNewestFirst(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run("GET /api/jobs"+tt.query, func(t *testing.T) {
-			resp := s.request(t, http.MethodGet, "/api/jobs"+tt.query, "")
-			defer closeBody(resp)
-			if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/json" {
-				t.Fatalf("status = %d, Content-Type %q, want 200 application/json", resp.StatusCode, resp.Header.Get("Content-Type"))
-			}
-			var list jobList
-			if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
-				t.Fatal(err)
-			}
+			list := s.listJobs(t, tt.query)
 			if list.Page != tt.page || list.Pages != 3 || len(list.Jobs) != tt.count {
 				t.Fatalf("page %d of %d with %d jobs, want page %d of 3 with %d jobs", list.Page, list.Pages, len(list.Jobs), tt.page, tt.count)
 			}
@@ -196,6 +184,21 @@ func TestListJobsPagesNewestFirst(t *testing.T) {
 	}
 }
 
+// listJobs returns the response of GET /api/jobs with query.
+func (s *jobServer) listJobs(t *testing.T, query string) jobList {
+	t.Helper()
+	resp := s.request(t, http.MethodGet, "/api/jobs"+query, "")
+	defer closeBody(resp)
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("status = %d, Content-Type %q, want 200 application/json", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	var list jobList
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	return list
+}
+
 func TestListJobsRejectsAPageThatIsNotAWholeNumberOf1OrMore(t *testing.T) {
 	s := newJobServer(t, nil)
 	for _, page := range []string{"0", "-1", "x", "1.5", ""} {
@@ -211,12 +214,7 @@ func TestListJobsHoldsAQueuedJobAndANewJob(t *testing.T) {
 	s.waitState(t, running.ID, jobRunning)
 	queued := s.startJob(t, jobBody(otherArea))
 
-	resp := s.request(t, http.MethodGet, "/api/jobs", "")
-	var list jobList
-	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
-		t.Fatal(err)
-	}
-	closeBody(resp)
+	list := s.listJobs(t, "")
 	if len(list.Jobs) != 2 || list.Jobs[0].ID != queued.ID || list.Jobs[0].Position != 1 || list.Jobs[1].State != jobRunning {
 		t.Errorf("jobs = %+v, want the queued job at position 1 and then the running job", list.Jobs)
 	}

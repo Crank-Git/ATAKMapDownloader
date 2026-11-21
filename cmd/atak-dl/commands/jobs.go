@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/crank-git/atak-map-downloader/internal/datapackage"
 	"github.com/crank-git/atak-map-downloader/internal/download"
@@ -50,6 +51,8 @@ type jobRequest struct {
 	IncludeSource bool `json:"include_source"`
 	// PackageName is the package name. checkJobRequest accepts it only when datapackage.ValidName does.
 	PackageName string `json:"package_name"`
+	// Label is the label of the submitter, 1 to 80 characters (FR-team-server-13). A nil Label means no label.
+	Label *string `json:"label,omitempty"`
 }
 
 // packageOptions returns the data package settings of the request, or nil when the job writes no data package.
@@ -109,7 +112,15 @@ type jobRecord struct {
 	Skipped   int64     `json:"skipped"`
 	Failed    int64     `json:"failed"`
 	CreatedAt time.Time `json:"created_at"`
-	Error     string    `json:"error"`
+	// StartedAt is the time when a worker started the job, or nil before the start.
+	StartedAt *time.Time `json:"started_at"`
+	// FinishedAt is the time of the final state, or nil before it.
+	FinishedAt *time.Time `json:"finished_at"`
+	Error      string     `json:"error"`
+	// Reason is server_restarted for a job that was running when the server stopped (FR-team-server-9).
+	Reason string `json:"reason,omitempty"`
+	// Label is the label of the job request (FR-team-server-13).
+	Label string `json:"label,omitempty"`
 	// Position is the queue position of a queued job, 1 for the next job. A read computes it, so it is 0 in every other state.
 	Position int `json:"position,omitempty"`
 }
@@ -165,6 +176,8 @@ type job struct {
 	areas  []tilecalc.JobArea
 	// queue gives the position of a queued job.
 	queue *jobs.Queue
+	// store keeps each state of the job in jobs.jsonl.
+	store *jobs.Store
 	// started closes when a worker starts the job, so the event goroutine sends the running state.
 	started chan struct{}
 
@@ -278,13 +291,16 @@ func (j *job) finish(subs map[*subscriber]struct{}, res jobResult) {
 			drained = true
 		}
 	}
+	now := time.Now().UTC()
 	j.mu.Lock()
 	j.record.State = res.state
 	if res.state == jobFailed {
 		j.record.Error = res.err.Error()
 	}
+	j.record.FinishedAt = &now
 	final := j.record
 	j.mu.Unlock()
+	j.save(final)
 
 	// The free slots hold these events, so a subscriber that stops reading does not block the job.
 	for s := range subs {
@@ -309,6 +325,7 @@ func newJobID() string {
 // The routes without a method catch the requests that no route with a method matches,
 // so every error response has the error shape.
 func (h *WebHandler) routeJobs(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/jobs", h.listJobs)
 	mux.HandleFunc("POST /api/jobs", h.createJob)
 	mux.HandleFunc("GET /api/jobs/{id}", h.getJob)
 	mux.HandleFunc("GET /api/jobs/{id}/events", h.streamJob)
@@ -327,6 +344,7 @@ func (h *WebHandler) routeJobs(mux *http.ServeMux) {
 }
 
 // createJob adds a job to the queue and returns 202 with its record (FR-security-hardening-8, FR-team-server-1).
+// When a queued or running job writes the same output file name, the new job gets the suffix -2, -3 and so on.
 // It returns 409 output_exists when the if_exists rule does not accept the existing output file (FR-robust-downloads-14).
 // It returns 429 queue_full when the queue is full (FR-team-server-6).
 func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
@@ -338,23 +356,34 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	outputFile := jobOutputFile(req.Source, areas, req.Name, req.OutputFormat)
+	// The lock covers the name choice and the enqueue, so two submits never choose one name.
+	h.jobMu.Lock()
+	defer h.jobMu.Unlock()
+	var outputFile string
+	outputFile, req.PackageName = h.uniqueOutput(jobOutputFile(req.Source, areas, req.Name, req.OutputFormat), req)
 	if !h.checkOutput(w, req, source, outputFile) {
 		return
 	}
 	j := h.newJob(newJobID(), req, source, areas, outputFile)
 	j.warning = warning
-	h.jobMu.Lock()
-	defer h.jobMu.Unlock()
-	if rec, ok := h.enqueue(w, j); ok {
-		writeAccepted(w, rec)
-	}
+	h.writeEnqueue(w, j)
 }
 
-// enqueue puts j in the job map and in the queue, starts its event goroutine and returns its record.
+// writeEnqueue calls enqueue for j and writes 202 with the record, or 429 queue_full. The caller holds h.jobMu.
+func (h *WebHandler) writeEnqueue(w http.ResponseWriter, j *job) {
+	rec, err := h.enqueue(j)
+	if err != nil {
+		writeError(w, http.StatusTooManyRequests, "queue_full", fmt.Sprintf("The queue holds %d jobs", jobs.MaxQueued))
+		return
+	}
+	writeAccepted(w, rec)
+}
+
+// enqueue puts j in the job map and in the queue, stores its queued state, starts its event goroutine and returns its record.
 // It replaces a job with the same id, so a resume keeps the id. The caller holds h.jobMu.
-// It writes 429 queue_full and returns false when the queue is full. The job map then keeps the job that it had.
-func (h *WebHandler) enqueue(w http.ResponseWriter, j *job) (jobRecord, bool) {
+// A worker reads the job map under h.jobMu before it stores the running state, so the queued line comes first in jobs.jsonl.
+// It returns jobs.ErrQueueFull when the queue is full. The job map then keeps the job that it had.
+func (h *WebHandler) enqueue(j *job) (jobRecord, error) {
 	// The snapshot comes before Add, so the record shows the queued state even when a worker starts the job at once.
 	rec := j.snapshot()
 	old, had := h.jobs[j.id]
@@ -367,12 +396,12 @@ func (h *WebHandler) enqueue(w http.ResponseWriter, j *job) (jobRecord, bool) {
 		} else {
 			delete(h.jobs, j.id)
 		}
-		writeError(w, http.StatusTooManyRequests, "queue_full", fmt.Sprintf("The queue holds %d jobs", jobs.MaxQueued))
-		return jobRecord{}, false
+		return jobRecord{}, err
 	}
+	j.save(rec)
 	go j.sendEvents()
 	rec.Position = pos
-	return rec, true
+	return rec, nil
 }
 
 // checkOutput applies the if_exists rule of req to its output file, the file outputFile in the output directory.
@@ -456,6 +485,10 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 	if !checkOutputOptions(w, req, source) {
 		return nil, nil, "", false
 	}
+	if req.Label != nil && (*req.Label == "" || utf8.RuneCountInString(*req.Label) > maxLabel) {
+		writeError(w, http.StatusBadRequest, "invalid_label", fmt.Sprintf("label is not 1 to %d characters", maxLabel))
+		return nil, nil, "", false
+	}
 	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
 		writeError(w, http.StatusForbidden, "terms_not_accepted", fmt.Sprintf(
 			"%s (%s); send \"accept_terms\": true to accept the terms", entry.Reason, entry.ReferenceURL))
@@ -490,6 +523,9 @@ func checkOutputOptions(w http.ResponseWriter, req *jobRequest, source *xmlparse
 		return false
 	}
 }
+
+// maxLabel is the highest character count of a job label (FR-team-server-13).
+const maxLabel = 80
 
 // maxConcurrency is the highest concurrency that a job accepts (FR-security-hardening-20).
 const maxConcurrency = 32
@@ -539,6 +575,7 @@ func (h *WebHandler) newJob(id string, req jobRequest, source *xmlparser.MapSour
 		source:  source,
 		areas:   areas,
 		queue:   h.queue,
+		store:   h.store,
 		started: make(chan struct{}),
 		// The buffer lets the engine continue while the event goroutine sends to subscribers.
 		progress:  make(chan progressEvent, 64),
@@ -555,8 +592,17 @@ func (h *WebHandler) newJob(id string, req jobRequest, source *xmlparser.MapSour
 			OutputFile: outputFile,
 			Total:      tilecalc.CountJobTiles(areas).Unique,
 			CreatedAt:  time.Now().UTC(),
+			Label:      label(req),
 		},
 	}
+}
+
+// label returns the label of req, or an empty string when req has no label.
+func label(req jobRequest) string {
+	if req.Label == nil {
+		return ""
+	}
+	return *req.Label
 }
 
 // startJob is the run func of the queue. It runs the job id on the worker that took it, and returns when the job ends.
@@ -569,13 +615,16 @@ func (h *WebHandler) startJob(id string) {
 		j.result <- jobResult{state: jobCancelled}
 		return
 	}
+	now := time.Now().UTC()
 	j.mu.Lock()
 	j.record.State = jobRunning
-	outputFile := j.record.OutputFile
+	j.record.StartedAt = &now
+	rec := j.record
 	j.mu.Unlock()
+	j.save(rec)
 	close(j.started)
 	// A file can appear while the job is queued, so the if_exists rule applies again at the start.
-	if err := h.prepareJobOutput(j.req, j.source, outputFile); err != nil {
+	if err := h.prepareJobOutput(j.req, j.source, rec.OutputFile); err != nil {
 		j.result <- jobResult{state: jobFailed, err: errors.New(outputErrorMessage(err))}
 		return
 	}
@@ -681,14 +730,17 @@ func (h *WebHandler) resumeJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "invalid_state", fmt.Sprintf("job state is %s; only a failed or cancelled job resumes", prev.State))
 		return
 	}
+	// A job of jobs.jsonl can name a map source that the server no longer has.
+	if old.source == nil {
+		writeError(w, http.StatusConflict, "invalid_state", fmt.Sprintf("job source %q is not found; the job cannot resume", prev.Source))
+		return
+	}
 	req := old.req
 	req.IfExists = ifExistsResume
 	j := h.newJob(id, req, old.source, old.areas, prev.OutputFile)
 	j.warning = old.warning
 	j.record.CreatedAt = prev.CreatedAt
-	if rec, ok := h.enqueue(w, j); ok {
-		writeAccepted(w, rec)
-	}
+	h.writeEnqueue(w, j)
 }
 
 // streamJob sends the events of the job as SSE (FR-security-hardening-10).

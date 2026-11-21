@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/crank-git/atak-map-downloader/internal/download"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/spf13/cobra"
 )
@@ -52,11 +51,12 @@ func runServe(cmd *cobra.Command, userAgent string) error {
 		fmt.Fprintf(os.Stderr, "Warning: No map sources found in %s\n", dir)
 	}
 
-	// mbtiles.Open makes the directory again and reports that error.
-	_ = os.MkdirAll(download.DownloadsDir(), 0755) //nolint:gosec // The mode 0755 is the existing behavior.
-
 	calc := tilecalc.NewTileCalculator()
 	wh := NewWebHandler(parser, calc, dir, userAgent)
+	// The store opens before the workers start, so a restored queued job runs (FR-team-server-10).
+	if err := serveDataDir(cmd, wh); err != nil {
+		return err
+	}
 	if err := applyGeocodeFlags(cmd, wh); err != nil {
 		return err
 	}
@@ -106,6 +106,16 @@ func serveWorkers(cmd *cobra.Command) (int, error) {
 		return 0, fmt.Errorf("--workers %d is outside the range 1-%d", workers, maxWorkers)
 	}
 	return workers, nil
+}
+
+// serveDataDir gives wh the data directory of cmd (FR-team-server-14).
+// It returns the errors of dataDir and useDataDir.
+func serveDataDir(cmd *cobra.Command, wh *WebHandler) error {
+	dir, err := dataDir(cmd)
+	if err != nil {
+		return err
+	}
+	return wh.useDataDir(dir)
 }
 
 // serverAuth returns the token auth of a server that is not on loopback (FR-team-server-18, FR-team-server-19).

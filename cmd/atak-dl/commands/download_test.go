@@ -64,6 +64,7 @@ func TestDownloadOnARestrictedSourceNeedsAcceptTerms(t *testing.T) {
 			srv := testtiles.New(t, nil)
 			root := &cobra.Command{Use: "atak-dl"}
 			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.PersistentFlags().String("data-dir", "", "")
 			root.AddCommand(NewDownloadCmd(testUserAgent))
 			var stderr bytes.Buffer
 			root.SetErr(&stderr)
@@ -173,6 +174,7 @@ func TestDownloadWithInsecurePrintsTheWarningAndAcceptsASelfSignedCertificate(t 
 
 	root := &cobra.Command{Use: "atak-dl"}
 	root.PersistentFlags().String("mapsources-dir", "", "")
+	root.PersistentFlags().String("data-dir", "", "")
 	root.AddCommand(NewDownloadCmd(testUserAgent))
 	var stderr bytes.Buffer
 	root.SetErr(&stderr)
@@ -214,6 +216,7 @@ func TestDownloadRejectsAZoomRangeOrConcurrencyOutsideTheLimits(t *testing.T) {
 			srv := testtiles.New(t, nil)
 			root := &cobra.Command{Use: "atak-dl"}
 			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.PersistentFlags().String("data-dir", "", "")
 			root.AddCommand(NewDownloadCmd(testUserAgent))
 			var stderr bytes.Buffer
 			root.SetErr(&stderr)
@@ -259,6 +262,7 @@ func TestDownloadRateLimit(t *testing.T) {
 			srv := testtiles.New(t, nil)
 			root := &cobra.Command{Use: "atak-dl"}
 			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.PersistentFlags().String("data-dir", "", "")
 			root.AddCommand(NewDownloadCmd(testUserAgent))
 			var stderr bytes.Buffer
 			root.SetErr(&stderr)
@@ -337,12 +341,12 @@ func TestDownloadWithNoOutputWritesToTheDataDirectory(t *testing.T) {
 				"--bbox", oneTileBBox(),
 				"--min-zoom", "10", "--max-zoom", "10",
 				"--concurrent", "1",
-				"--name", "hood",
+				"--name", "hood", "--overwrite",
 			}, tt.args...))
 			if err := root.Execute(); err != nil {
 				t.Fatalf("Execute() returned %v", err)
 			}
-			if _, err := os.Stat(filepath.Join(tt.want, "hood.mbtiles")); err != nil {
+			if _, err := os.Stat(filepath.Join(tt.want, "hood_z10-10.mbtiles")); err != nil {
 				t.Errorf("output file in %s: %v", tt.want, err)
 			}
 		})
