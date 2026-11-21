@@ -58,7 +58,7 @@ func TestIndexMarksTheLiveRegionsAndTheProgressBar(t *testing.T) {
 		{"status log takes keyboard focus", regexp.MustCompile(`<div id="statusLog"[^>]*\btabindex="0"`)},
 		{"connection indicator", regexp.MustCompile(`<span id="connStatus"[^>]*\brole="status"`)},
 		{"error banner", regexp.MustCompile(`<div id="errorBanner"[^>]*\brole="alert"`)},
-		{"progress bar (FR-offline-web-ui-28)", regexp.MustCompile(`id="jobBar"[^>]*role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"`)},
+		{"progress bar (FR-offline-web-ui-28)", regexp.MustCompile(`id="jobBar"[^>]*role="progressbar" aria-label="Job progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
