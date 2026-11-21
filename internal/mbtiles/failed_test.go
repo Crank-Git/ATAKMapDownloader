@@ -3,10 +3,12 @@ package mbtiles
 import (
 	"fmt"
 	"testing"
+
+	"github.com/crank-git/atak-map-downloader/internal/output"
 )
 
 // failedTiles returns the failed tiles that w lists, and fails the test on an error.
-func failedTiles(t *testing.T, w *Writer) []FailedTile {
+func failedTiles(t *testing.T, w *Writer) []output.FailedTile {
 	t.Helper()
 	tiles, err := w.Failed()
 	if err != nil {
@@ -19,10 +21,10 @@ func TestFailRecordsTheTileWithItsLastReasonAndItsAttempts(t *testing.T) {
 	tests := []struct {
 		name    string
 		reasons []string
-		want    FailedTile
+		want    output.FailedTile
 	}{
-		{"records one failure with attempts 1", []string{"http_503"}, FailedTile{Z: 2, X: 3, Y: 2, Reason: "http_503", Attempts: 1}},
-		{"keeps the last reason and counts each failure", []string{"http_503", "not_image"}, FailedTile{Z: 2, X: 3, Y: 2, Reason: "not_image", Attempts: 2}},
+		{"records one failure with attempts 1", []string{"http_503"}, output.FailedTile{Z: 2, X: 3, Y: 2, Reason: "http_503", Attempts: 1}},
+		{"keeps the last reason and counts each failure", []string{"http_503", "not_image"}, output.FailedTile{Z: 2, X: 3, Y: 2, Reason: "not_image", Attempts: 2}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -32,7 +34,7 @@ func TestFailRecordsTheTileWithItsLastReasonAndItsAttempts(t *testing.T) {
 					t.Fatalf("Fail: %v", err)
 				}
 			}
-			if got := failedTiles(t, w); fmt.Sprint(got) != fmt.Sprint([]FailedTile{tt.want}) {
+			if got := failedTiles(t, w); fmt.Sprint(got) != fmt.Sprint([]output.FailedTile{tt.want}) {
 				t.Errorf("Failed = %v, want [%v]", got, tt.want)
 			}
 			closeWriter(t, w)
@@ -61,7 +63,7 @@ func TestPutRemovesTheFailedTileRow(t *testing.T) {
 	if err := w.Put(2, 3, 2, []byte("tile")); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	want := []FailedTile{{Z: 2, X: 0, Y: 0, Reason: "not_found", Attempts: 1}}
+	want := []output.FailedTile{{Z: 2, X: 0, Y: 0, Reason: "not_found", Attempts: 1}}
 	if got := failedTiles(t, w); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("Failed = %v, want %v", got, want)
 	}
@@ -79,7 +81,7 @@ func TestOpenKeepsTheFailedTilesOfAnExistingOutputFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	want := []FailedTile{{Z: 4, X: 5, Y: 6, Reason: "network", Attempts: 1}}
+	want := []output.FailedTile{{Z: 4, X: 5, Y: 6, Reason: "network", Attempts: 1}}
 	if got := failedTiles(t, w); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("Failed = %v, want %v", got, want)
 	}

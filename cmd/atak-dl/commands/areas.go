@@ -94,9 +94,9 @@ func checkAreas(areas []tilecalc.JobArea) (code, message string) {
 
 // jobOutputFile returns the name of the output file of a job of the areas from sourceName.
 // The name holds the rectangle and the zoom range over all areas, so a legacy job keeps the name of v0.1.
-func jobOutputFile(sourceName string, areas []tilecalc.JobArea, customName string) string {
+func jobOutputFile(sourceName string, areas []tilecalc.JobArea, customName, format string) string {
 	b := tilecalc.JobBound(areas)
 	minZoom, maxZoom := tilecalc.JobZoomRange(areas)
 	bounds := &tilecalc.GeographicBounds{MinLat: b.Min[1], MaxLat: b.Max[1], MinLon: b.Min[0], MaxLon: b.Max[0]}
-	return download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName)
+	return download.GenerateOutputFilename(sourceName, bounds, minZoom, maxZoom, customName, format)
 }

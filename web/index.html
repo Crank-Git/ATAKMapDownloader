@@ -125,6 +125,52 @@
                 </p>
             </section>
 
+            <!-- The export panel (FR-output-formats-24). app.js shows the file name preview and checks the package name. -->
+            <section id="exportPanel">
+                <h2>Export</h2>
+                <fieldset id="outputFormat" class="format-cards">
+                    <legend>Output format</legend>
+                    <label class="format-card" for="format-mbtiles">
+                        <input type="radio" name="outputFormat" id="format-mbtiles" value="mbtiles" checked>
+                        <span><strong>MBTiles</strong> <code>.mbtiles</code><span class="hint">ATAK, QGIS and most GIS tools.</span></span>
+                    </label>
+                    <label class="format-card" for="format-osmdroid">
+                        <input type="radio" name="outputFormat" id="format-osmdroid" value="osmdroid">
+                        <span><strong>OSMDroid SQLite</strong> <code>.sqlite</code><span class="hint">The tile cache format of ATAK.</span></span>
+                    </label>
+                    <label class="format-card" for="format-gpkg">
+                        <input type="radio" name="outputFormat" id="format-gpkg" value="gpkg">
+                        <span><strong>GeoPackage</strong> <code>.gpkg</code><span class="hint">ATAK, WinTAK and GIS tools. An OGC standard.</span></span>
+                    </label>
+                </fieldset>
+                <p id="formatLock" class="hint" hidden></p>
+                <div class="field">
+                    <label class="check" for="dataPackage">
+                        <input type="checkbox" id="dataPackage"> Wrap in an ATAK data package (.zip)
+                    </label>
+                </div>
+                <fieldset id="packageOptions" class="package-options" disabled>
+                    <legend>Data package</legend>
+                    <div class="field">
+                        <label class="check" for="includeSource">
+                            <input type="checkbox" id="includeSource"> Include the map source file (.xml)
+                        </label>
+                    </div>
+                    <div class="field">
+                        <label for="packageName">Package name</label>
+                        <input type="text" id="packageName" maxlength="64" placeholder="e.g., Mt Hood SAR" aria-describedby="packageNameMessage">
+                        <p id="packageNameMessage" class="hint warn-text" aria-live="polite" hidden></p>
+                    </div>
+                </fieldset>
+                <p class="hint"><strong>Output file:</strong> <code id="exportPreview" class="file-preview" aria-live="polite"></code></p>
+                <p id="exportInner" class="hint" hidden></p>
+                <div class="card hint">
+                    <strong>Where to put the file on the device</strong><br>
+                    Copy a <code>.mbtiles</code>, <code>.sqlite</code> or <code>.gpkg</code> file to <code>atak/imagery/</code>.
+                    Import a data package (<code>.zip</code>) with ATAK's Import Manager.
+                </div>
+            </section>
+
             <section>
                 <h2>Download Options</h2>
                 <div class="field">

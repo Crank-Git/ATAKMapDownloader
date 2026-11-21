@@ -33,6 +33,12 @@ type MapSource struct {
 	Kind string
 	// Origin is OriginSnapshot or OriginUser.
 	Origin string
+	// File is the path of the source file.
+	// It is the slash path in the snapshot for a snapshot map source, and the file path for a user map source.
+	File string
+	// Overlay is true for a snapshot map source under maps/overlays/ (FR-output-formats-10).
+	// A user map source is never an overlay, because only the snapshot layout is known.
+	Overlay bool
 }
 
 // KindTile marks a map source with a tile URL template.
@@ -328,7 +334,12 @@ func ParseFile(xmlPath string) (*MapSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parse(data, OriginUser)
+	source, err := parse(data, OriginUser)
+	if err != nil {
+		return nil, err
+	}
+	source.File = xmlPath
+	return source, nil
 }
 
 // ParseFS returns the map source of the snapshot source file name in fsys, with origin snapshot.
@@ -338,7 +349,13 @@ func ParseFS(fsys fs.FS, name string) (*MapSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parse(data, OriginSnapshot)
+	source, err := parse(data, OriginSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	source.File = name
+	source.Overlay = strings.HasPrefix(name, "maps/overlays/")
+	return source, nil
 }
 
 func parse(data []byte, origin string) (*MapSource, error) {

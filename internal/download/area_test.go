@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/crank-git/atak-map-downloader/internal/mbtiles"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/paulmach/orb"
@@ -58,31 +58,32 @@ func TestEngineRequestsEachTileThatTwoAreasShareOnce(t *testing.T) {
 func TestEngineWritesTheAreasOfTheJobToTheMetadata(t *testing.T) {
 	srv := testtiles.New(t, nil)
 	source := loadFixture(t, "xyz.xml", srv)
-	output := filepath.Join(t.TempDir(), "out.sqlite")
+	path := filepath.Join(t.TempDir(), "out.sqlite")
 	low := areasOf(t, area)[0]
 	high := areasOf(t, overlapArea)[0]
 	high.Name, high.MinZoom, high.MaxZoom = "detail", 11, 12
 	areas := []tilecalc.JobArea{low, high}
 
-	if _, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areas, output, nil); err != nil {
+	if _, err := politeEngine(testConfig(), 1e6).DownloadTiles(t.Context(), source, areas, path, nil); err != nil {
 		t.Fatalf("DownloadTiles: %v", err)
 	}
+	info, err := output.ReadInfo(path)
+	if err != nil {
+		t.Fatalf("ReadInfo: %v", err)
+	}
 	b := boundOf(area).Union(boundOf(overlapArea))
-	want := map[string]string{
-		"bounds":  fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", b.Min[0], b.Min[1], b.Max[0], b.Max[1]),
-		"minzoom": "10",
-		"maxzoom": "12",
+	wantBounds := fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", b.Min[0], b.Min[1], b.Max[0], b.Max[1])
+	if len(info.Bounds) != 4 {
+		t.Fatalf("ReadInfo bounds = %v, want four values", info.Bounds)
 	}
-	for key, value := range want {
-		if got, ok, err := mbtiles.ReadMetadata(output, key); err != nil || !ok || got != value {
-			t.Errorf("metadata %s = %q, %v, %v; want %q, true, nil", key, got, ok, err, value)
-		}
+	gotBounds := fmt.Sprintf("%.4f,%.4f,%.4f,%.4f", info.Bounds[0], info.Bounds[1], info.Bounds[2], info.Bounds[3])
+	if gotBounds != wantBounds || info.MinZoom != 10 || info.MaxZoom != 12 {
+		t.Errorf("bounds, minzoom, maxzoom = %s, %d, %d; want %s, 10, 12", gotBounds, info.MinZoom, info.MaxZoom, wantBounds)
 	}
-	stored, ok, err := mbtiles.ReadMetadata(output, "atakdl_areas")
-	if err != nil || !ok {
-		t.Fatalf("metadata atakdl_areas = %v, %v; want a row", ok, err)
+	if info.Areas == "" {
+		t.Fatal("metadata atakdl_areas is missing")
 	}
-	got, err := tilecalc.DecodeAreas([]byte(stored))
+	got, err := tilecalc.DecodeAreas([]byte(info.Areas))
 	if err != nil {
 		t.Fatalf("DecodeAreas(atakdl_areas) = %v", err)
 	}

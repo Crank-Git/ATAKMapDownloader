@@ -276,3 +276,20 @@ func TestFileListMarksTheOutputFileOfARunningJobInProgress(t *testing.T) {
 		}
 	}
 }
+
+// The web UI reads output_format to lock the output format of a resumed job.
+func TestFileListNamesTheOutputFormatOfEachFile(t *testing.T) {
+	for _, format := range []string{"mbtiles", "osmdroid", "gpkg"} {
+		t.Run(format, func(t *testing.T) {
+			s := newJobServer(t, nil)
+			rec := s.startJob(t, strings.TrimSuffix(jobBody(fourTiles), "}")+`,"output_format":"`+format+`"}`)
+			if final := s.finalRecord(t, rec.ID); final.State != jobComplete {
+				t.Fatalf("job state = %q, error %q, want complete", final.State, final.Error)
+			}
+			items := listFiles(t, s.handler)
+			if len(items) != 1 || items[0].Name != rec.OutputFile || items[0].OutputFormat != format {
+				t.Errorf("GET /api/files = %+v, want %s with output_format %s", items, rec.OutputFile, format)
+			}
+		})
+	}
+}

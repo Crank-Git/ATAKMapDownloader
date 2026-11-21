@@ -138,8 +138,9 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--buffer` | `0` | Buffer in metres on each side of each line of the `--area` file that has no `buffer_m` property, from 10 to 50,000. |
 | `download` | `--min-zoom` | 1 | Minimum zoom level. It must not be below the map source's minimum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--max-zoom` | 15 | Maximum zoom level. It must not be above the map source's maximum zoom level, or the command fails with `zoom_out_of_range`. |
-| `download` | `--output` | `downloads/<name>.sqlite` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
-| `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, the command exits with code 3. With no `--bbox`, the job reads its areas and zoom ranges from the `atakdl_areas` metadata row of the file. |
+| `download` | `--format` | `mbtiles` | Output format: `mbtiles`, `osmdroid` or `gpkg`. The extension of the default output file is `.mbtiles`, `.sqlite` or `.gpkg`. An unknown value fails with `invalid_output_format` and lists the valid values. A `gpkg` output file is a GeoPackage 1.3 raster in EPSG:3857, with one tile table named from the map source. GeoPackage holds only PNG and JPEG tiles, so `gpkg` for a map source with `webp` or `gif` tiles fails with `unsupported_tile_type`. An `osmdroid` output file is an OSMDroid tile cache in EPSG:3857 that ATAK reads, with the map source name in `provider`. Every output format accepts zoom levels up to 25, and a higher zoom level fails with `zoom_out_of_range`. `POST /api/jobs` accepts the same values in `output_format`, and returns 400 with the same error codes. |
+| `download` | `--output` | `downloads/<name>.mbtiles` | Output file path. If the file exists and the command has neither `--resume` nor `--overwrite`, the command exits with code 3 and the file stays unchanged. A cancelled or failed job keeps the file and every tile it stored. |
+| `download` | `--resume` | `false` | Continue the job into the existing output file. The job skips each tile that the file holds and counts it as `skipped`. If the file belongs to another map source, or if its output format is not the `--format` value, the command exits with code 3 and prints `output file is <format>` for a format mismatch. With no `--bbox`, the job reads its areas and zoom ranges from the `atakdl_areas` metadata row of the file. |
 | `download` | `--overwrite` | `false` | Delete the existing output file before the job starts. You cannot use it together with `--resume`. |
 | `download` | `--force` | `false` | With `--resume`, accept an output file that names no map source, for example a file from v0.1. |
 | `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
@@ -147,6 +148,9 @@ Then open http://localhost:5000 in your browser.
 | `download` | `--rate-limit` | `0` | Requests per second to the tile server. A value only lowers the policy rate of the map source, and `0` keeps it. A value above the policy rate gives the policy rate, with a note on stderr. A negative value fails with `invalid_rate_limit`. |
 | `download` | `--accept-terms` | `false` | Accept the terms of use of a `restricted` map source. Without this flag, the command prints the reason and the reference URL for a restricted map source, and it exits with code 2. With this flag, it prints a warning to stderr and starts the job. |
 | `download` | `--max-tiles` | `500000` | Tile cap of the job. If the job has more tiles, the command prints `too_many_tiles` and exits with code 4 before it sends a request. |
+| `download` | `--data-package` | `false` | Wrap the output file in an ATAK data package, `<package name>.zip`, beside the output file. Import it on the device through ATAK's Import Manager. The zip holds `MANIFEST/manifest.xml` (Mission Package v2, with a new UUID v4 as `uid` and `onReceiveImport` set to `true`) and the output file. The command removes the unzipped output file after the zip is complete. If the zip step fails, the command prints `package_failed` and keeps the output file. An existing zip follows the `--resume` and `--overwrite` rules of the output file. With `--resume`, the job resumes the output file and then rebuilds the zip. `POST /api/jobs` accepts `data_package`, and the job record then names the zip in `output_file`. A failed zip step ends the job `failed` with `package_failed`. `GET /api/files` lists the zip with `format` set to `data_package`. |
+| `download` | `--include-source` | `false` | With `--data-package`, add the source file of the map source to the zip. `POST /api/jobs` accepts `include_source`. |
+| `download` | `--package-name` | - | With `--data-package`, the package name (required). The command trims the spaces around the name. It then holds 1 to 64 characters of `A-Z`, `a-z`, `0-9`, space, `_` and `-`. Each space becomes `_` in the file name. Another name fails with `invalid_package_name`. `POST /api/jobs` accepts `package_name`, and returns 400 `invalid_package_name` for a name that is not valid. |
 | `estimate` | `--area`, `--buffer` | - | The same as for `download`. A feature with no zoom property gets the zoom range of `--zoom` or `--zoom-range`, and one of the two is then required. The command prints the tile count of each area and the unique tile count. |
 
 ### Progress and exit codes
@@ -160,7 +164,7 @@ While a job runs, `download` prints a progress line. The percentage counts downl
 When the job ends, it prints one summary line:
 
 ```
-Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -> downloads/OpenTopoMap_Mt_Hood_z8-15.sqlite
+Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -> downloads/OpenTopoMap_Mt_Hood_z8-15.mbtiles
 ```
 
 If you press Ctrl-C, the engine stops its requests within 500 ms and commits the stored tiles. The command prints the stored count and the hint `Run again with --resume.`
@@ -172,7 +176,7 @@ If you press Ctrl-C, the engine stops its requests within 500 ms and commits the
 | 0 | The job succeeded. |
 | 1 | An error that has no other code. |
 | 2 | The map source is restricted, and the command has no `--accept-terms`. |
-| 3 | The output file exists, it belongs to another map source, or it is not an output file. With `--resume` and no `--force`, a file with no map source name also exits with 3. |
+| 3 | The output file exists, it belongs to another map source, it has another output format, or it is not an output file. With `--resume` and no `--force`, a file with no map source name also exits with 3. |
 | 4 | The job has more tiles than `--max-tiles`. |
 | 5 | The failure rate of the job is above the failure tolerance. |
 | 130 | Ctrl-C or SIGTERM cancelled the job. |
@@ -236,7 +240,10 @@ ATAKMapDownloader/
 │   ├── xmlparser/        # XML map source parser
 │   ├── tilecalc/        # Tile coordinate calculations
 │   ├── download/        # Download engine
-│   └── mbtiles/         # MBTiles database
+│   ├── output/          # Output format registry, and the gpkg and osmdroid writers
+│   │   └── sqlitequeue/ # Writer core that the three output formats share
+│   ├── datapackage/     # ATAK data package zip and manifest
+│   └── mbtiles/         # MBTiles writer
 ├── web/                 # Embedded web UI
 │   ├── index.html
 │   └── static/

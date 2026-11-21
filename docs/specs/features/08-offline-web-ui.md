@@ -42,7 +42,7 @@ This feature vendors every asset, removes Bootstrap and Font Awesome, and adds a
 
 ### Local base map
 
-- FR-offline-web-ui-13 — `GET /api/files/{name}/tiles/{z}/{x}/{y}` returns one tile from an output file, with the TMS row converted from the XYZ request.
+- FR-offline-web-ui-13 — `GET /api/files/{name}/tiles/{z}/{x}/{y}` returns one tile from an output file through the tile reader of its output format, which reads the rows of that format (#126).
 - FR-offline-web-ui-14 — The tile route returns 204 for a tile that the output file does not hold.
 - FR-offline-web-ui-15 — The base map switcher offers "Online (OpenStreetMap)" and one entry per output file.
 - FR-offline-web-ui-16 — If the browser is offline at load time, the web UI selects the most recent output file as the base map.
@@ -182,7 +182,7 @@ Regions:
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| GET | `/api/files` | 200 `[{name, size, modified, format, source, min_zoom, max_zoom, bounds, in_progress}]` | — |
+| GET | `/api/files` | 200 `[{name, size, modified, format, output_format, source, min_zoom, max_zoom, bounds, in_progress}]`. `format` is the tile format, or `data_package` for a data package. `output_format` is the output format, and it is empty for a data package. | — |
 | GET | `/api/files/{name}` | 200 attachment, `Content-Disposition: attachment` | 404 `file_not_found` |
 | GET | `/api/files/{name}/tiles/{z}/{x}/{y}` | 200 image, or 204 | 404 `file_not_found`, or 404 `not_found` for a tile outside its zoom level |
 

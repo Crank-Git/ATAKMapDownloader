@@ -166,8 +166,8 @@ func TestProgressLineHasTheFormOfFeature07(t *testing.T) {
 func TestSummaryLineHasTheFormOfFeature07(t *testing.T) {
 	p := download.Progress{TotalTiles: 120000, Downloaded: 118640, Skipped: 1200, Failed: 160}
 	elapsed := 2*time.Hour + 41*time.Minute
-	want := "Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -> downloads/OpenTopoMap_Mt_Hood_z8-15.sqlite"
-	if got := summaryLine(p, elapsed, "downloads/OpenTopoMap_Mt_Hood_z8-15.sqlite"); got != want {
+	want := "Done: 118,640 downloaded, 1,200 skipped, 160 failed in 2h41m -> downloads/OpenTopoMap_Mt_Hood_z8-15.mbtiles"
+	if got := summaryLine(p, elapsed, "downloads/OpenTopoMap_Mt_Hood_z8-15.mbtiles"); got != want {
 		t.Errorf("summaryLine() = %q, want %q", got, want)
 	}
 }

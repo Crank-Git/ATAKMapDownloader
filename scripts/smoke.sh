@@ -1,9 +1,10 @@
 #!/bin/sh
 # smoke.sh builds atak-dl, starts serve on a free port, and checks twelve responses and the token of a server that is not on loopback.
-# It also checks the terms exit code, the output file exit code, the tile cap, --no-geocode, the sources sync command and the area file parser.
-# FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9 and -17, FR-team-server-17, -19 and -20,
-# FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27, FR-source-sync-10, -11, -16 and -29,
-# and FR-area-selection-16 and -18 define the checks.
+# It also checks the terms exit code, the output file exit code, the tile cap, the output format, the package name,
+# --no-geocode, the sources sync command and the area file parser.
+# FR-offline-web-ui-1, -7, -10 and -13, FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9 and -17,
+# FR-team-server-17, -19 and -20, FR-polite-downloading-18 and -26, FR-robust-downloads-6, -26 and -27,
+# FR-output-formats-1, -3 and -19, FR-source-sync-10, -11, -16 and -29, and FR-area-selection-16 and -18 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -209,6 +210,28 @@ if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --over
 fi
 echo "smoke: download into an existing output file exited 3"
 
+# --format gpkg has a writer, so the job passes the format check and stops at the existing output file (FR-output-formats-1).
+# A build without the GeoPackage writer exits 1 with not_implemented before the output check.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--format gpkg --output "$exists_file" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --overwrite" "$stderr_file"; then
+	echo "smoke: download with --format gpkg into an existing output file exited $status, want 3" >&2
+	exit 1
+fi
+echo "smoke: download with --format gpkg passed the format check and exited 3"
+
+# --format osmdroid has a writer, so the job passes the format check and stops at the existing output file (FR-output-formats-1).
+# A build without the OSMDroid writer exits 1 with not_implemented before the output check.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--format osmdroid --output "$exists_file" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --overwrite" "$stderr_file"; then
+	echo "smoke: download with --format osmdroid into an existing output file exited $status, want 3" >&2
+	exit 1
+fi
+echo "smoke: download with --format osmdroid passed the format check and exited 3"
+
 # A job above --max-tiles exits with code 4 before it sends a request (FR-robust-downloads-26).
 # The output directory is a regular file, so a build without the check fails before it sends a request.
 status=0
@@ -219,6 +242,46 @@ if [ "$status" != "4" ] || ! grep -q "too_many_tiles" "$stderr_file"; then
 	exit 1
 fi
 echo "smoke: download above --max-tiles exited 4"
+
+# An unknown --format exits with code 1 and lists the valid values (FR-output-formats-1).
+# The output directory is a regular file, so a build without the check fails before it sends a request.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--format kmz --output "$terms_file/out.mbtiles" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q "invalid_output_format: --format \"kmz\" is not one of mbtiles, osmdroid, gpkg" "$stderr_file"; then
+	echo "smoke: download with --format kmz exited $status, want 1 and the valid values" >&2
+	exit 1
+fi
+echo "smoke: download with --format kmz exited 1 and listed the valid values"
+
+# The job API rejects an unknown output_format before it sends a request (FR-output-formats-3).
+curl -s -X POST -H 'Content-Type: application/json' \
+	-d '{"source":"USGS Topo","bounds":[-74.1,40.7,-74.0,40.8],"min_zoom":10,"max_zoom":10,"output_format":"kmz"}' "$base/api/jobs" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("error", {}).get("code") != "invalid_output_format":
+    sys.exit("smoke: POST /api/jobs with output_format kmz did not return invalid_output_format")
+'
+echo "smoke: POST /api/jobs with output_format kmz returned invalid_output_format"
+
+# A package name with a slash exits with code 1 before a request (FR-output-formats-19).
+# The output directory is a regular file, so a build without the check fails before it sends a request.
+status=0
+./atak-dl download --source "USGS Topo" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--data-package --package-name "a/b" --output "$terms_file/out.mbtiles" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "1" ] || ! grep -q "invalid_package_name" "$stderr_file"; then
+	echo "smoke: download with --package-name a/b exited $status, want 1 and invalid_package_name" >&2
+	exit 1
+fi
+echo "smoke: download with --package-name a/b exited 1 with invalid_package_name"
+
+# The job API rejects a data package with no package name before it sends a request.
+curl -s -X POST -H 'Content-Type: application/json' \
+	-d '{"source":"USGS Topo","bounds":[-74.1,40.7,-74.0,40.8],"min_zoom":10,"max_zoom":10,"data_package":true}' "$base/api/jobs" | python3 -c '
+import json, sys
+if json.load(sys.stdin).get("error", {}).get("code") != "invalid_package_name":
+    sys.exit("smoke: POST /api/jobs with data_package and no package_name did not return invalid_package_name")
+'
+echo "smoke: POST /api/jobs with data_package and no package_name returned invalid_package_name"
 
 # serve --no-geocode removes the geocode route and reports geocode false (FR-polite-downloading-26).
 port2=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
