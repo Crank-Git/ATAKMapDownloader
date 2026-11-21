@@ -636,8 +636,13 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 </ul>
 </li>
-<li>The preview uses the first server part for every tile.
+<li>The preview uses the server part of the tile key for each tile (FR-source-sync-23).
 </li>
+<li><code>POST /api/preview</code> accepts an old map source name and returns the new name in
+</li>
+</ul>
+<p><code>source</code>. The server log gets the deprecation warning (FR-source-sync-16).</p>
+<ul>
 <li>The web UI changes a maximum zoom level that is not above the minimum to the minimum
 </li>
 </ul>

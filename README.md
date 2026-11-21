@@ -101,7 +101,7 @@ Then open http://localhost:5000 in your browser.
 # List available map sources
 ./atak-dl list-sources
 
-# Download the latest ATAK-Maps release into the user source directory
+# Download the latest ATAK-Maps release into atak-maps/ in the user source directory
 ./atak-dl sources sync
 
 # Estimate download for an area
@@ -191,14 +191,21 @@ The project loads the snapshot first. Then it loads the user source directory, w
 - each `.xml` file under `maps/` in the release, in the upstream layout, for example `atak-maps/maps/base/osm/osm.xml`
 - `VERSION`, with the tag and the commit of the release
 
-The command replaces only `atak-maps/`, so your own source files beside it stay. It also removes the hidden `.atak-maps-new-*` and `.atak-maps-old-*` directories that an interrupted sync can leave. It prints `<tag>: N added, N changed, N removed`. If a request fails, or the archive has a path with `..` or no `maps/` directory, the command keeps the existing source files and exits with code 1. A GitHub rate-limit response gives a message with the time to try again.
+The command replaces only `atak-maps/`, so your own source files beside it stay. It also removes the hidden `.atak-maps-new-*` and `.atak-maps-old-*` directories that an interrupted sync can leave. It prints `<tag>: N added, N changed, N removed`. The command keeps the existing source files and exits with code 1 in these cases:
 
-A map source in the user source directory replaces the snapshot map source with the same name. `list-sources` shows the origin of each map source: `snapshot` or `user`. With `--no-snapshot`, the project loads only the user source directory.
+- a request fails
+- the archive has a path with `..`, or no `maps/` directory
+- the response is larger than 64 MiB, the files in the archive are larger than 256 MiB in total, or the archive has more than 10000 entries
+
+The command skips symbolic links in the archive. If it cannot put the old files back after a failed swap, it keeps them in a `.atak-maps-kept-*` directory and names that directory in the error. A later sync does not remove it. A GitHub rate-limit response gives a message with the time to try again.
+
+The project loads the map sources in three layers: the snapshot, then `atak-maps/`, then your own source files elsewhere in the user source directory. A map source of a later layer replaces the map source with the same name, so your own file always wins. `list-sources` shows the origin of each map source: `snapshot` or `user`. With `--no-snapshot`, the project loads only the user source directory.
 
 ATAK-Maps v2.0.0 renamed every map source. `internal/snapshot/aliases.json` maps each v0.1 name to its v2 name. These old names stay until v0.6.0 at the earliest:
 
 - `--source` with an old name uses the v2 name and prints a warning on stderr, for example `Warning: "Google - Satellite Only" is an old map source name. The new name is "Google Satellite".`
 - `POST /api/jobs` with an old `source` uses the v2 name in the job record. The SSE stream of the job sends the warning as `event: log` with `level` `warning`.
+- `POST /api/validate-source` and `POST /api/preview` with an old name use the v2 name in the response. The server log gets the warning.
 - An old name with no v2 equivalent fails with `map source removed upstream in ATAK-Maps <version>`, for example v1.10.1 for Michelin.
 - A loaded map source with the old name comes first, so a user source file with a v0.1 name keeps that name.
 

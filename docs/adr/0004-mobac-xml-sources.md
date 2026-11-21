@@ -10,20 +10,20 @@ Reconstructed on 2026-11-21 from the code during project-inherit; the original r
 ATAK reads MOBAC `customMapSource` XML files for live map sources. The
 [joshuafuller/ATAK-Maps](https://github.com/joshuafuller/ATAK-Maps) repository (MIT)
 publishes a curated set of them. The README credits that repository. On 2026-02-06 the
-project copied 33 source files into `mapsources/`. `internal/xmlparser` reads them at
-run time from the directory that `--mapsources-dir` names.
+project copied 33 source files into `mapsources/`. Epic 5 replaced that folder with the
+embedded snapshot of ADR 0008. `internal/xmlparser` reads the snapshot and the user source
+directory that `--mapsources-dir` names.
 
 ## Decision
 
-The project uses MOBAC XML as its map source format. It ships a copy of the ATAK-Maps
-source files as a folder next to the binary.
+The project uses MOBAC XML as its map source format. It ships the ATAK-Maps source
+files as a snapshot in the binary (ADR 0008).
 
 ## Consequences
 
 - A solo operator can use the same source file in ATAK and in the project.
-- The copy goes out of date. ATAK-Maps v2.3.1 (2026-10-31) has 53 source files in a new
-  layout and has renamed every map.
-- The parser reads only `customMapSource`. It drops the three `customWmsMapSource` files
-  with no message.
-- The binary is not self-contained, because it needs the folder.
-- The planned `source-sync` feature revisits the copy, the layout and WMS support.
+- The snapshot goes out of date. `atak-dl sources sync` writes a newer release to
+  `<user source directory>/atak-maps/`, and the user's own files replace it by name.
+- The parser reads only `customMapSource`. It reports the five `customWmsMapSource` files
+  of the snapshot as skipped. WMS support waits for #41.
+- The binary is self-contained.

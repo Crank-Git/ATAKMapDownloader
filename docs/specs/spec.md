@@ -139,7 +139,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | Polite downloading | [features/06-polite-downloading.md](features/06-polite-downloading.md) | Epic 2: Polite downloading | planned | 04-source-policy-warning |
 | Robust downloads | [features/07-robust-downloads.md](features/07-robust-downloads.md) | Epic 3: Robust downloads | planned | — |
 | Offline web UI | [features/08-offline-web-ui.md](features/08-offline-web-ui.md) | Epic 4: Offline web UI | planned | 01-workspace |
-| Source sync and WMS | [features/09-source-sync.md](features/09-source-sync.md) | Epic 5: Source sync and WMS | planned | — |
+| Source sync and WMS | [features/09-source-sync.md](features/09-source-sync.md) | Epic 5: Source sync and WMS | built, except WMS (#41) | — |
 | Output formats | [features/10-output-formats.md](features/10-output-formats.md) | Epic 6: Output formats | planned | 03-export-options |
 | Area selection | [features/11-area-selection.md](features/11-area-selection.md) | Epic 7: Area selection | planned | 02-area-tools |
 | Team server | [features/12-team-server.md](features/12-team-server.md) | Epic 8: Team server | planned | 05-jobs |
@@ -155,7 +155,7 @@ flowchart LR
     Server["Server: net/http (built, reworked)"]
     WebUI["Web UI: embedded page (built, reworked)"]
     Catalog["Source catalog: xmlparser (built)"]
-    Snapshot["Snapshot: embedded ATAK-Maps (planned)"]
+    Snapshot["Snapshot: embedded ATAK-Maps (built)"]
     Policy["Source policy table (planned)"]
     TileCalc["tilecalc: tile math (built)"]
     Engine["Download engine (built, reworked)"]
@@ -185,7 +185,7 @@ Per component:
 - **Server: net/http.** The job routes use the Go 1.22 method-and-path patterns (`cmd/atak-dl/commands/jobs.go:244-258`, #76). The other routes still use the hand-written router in `cmd/atak-dl/commands/web.go:87-100`. `http.CrossOriginProtection` (Go 1.25, https://go.dev/doc/go1.25) blocks requests from other web pages (#77). Planned: `os.Root` (Go 1.24) limits file serving to the output directory.
 - **Progress channel: SSE.** Built (#76, #78). SSE replaced `gorilla/websocket`, which has had no release since v1.5.3 in June 2024 (https://pkg.go.dev/github.com/gorilla/websocket?tab=versions). Progress goes from the server to the browser only, and browser commands are `POST` and `DELETE` requests. See [ADR 0006](../adr/0006-sse-job-api.md).
 - **Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman 2.20.8, embedded with `embed.FS`.** Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
-- **Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).** Today there is a copied folder of 33 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See [ADR 0004](../adr/0004-mobac-xml-sources.md) and [ADR 0008](../adr/0008-embedded-source-snapshot.md).
+- **Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).** Built (Epic 5). The binary embeds a snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). `atak-dl sources sync` writes a newer release to `<user source directory>/atak-maps/`. See [ADR 0004](../adr/0004-mobac-xml-sources.md) and [ADR 0008](../adr/0008-embedded-source-snapshot.md).
 - **Release: GoReleaser v2 on GitHub Actions.** Built (#65, #70, #73). Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
 - **Lint: golangci-lint v2.** Built (#64). Version v2.15.0, pinned with a `tool` directive in `go.mod`, with the complexity linters enabled (https://github.com/golangci/golangci-lint/releases).
 
@@ -202,7 +202,8 @@ internal/policy/        planned: source policy table and rate limits
 internal/jobs/          planned: job queue and job store
 internal/server/        planned: HTTP handlers moved out of commands/web.go
 web/                    embedded web UI
-mapsources/             source files (replaced by the embedded snapshot in Epic 5)
+internal/snapshot/      embedded ATAK-Maps source files, VERSION and name aliases (built)
+internal/sourcesync/    the sources sync command (built)
 docs/specs/ docs/adr/   this spec and the decision records
 ```
 
@@ -230,16 +231,16 @@ erDiagram
     string background_color
     bool ignore_errors
     string_list server_parts
-    string kind "tile or wms (planned)"
-    bool invert_y "planned"
+    string kind "tile or wms, wms waits for #41"
+    bool invert_y
   }
   SOURCE_FILE {
     string path PK
-    string origin "snapshot or user (planned)"
+    string origin "snapshot or user"
   }
   SKIPPED_SOURCE {
     string path FK
-    string reason "planned"
+    string reason
     string detail
   }
   SOURCE_POLICY {
@@ -297,9 +298,9 @@ erDiagram
 
 Per entity:
 
-- **MAP_SOURCE** (built, `internal/xmlparser/xmlparser.go:16-26`). The parser loads it from a `<customMapSource>` source file. `name` is the key. If two source files have the same name, the last file loaded wins with no warning. Defaults: if both zooms are 0, `max_zoom` is 18. `tile_type` is `png`, `tile_update` is `None` and `background_color` is `#000000`. Planned: `kind` (`tile` or `wms`) and `invert_y` (feature 09).
-- **SOURCE_FILE** (built). A MOBAC XML file in the source directory. Planned: `origin` is `snapshot` or `user` (feature 09).
-- **SKIPPED_SOURCE** (planned, feature 09). An in-memory record of a source file that did not load, with its reason. Today the parser drops these with no record.
+- **MAP_SOURCE** (built, `internal/xmlparser/xmlparser.go:16-26`). The parser loads it from a `<customMapSource>` source file. `name` is the key. A map source of a later layer replaces one of the same name: the snapshot, then `atak-maps/`, then the user's own files (FR-source-sync-5). Defaults: if both zooms are 0, `max_zoom` is 18. `tile_type` is `png`, `tile_update` is `None` and `background_color` is `#000000`. It has `kind` (`tile`, and `wms` when #41 lands) and `invert_y` (feature 09).
+- **SOURCE_FILE** (built). A MOBAC XML file in the snapshot or in the user source directory. `origin` is `snapshot` or `user` (feature 09).
+- **SKIPPED_SOURCE** (built, feature 09). An in-memory record of a source file that did not load, with its path, reason and detail (#38).
 - **SOURCE_POLICY** (planned, feature 06). A table embedded in the binary, keyed by a host pattern such as `*.google.com`. `policy_class` is `open`, `conditional` or `restricted`. `requests_per_second` is the rate limit for that host.
 - **JOB** (built as one in-memory record, `cmd/atak-dl/commands/jobs.go:62-78`, #76). It has an `id`, and its state is `running`, `complete`, `failed` or `cancelled`. The server keeps only the last job (`web.go:29-35`). Planned (feature 12): the `queued` state and a persistent record in the data directory.
 - **AREA** (built as bounds only). Planned: polygon and route buffer geometry as GeoJSON, with a zoom range for each area (feature 11).
@@ -417,7 +418,7 @@ Reconciliation of the existing documentation against the code (Phase 1):
 
 - **Resolved — README cross-compile.** The README told users to cross-compile with `GOOS`/`GOARCH`, and the `mattn/go-sqlite3` driver needed CGO. #63 replaced the driver, and the README now shows `CGO_ENABLED=0` builds (`README.md:65-77`).
 - **Resolved — "1:1 functionality matching the Python version".** No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim, and Epic 0 removed it from the README (#71).
-- **Contradicted — "30+ map sources".** 33 files ship. 30 load. Three WMS source files are skipped with no log (`internal/xmlparser/xmlparser.go:130-133`).
+- **Resolved — "30+ map sources".** The snapshot holds 53 source files, and 47 load. `list-sources --skipped` reports the other 6 with reason `parse_error`: 5 WMS files, which wait for #41, and 1 multi-layer file (#37, #38).
 - **Contradicted — "MBTiles output".** The output file has a `.sqlite` extension and lacks the `center` key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
 - **Resolved — "Batch Delay".** The web UI offered a batch delay that the engine never read. #78 removed the control and `DelayBetweenBatches`.
 - **Resolved — the build failed on this machine.** On 2026-11-21, `go run ./cmd/atak-dl` failed at the CGO link step on macOS 27 (`ld: … tapi error: malformed file … unknown architecture`). #63 removed CGO (ADR 0005), and `CGO_ENABLED=0` builds pass in CI (#69).
