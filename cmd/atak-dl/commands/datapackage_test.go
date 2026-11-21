@@ -446,6 +446,23 @@ func TestDownloadResumeWithDataPackageRefusesAZipWithoutTheOutputFile(t *testing
 	}
 }
 
+// writeOldDataPackage runs a complete data package job of dataPackageJob and sets the modification time of its zip to old.
+// It returns the inner output file name and the zip path.
+func writeOldDataPackage(t *testing.T, s *jobServer) (inner, zipPath string, old time.Time) {
+	t.Helper()
+	first := s.startJob(t, dataPackageJob(""))
+	if final := s.finalRecord(t, first.ID); final.State != jobComplete {
+		t.Fatalf("first job state = %q, error %q, want complete", final.State, final.Error)
+	}
+	zipPath = filepath.Join(s.handler.outputDir, "Mt_Hood_SAR.zip")
+	// The old time tells the rebuilt zip apart from the zip of the first job.
+	old = time.Unix(0, 0)
+	if err := os.Chtimes(zipPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	return first.OutputFile, zipPath, old
+}
+
 func TestJobAPIResumeWithDataPackageReadsTheOutputFileOutOfTheZip(t *testing.T) {
 	resumeBody := dataPackageJob(`,"if_exists":"resume"`)
 	tests := []struct {
@@ -474,17 +491,7 @@ func TestJobAPIResumeWithDataPackageReadsTheOutputFileOutOfTheZip(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newJobServer(t, slowTable(otherArea, 100*time.Millisecond))
-			first := s.startJob(t, dataPackageJob(""))
-			inner := first.OutputFile
-			if final := s.finalRecord(t, first.ID); final.State != jobComplete {
-				t.Fatalf("first job state = %q, error %q, want complete", final.State, final.Error)
-			}
-			zipPath := filepath.Join(s.handler.outputDir, "Mt_Hood_SAR.zip")
-			// The old time tells the rebuilt zip apart from the zip of the first job.
-			old := time.Unix(0, 0)
-			if err := os.Chtimes(zipPath, old, old); err != nil {
-				t.Fatal(err)
-			}
+			inner, zipPath, old := writeOldDataPackage(t, s)
 			before := s.areaRequests(fourTiles)
 
 			final := s.finalRecord(t, tt.resume(t, s))
