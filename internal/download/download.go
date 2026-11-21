@@ -82,11 +82,12 @@ type Progress struct {
 
 // ProgressPercent returns the share of processed tiles from 0 to 100 (FR-robust-downloads-28).
 // A failed tile counts as processed, so a job with failed tiles reaches 100.
+// The retry pass can store a failed tile of an earlier job outside the bounds, so the percent stops at 100.
 func (p Progress) ProgressPercent() float64 {
 	if p.TotalTiles == 0 {
 		return 0
 	}
-	return float64(p.Processed()) / float64(p.TotalTiles) * 100
+	return min(float64(p.Processed())/float64(p.TotalTiles)*100, 100)
 }
 
 // Processed returns the number of downloaded, skipped and failed tiles.
@@ -114,7 +115,8 @@ func (p Progress) ETASeconds() float64 {
 	if rate == 0 {
 		return 0
 	}
-	remaining := p.TotalTiles - int(p.Processed())
+	// A retried tile from outside the bounds can make Processed larger than TotalTiles.
+	remaining := max(p.TotalTiles-int(p.Processed()), 0)
 	return float64(remaining) / rate
 }
 
