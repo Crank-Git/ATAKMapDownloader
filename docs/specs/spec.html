@@ -764,6 +764,20 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li>2026-11-21: Hotfix #72 pinned <code>sigstore/cosign-installer</code> to <code>v4.1.3</code> (#73). Pre-release <code>v0.2.0-rc.1</code> was published and verified.
 </li>
+<li>2026-11-21: Epic 2 merged into <code>develop</code> (#89). Decisions at its gates:
+<ul>
+<li>The policy table follows the real host patterns of the bundled source files, and one entry covers every pattern of one operator (#84 and the batch fix).
+</li>
+<li><code>GET /api/config</code> was added so that the web UI can hide the search box (#88).
+</li>
+<li><code>rate_limit</code> of 0 or below returns 400 <code>invalid_rate_limit</code> in the API. The CLI keeps the policy rate for 0 (#87).
+</li>
+<li><code>/api/preview</code> is viewing in the browser and needs no terms acceptance.
+</li>
+<li>The failed-job exit code goes to #29.
+</li>
+</ul>
+</li>
 </ul><nav class="pager">
 <span></span>
 <a href="html/feature-foundation.html">Feature: Foundation &rarr;</a>

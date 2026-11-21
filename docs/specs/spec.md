@@ -521,3 +521,9 @@ FR coverage (each sub-issue and the requirements it quotes):
   - A batch-gate fix keeps a stalled SSE client from blocking a job (3bd39f2).
   - The `tls` failure reason waits for the Epic 3 failure-reason field.
 - 2026-11-21: Hotfix #72 pinned `sigstore/cosign-installer` to `v4.1.3` (#73). Pre-release `v0.2.0-rc.1` was published and verified.
+- 2026-11-21: Epic 2 merged into `develop` (#89). Decisions at its gates:
+  - The policy table follows the real host patterns of the bundled source files, and one entry covers every pattern of one operator (#84 and the batch fix).
+  - `GET /api/config` was added so that the web UI can hide the search box (#88).
+  - `rate_limit` of 0 or below returns 400 `invalid_rate_limit` in the API. The CLI keeps the policy rate for 0 (#87).
+  - `/api/preview` is viewing in the browser and needs no terms acceptance.
+  - The failed-job exit code goes to #29.

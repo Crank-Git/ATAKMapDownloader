@@ -155,7 +155,7 @@ body.rv-open .layout { padding-right:21rem; }
 </ul></aside>
 <main>
 <h1>Feature: Polite downloading</h1>
-<p class="meta">Epic 2: Polite downloading &nbsp; <span class="badge">issued</span></p>
+<p class="meta">Epic 2: Polite downloading &nbsp; <span class="badge">built</span></p>
 <h3 id="polite-downloading-purpose">Purpose</h3>
 <p>Today the project sends a fixed User-Agent <code>ATAK-Map-Downloader/1.0</code> with no contact URL (<code>internal/download/download.go:288</code>). It has no rate limit and no <code>Retry-After</code> handling. It proxies Nominatim with no limit (<code>cmd/atak-dl/commands/web.go:330-387</code>).</p>
 <p>Several bundled map sources come from providers whose terms prohibit bulk download. Other providers allow it only at low request rates. This feature gives every map source a policy class and a rate limit, and it backs off when a server refuses. It warns before a job on a restricted map source. It also makes geocoding follow the Nominatim usage policy. The user chose "Tag + warn": restricted map sources stay available, and the user decides.</p>
