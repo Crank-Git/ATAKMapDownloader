@@ -20,10 +20,10 @@ var allowedExternalURLs = map[string]bool{
 
 var externalURL = regexp.MustCompile(`(?i)(?:https?:)?//[a-z0-9{}.-]+\.[a-z{}]+[^\s"'<>)]*`)
 
-// ownFiles returns index.html and every JavaScript and CSS file outside static/vendor, keyed by path.
+// ownFiles returns the pages and every JavaScript and CSS file outside static/vendor, keyed by path.
 func ownFiles(t *testing.T) map[string][]byte {
 	t.Helper()
-	files := map[string][]byte{"index.html": IndexHTML()}
+	files := map[string][]byte{"index.html": IndexHTML(), "jobs.html": JobsHTML(), "signin.html": SigninHTML()}
 	err := fs.WalkDir(staticFS, "static", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -179,6 +179,27 @@ func TestIndexLoadsTheVendoredLibrariesFromTheServer(t *testing.T) {
 		if _, err := fs.Stat(staticFS, "static/"+m[1]); err != nil {
 			t.Errorf("index.html loads /static/%s, which is not embedded", m[1])
 		}
+	}
+}
+
+func TestEveryPageLoadsOnlyEmbeddedAssets(t *testing.T) {
+	local := regexp.MustCompile(`(?:src|href)="/static/([^"]+)"`)
+	for name, page := range map[string][]byte{"jobs.html": JobsHTML(), "signin.html": SigninHTML()} {
+		found := local.FindAllSubmatch(page, -1)
+		if len(found) == 0 {
+			t.Errorf("%s loads no local asset, so the pattern is stale", name)
+		}
+		for _, m := range found {
+			if _, err := fs.Stat(staticFS, "static/"+string(m[1])); err != nil {
+				t.Errorf("%s loads /static/%s, which is not embedded", name, m[1])
+			}
+		}
+	}
+}
+
+func TestIndexLinksToTheJobsPage(t *testing.T) {
+	if !regexp.MustCompile(`<a href="/jobs"[^>]*>Jobs</a>`).Match(IndexHTML()) {
+		t.Error("index.html has no link to the Jobs page (FR-team-server-25)")
 	}
 }
 
