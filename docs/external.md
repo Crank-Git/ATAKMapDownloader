@@ -19,7 +19,7 @@ Today no code reads an environment variable. Planned variables:
 
 ## Repositories and registries
 
-- Code and tracker: https://github.com/Crank-Git/ATAKMapDownloader (public).
+- Code and tracker: https://github.com/Crank-Git/ATAK-Map-Downloader (public).
 - Container image: `ghcr.io/crank-git/atak-map-downloader`.
 - Upstream source files: https://github.com/joshuafuller/ATAK-Maps (MIT). The pinned tag is in `internal/snapshot/VERSION` after Epic 5.
 

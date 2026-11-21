@@ -1,6 +1,6 @@
 {
   "pluginVersion": "session-2026-11-21",
-  "forge": { "type": "github", "host": "github.com", "owner": "Crank-Git", "repo": "ATAKMapDownloader" },
+  "forge": { "type": "github", "host": "github.com", "owner": "Crank-Git", "repo": "ATAK-Map-Downloader" },
   "remote": "origin",
   "branchModel": "dev-and-live",
   "devBranch": "develop",

@@ -71,7 +71,7 @@ dockers_v2:
       - linux/amd64
       - linux/arm64
     labels:
-      org.opencontainers.image.source: https://github.com/Crank-Git/ATAKMapDownloader
+      org.opencontainers.image.source: https://github.com/Crank-Git/ATAK-Map-Downloader
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .Date }}"
@@ -89,6 +89,10 @@ snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
 release:
+  # The repository name is explicit, so a rename cannot send the uploads to the old name.
+  github:
+    owner: Crank-Git
+    name: ATAK-Map-Downloader
   # A tag such as v0.2.0-rc.1 makes a GitHub pre-release.
   prerelease: auto
 
