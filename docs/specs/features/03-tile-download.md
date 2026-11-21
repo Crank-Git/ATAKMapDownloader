@@ -41,10 +41,10 @@ Epic 1 pull request changed names that pull request, for example (#75).
   The default is true (#75).
 - FR-tile-download-6 — The engine makes at most 3 attempts per tile in the main pass and
   1 in the retry pass (#28).
-- FR-tile-download-7 — The engine waits 1 second after the first failed attempt and
+- FR-tile-download-7 — Replaced by FR-polite-downloading-9 and 10 (#87). The engine waited 1 second after the first failed attempt and
   2 seconds after the second.
 - FR-tile-download-8 — The engine retries a tile after a network error or after HTTP
-  status 403, 429 or 503.
+  status 403, 429 or 503. The wait follows the host backoff in FR-polite-downloading-9 and 10 (#87). A 404 is recorded as `not_found` (FR-robust-downloads-25).
 - FR-tile-download-9 — The engine marks a tile as failed after any other HTTP status
   that is not 200, with no retry.
 - FR-tile-download-10 — The engine stores the response body of an HTTP 200 response as
