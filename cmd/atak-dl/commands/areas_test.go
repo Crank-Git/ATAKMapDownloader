@@ -311,6 +311,23 @@ func TestDownloadNeedsTheBBoxUnlessItResumesAFileWithAreas(t *testing.T) {
 	}
 }
 
+// writeFormatTiles writes an output file of format at path with the metadata rows in metadata and the tiles in tiles.
+func writeFormatTiles(t *testing.T, format, path string, metadata map[string]string, tiles []testtiles.Tile) {
+	t.Helper()
+	w, err := output.Open(format, path, metadata)
+	if err != nil {
+		t.Fatalf("open the %s file: %v", format, err)
+	}
+	for _, tile := range tiles {
+		if err := w.Put(tile.Z, tile.X, tile.Y, []byte("stored")); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close the %s file: %v", format, err)
+	}
+}
+
 func TestDownloadResumeReadsTheAreasOfAGeoPackageOrOSMDroidFile(t *testing.T) {
 	square := tilecalc.TileBounds{MinX: 300, MaxX: 305, MinY: 400, MaxY: 405, Zoom: 10}
 	b := boundsOf(square)
@@ -343,35 +360,31 @@ func TestDownloadResumeReadsTheAreasOfAGeoPackageOrOSMDroidFile(t *testing.T) {
 			srv := testtiles.New(t, nil)
 			path := filepath.Join(t.TempDir(), tt.file)
 			stored := all[:len(all)/2]
-			w, err := output.Open(tt.format, path, metadata)
-			if err != nil {
-				t.Fatalf("open the %s file: %v", tt.format, err)
-			}
-			for _, tile := range stored {
-				if err := w.Put(tile.Z, tile.X, tile.Y, []byte("stored")); err != nil {
-					t.Fatalf("Put: %v", err)
-				}
-			}
-			if err := w.Close(); err != nil {
-				t.Fatalf("close the %s file: %v", tt.format, err)
-			}
+			writeFormatTiles(t, tt.format, path, metadata, stored)
 
 			if stderr, err := runDownloadArgs(t, srv, "--output", path, "--format", tt.format, "--resume"); err != nil {
 				t.Fatalf("download --resume = %v, stderr %q", err, stderr)
 			}
-			if n := srv.TotalRequests(); n != len(all)-len(stored) {
-				t.Errorf("tile server got %d requests, want %d, the missing tiles of the triangle", n, len(all)-len(stored))
-			}
-			for _, tile := range stored {
-				if n := srv.Requests(tile); n != 0 {
-					t.Errorf("stored tile %v got %d requests, want 0", tile, n)
-				}
-			}
-			for _, tile := range all {
-				if _, ok, err := output.ReadTile(path, tile.Z, tile.X, tile.Y); err != nil || !ok {
-					t.Errorf("ReadTile(%v) = %v, %v; want the tile in the file", tile, ok, err)
-				}
-			}
+			checkResumedTiles(t, srv, path, all, stored)
 		})
+	}
+}
+
+// checkResumedTiles checks that a resume of the output file at path requested only the tiles of all that are not in stored.
+// It also checks that the file holds every tile of all.
+func checkResumedTiles(t *testing.T, srv *testtiles.Server, path string, all, stored []testtiles.Tile) {
+	t.Helper()
+	if n := srv.TotalRequests(); n != len(all)-len(stored) {
+		t.Errorf("tile server got %d requests, want %d, the missing tiles of the triangle", n, len(all)-len(stored))
+	}
+	for _, tile := range stored {
+		if n := srv.Requests(tile); n != 0 {
+			t.Errorf("stored tile %v got %d requests, want 0", tile, n)
+		}
+	}
+	for _, tile := range all {
+		if _, ok, err := output.ReadTile(path, tile.Z, tile.X, tile.Y); err != nil || !ok {
+			t.Errorf("ReadTile(%v) = %v, %v; want the tile in the file", tile, ok, err)
+		}
 	}
 }
