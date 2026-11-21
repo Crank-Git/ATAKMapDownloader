@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/datapackage"
 	"github.com/crank-git/atak-map-downloader/internal/snapshot"
@@ -438,6 +439,84 @@ func TestDownloadResumeWithDataPackageRefusesAZipWithoutTheOutputFile(t *testing
 		t.Errorf("ExitCode(%v) = %d, want %d", err, got, exitOutputConflict)
 	}
 	if n := srv.TotalRequests(); n != 0 {
+		t.Errorf("server got %d tile requests, want 0", n)
+	}
+	if got := string(readFile(t, zipPath)); got != "old zip" {
+		t.Errorf("zip after the refused job = %q, want it unchanged", got)
+	}
+}
+
+func TestJobAPIResumeWithDataPackageReadsTheOutputFileOutOfTheZip(t *testing.T) {
+	resumeBody := dataPackageJob(`,"if_exists":"resume"`)
+	tests := []struct {
+		name string
+		// resume starts the second job of the data package and returns its id.
+		resume func(t *testing.T, s *jobServer) string
+	}{
+		{"resumes from the zip through POST /api/jobs", func(t *testing.T, s *jobServer) string {
+			return s.startJob(t, resumeBody).ID
+		}},
+		{"resumes from the zip through the resume route", func(t *testing.T, s *jobServer) string {
+			// The blocker holds the worker, so the cancel ends the second job before it starts.
+			blocker := s.startJob(t, jobBody(otherArea))
+			s.waitState(t, blocker.ID, jobRunning)
+			queued := s.startJob(t, resumeBody)
+			s.cancelAndWait(t, queued.ID)
+			s.cancelAndWait(t, blocker.ID)
+			resp := s.request(t, http.MethodPost, "/api/jobs/"+queued.ID+"/resume", "")
+			defer closeBody(resp)
+			if resp.StatusCode != http.StatusAccepted {
+				t.Fatalf("resume status = %d, want 202", resp.StatusCode)
+			}
+			return queued.ID
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newJobServer(t, slowTable(otherArea, 100*time.Millisecond))
+			first := s.startJob(t, dataPackageJob(""))
+			inner := first.OutputFile
+			if final := s.finalRecord(t, first.ID); final.State != jobComplete {
+				t.Fatalf("first job state = %q, error %q, want complete", final.State, final.Error)
+			}
+			zipPath := filepath.Join(s.handler.outputDir, "Mt_Hood_SAR.zip")
+			// The old time tells the rebuilt zip apart from the zip of the first job.
+			old := time.Unix(0, 0)
+			if err := os.Chtimes(zipPath, old, old); err != nil {
+				t.Fatal(err)
+			}
+			before := s.areaRequests(fourTiles)
+
+			final := s.finalRecord(t, tt.resume(t, s))
+			if final.State != jobComplete || final.Skipped != 4 || final.OutputFile != "Mt_Hood_SAR.zip" {
+				t.Errorf("final record = %+v, want complete with 4 skipped tiles and the output file Mt_Hood_SAR.zip", final)
+			}
+			if n := s.areaRequests(fourTiles) - before; n != 0 {
+				t.Errorf("the resume sent %d tile requests, want 0, because the zip holds every tile", n)
+			}
+			checkDataPackage(t, zipPath, inner, "tiles.xml")
+			if info, err := os.Stat(zipPath); err != nil || info.ModTime().Equal(old) {
+				t.Errorf("Stat(%s) error = %v, want a rebuilt zip with a new modification time", zipPath, err)
+			}
+			if _, err := os.Stat(filepath.Join(s.handler.outputDir, inner)); !os.IsNotExist(err) {
+				t.Errorf("Stat(%s) error = %v, want the unzipped output file removed after the resume", inner, err)
+			}
+		})
+	}
+}
+
+func TestJobAPIResumeWithDataPackageFailsForAZipWithoutTheOutputFile(t *testing.T) {
+	s := newJobServer(t, nil)
+	zipPath := filepath.Join(s.handler.outputDir, "Mt_Hood_SAR.zip")
+	if err := os.WriteFile(zipPath, []byte("old zip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := s.startJob(t, dataPackageJob(`,"if_exists":"resume"`))
+	final := s.finalRecord(t, rec.ID)
+	if final.State != jobFailed || !strings.HasPrefix(final.Error, "read the output file out of Mt_Hood_SAR.zip: ") {
+		t.Errorf("final record = %+v, want failed with the message of the zip", final)
+	}
+	if n := s.tiles.TotalRequests(); n != 0 {
 		t.Errorf("server got %d tile requests, want 0", n)
 	}
 	if got := string(readFile(t, zipPath)); got != "old zip" {
