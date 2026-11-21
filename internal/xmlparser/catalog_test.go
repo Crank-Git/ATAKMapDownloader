@@ -124,7 +124,7 @@ func TestDiscoverSourcesRecordsEachSkippedSourceFileWithItsReason(t *testing.T) 
 		{"multi.xml", SkipParseError, "customMultiLayerMapSource"},
 		{"noname.xml", SkipMissingName, "<name>"},
 		{"nourl.xml", SkipMissingURL, "<url>"},
-		{"wms.xml", SkipParseError, "customWmsMapSource"},
+		{"wms.xml", SkipParseError, "<layers>"},
 	}
 	if len(skipped) != len(tests) {
 		t.Fatalf("SkippedSources() = %+v, want %d entries", skipped, len(tests))

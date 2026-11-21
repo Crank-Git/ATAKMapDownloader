@@ -230,10 +230,11 @@ ATAK-Maps v2.0.0 renamed every map source. `internal/snapshot/aliases.json` maps
 
 A source file that does not load is a skipped source file. `atak-dl list-sources --skipped` prints each one as `path  reason  detail`. `GET /api/sources/skipped` returns the same list as `[{path, reason, detail}]`, and the web UI shows "N sources skipped" under the source picker. The reasons are:
 
-- `parse_error`: the file is not valid XML, or its root element is not `customMapSource`.
+- `parse_error`: the file is not valid XML, its root element is not `customMapSource` or `customWmsMapSource`, or a `customWmsMapSource` has no `<layers>`.
+
+A WMS map source always requests tiles in `EPSG:3857`. If its source file declares another CRS, the job first reads the GetCapabilities document of the server. If the server does not list `EPSG:3857` for the layers, the job stops with `unsupported_crs` before the first tile request.
 - `missing_name`: the `<name>` element is empty or missing.
 - `missing_url`: the `<url>` element is empty or missing.
-- `unsupported_crs`: reserved for WMS source files.
 - `unknown_placeholder`: the `<url>` element holds a URL placeholder other than `{$z}`, `{$x}`, `{$y}`, `{$q}` and `{$serverpart}`. These are the URL placeholders of the [ATAK-Maps XML reference](https://github.com/joshuafuller/ATAK-Maps/blob/v2.3.1/docs/xml-reference.md#url-placeholders). The letter case must match.
 - `duplicate_name`: a file in the same directory has the same name. The first file in lexical path order loads.
 

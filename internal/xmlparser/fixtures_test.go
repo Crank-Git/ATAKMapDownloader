@@ -14,7 +14,7 @@ func TestParseFileReadsTheFixtureSourceFiles(t *testing.T) {
 	}{
 		{"loads the XYZ fixture", "xyz.xml", "http://tiles.test/{$z}/{$x}/{$y}.png", false},
 		{"loads the quadkey fixture", "quadkey.xml", "http://tiles.test/q/{$q}.png", false},
-		{"rejects the customWmsMapSource fixture, which the parser does not load yet", "wms.xml", "", true},
+		{"loads the customWmsMapSource fixture", "wms.xml", "http://tiles.test/wms?", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

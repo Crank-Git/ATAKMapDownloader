@@ -183,6 +183,7 @@ func NewEngine(cfg Config) *Engine {
 // The caller validates the areas, and areas holds at least one area.
 // The error is output.ErrNotRegistered when the output format of the job has no writer.
 // It is ErrServerRefused or ErrWriteFailed when either stops the job.
+// It is ErrUnsupportedCRS when a WMS server does not list EPSG:3857, and then the engine opens no output file.
 // It is the context error when the job is cancelled. Every outcome keeps the output file.
 func (e *Engine) DownloadTiles(
 	ctx context.Context,
@@ -198,15 +199,21 @@ func (e *Engine) DownloadTiles(
 	if err != nil {
 		return Result{}, err
 	}
+
+	jobCtx, jg := e.newJobGate(ctx, source)
+	defer jg.stop(nil)
+
+	// A WMS job with no usable CRS stops before the first tile request and before the output file opens (FR-source-sync-20).
+	if err := e.checkCRS(jobCtx, jg, source); err != nil {
+		return Result{}, err
+	}
+
 	w, err := output.Open(e.cfg.Format, outputPath, metadata)
 	if err != nil {
 		return Result{}, err
 	}
 
 	c := tileCounters{total: totalTiles, start: time.Now()}
-
-	jobCtx, jg := e.newJobGate(ctx, source)
-	defer jg.stop(nil)
 
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
 	var wg sync.WaitGroup

@@ -232,7 +232,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-source-sync-19 — For a WMS map source, the engine builds a GetMap request with the WMS version, layers, CRS, image format, 256×256 size and bounds of the tile.
 </li>
-<li>FR-source-sync-20 — The engine supports WMS CRS <code>EPSG:3857</code>. A WMS source file with another CRS is skipped with reason <code>unsupported_crs</code>.
+<li>FR-source-sync-20 — The engine requests WMS tiles in CRS <code>EPSG:3857</code>. If the source file declares another CRS, the engine reads the server's GetCapabilities document one time for each map source and uses <code>EPSG:3857</code> when the server lists it for the layers. If the server does not list <code>EPSG:3857</code>, the job stops before the first tile request with error <code>unsupported_crs</code>.
 </li>
 <li>FR-source-sync-21 — The parser reads <code>invertYCoordinate</code>. If it is true, the engine sends <code>(2^z - 1) - y</code> as <code>{$y}</code>.
 </li>
@@ -256,8 +256,6 @@ body.rv-open .layout { padding-right:21rem; }
 <li><code>missing_name</code>
 </li>
 <li><code>missing_url</code>
-</li>
-<li><code>unsupported_crs</code>
 </li>
 <li><code>unknown_placeholder</code>
 </li>
@@ -341,7 +339,11 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>WMS tile bounds come from <code>tilecalc</code> for the tile at zoom level z, column x and row y, in EPSG:3857 metres.
 </li>
-<li>The WMS <code>BBOX</code> axis order for 1.3.0 with EPSG:3857 is <code>minx,miny,maxx,maxy</code>. Confirm this against the OGC WMS 1.3.0 standard before you build it.
+<li>The WMS <code>BBOX</code> axis order for 1.3.0 with EPSG:3857 is <code>minx,miny,maxx,maxy</code>. OGC WMS 1.3.0 § 6.7.4 orders <code>BBOX</code> by the axes of the CRS, and EPSG:3857 has easting first.
+</li>
+<li>WMS 1.1.1 names the CRS parameter <code>SRS</code>. WMS 1.3.0 names it <code>CRS</code>.
+</li>
+<li>The GetCapabilities request obeys the policy table like a tile request. The engine does not reproject.
 </li>
 <li><code>sources sync</code> honours the GitHub API rate limit and sends the project User-Agent from feature 06.
 </li>
@@ -407,7 +409,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><code>atak-dl list-sources --skipped</code> lists every snapshot source file that did not load, each with a reason. The loaded count plus the skipped count is 53.
 </li>
-<li>The FEMA NFHL WMS source file loads, and one tile request to a fake WMS server has <code>SERVICE=WMS</code>, <code>REQUEST=GetMap</code>, <code>LAYERS</code>, <code>CRS=EPSG:3857</code> and a <code>BBOX</code> that matches the tile.
+<li>The FEMA NFHL WMS source file loads. When a fake WMS server lists <code>EPSG:3857</code> in GetCapabilities, one tile request has <code>SERVICE=WMS</code>, <code>REQUEST=GetMap</code>, <code>LAYERS</code>, <code>CRS=EPSG:3857</code> and a <code>BBOX</code> that matches the tile. When the fake server does not list <code>EPSG:3857</code>, the job stops with <code>unsupported_crs</code> and sends no GetMap request.
 </li>
 <li>A fixture source file with <code>serverParts</code> <code>a,b,c</code> produces requests to three different hosts.
 </li>

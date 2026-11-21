@@ -100,6 +100,8 @@ The project exists because ATAK users often work with no network. Examples are s
 | TMS | noun | Tile Map Service row order: row 0 is at the south edge. | — |
 | XYZ | noun | Slippy-map row order: row 0 is at the north edge. | — |
 | WMS | noun | OGC Web Map Service. A map source that the project requests with bounds instead of a tile column and row. | — |
+| CRS | noun | Coordinate reference system, for example `EPSG:3857`. A WMS request names one (feature 09). | projection, SRS (except as the WMS 1.1.1 parameter name) |
+| GetCapabilities | noun | The WMS request that returns the service metadata of a server, which lists the CRS of each layer (feature 09). | capabilities call |
 | SSE | noun | Server-Sent Events: a one-way HTTP event stream. The job API sends job events over it (#76). | — |
 
 ## Goals
@@ -145,7 +147,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | Polite downloading | [features/06-polite-downloading.md](features/06-polite-downloading.md) | Epic 2: Polite downloading | built | 04-source-policy-warning |
 | Robust downloads | [features/07-robust-downloads.md](features/07-robust-downloads.md) | Epic 3: Robust downloads | built | — |
 | Offline web UI | [features/08-offline-web-ui.md](features/08-offline-web-ui.md) | Epic 4: Offline web UI | built | 01-workspace |
-| Source sync and WMS | [features/09-source-sync.md](features/09-source-sync.md) | Epic 5: Source sync and WMS | built, except WMS (#41) | — |
+| Source sync and WMS | [features/09-source-sync.md](features/09-source-sync.md) | Epic 5: Source sync and WMS | built | — |
 | Output formats | [features/10-output-formats.md](features/10-output-formats.md) | Epic 6: Output formats | built | 03-export-options |
 | Area selection | [features/11-area-selection.md](features/11-area-selection.md) | Epic 7: Area selection | built | 02-area-tools |
 | Team server | [features/12-team-server.md](features/12-team-server.md) | Epic 8: Team server | planned | 05-jobs |
@@ -239,7 +241,7 @@ erDiagram
     string background_color
     bool ignore_errors
     string_list server_parts
-    string kind "tile or wms, wms waits for #41"
+    string kind "tile or wms"
     bool invert_y
   }
   SOURCE_FILE {
@@ -306,7 +308,7 @@ erDiagram
 
 Per entity:
 
-- **MAP_SOURCE** (built, `internal/xmlparser/xmlparser.go:16-26`). The parser loads it from a `<customMapSource>` source file. `name` is the key. A map source of a later layer replaces one of the same name: the snapshot, then `atak-maps/`, then the user's own files (FR-source-sync-5). Defaults: if both zooms are 0, `max_zoom` is 18. `tile_type` is `png`, `tile_update` is `None` and `background_color` is `#000000`. It has `kind` (`tile`, and `wms` when #41 lands) and `invert_y` (feature 09).
+- **MAP_SOURCE** (built, `internal/xmlparser/xmlparser.go:16-26`). The parser loads it from a `<customMapSource>` source file. `name` is the key. A map source of a later layer replaces one of the same name: the snapshot, then `atak-maps/`, then the user's own files (FR-source-sync-5). Defaults: if both zooms are 0, `max_zoom` is 18. `tile_type` is `png`, `tile_update` is `None` and `background_color` is `#000000`. It has `kind` (`tile` or `wms`) and `invert_y` (feature 09).
 - **SOURCE_FILE** (built). A MOBAC XML file in the snapshot or in the user source directory. `origin` is `snapshot` or `user` (feature 09).
 - **SKIPPED_SOURCE** (built, feature 09). An in-memory record of a source file that did not load, with its path, reason and detail (#38).
 - **SOURCE_POLICY** (built, feature 06). A table embedded in the binary, keyed by a host pattern such as `*.google.com`. `policy_class` is `open`, `conditional` or `restricted`. `requests_per_second` is the rate limit for that host.
@@ -426,7 +428,7 @@ Reconciliation of the existing documentation against the code (Phase 1):
 
 - **Resolved — README cross-compile.** The README told users to cross-compile with `GOOS`/`GOARCH`, and the `mattn/go-sqlite3` driver needed CGO. #63 replaced the driver, and the README now shows `CGO_ENABLED=0` builds (`README.md:65-77`).
 - **Resolved — "1:1 functionality matching the Python version".** No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim, and Epic 0 removed it from the README (#71).
-- **Resolved — "30+ map sources".** The snapshot holds 53 source files, and 47 load. `list-sources --skipped` reports the other 6 with reason `parse_error`: 5 WMS files, which wait for #41, and 1 multi-layer file (#37, #38).
+- **Resolved — "30+ map sources".** The snapshot holds 53 source files, and 52 load, including 5 WMS files (#41). `list-sources --skipped` reports the other 1, a multi-layer file, with reason `parse_error` (#37, #38).
 - **Contradicted — "MBTiles output".** The output file has a `.sqlite` extension and lacks the `center` key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
 - **Resolved — "Batch Delay".** The web UI offered a batch delay that the engine never read. #78 removed the control and `DelayBetweenBatches`.
 - **Resolved — the build failed on this machine.** On 2026-11-21, `go run ./cmd/atak-dl` failed at the CGO link step on macOS 27 (`ld: … tapi error: malformed file … unknown architecture`). #63 removed CGO (ADR 0005), and `CGO_ENABLED=0` builds pass in CI (#69).
@@ -582,3 +584,6 @@ FR coverage (each sub-issue and the requirements it quotes):
   - `jobs.jsonl` stores the job request, never the token. A failed write is logged, and the job continues (#57).
   - The image creates `/data` with `WORKDIR`, so a named volume is writable by the nonroot user without `chown`. The release workflow pushes only after a container smoke check of `/healthz` (#60).
   - `/api/files` serves output files only (`.mbtiles`, `.sqlite`, `.gpkg`, `.zip`), so `jobs.jsonl` is not downloadable (batch fix).
+- 2026-11-21: WMS map sources merged into `develop` (#142). Epic 5 is complete. Decisions:
+  - The maintainer chose option 1 for FR-source-sync-20. The engine requests `EPSG:3857`, and if the source file declares another CRS, it reads GetCapabilities one time for each map source. A server that does not list `EPSG:3857` stops the job with `unsupported_crs` (#41).
+  - `unsupported_crs` is a job error only, and it is no longer a skip reason (#41).

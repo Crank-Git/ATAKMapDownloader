@@ -213,8 +213,8 @@ func TestSourcesReturnsTheKindAndOriginOfEachSource(t *testing.T) {
 }
 
 func TestSourcesSkippedReturnsThePathReasonAndDetailOfEachSkippedFile(t *testing.T) {
-	wmsXML := `<?xml version="1.0"?><customWmsMapSource><name>WMS</name><url>https://example.com/wms</url></customWmsMapSource>`
-	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "wms.xml": wmsXML})
+	multiXML := `<?xml version="1.0"?><customMultiLayerMapSource><name>Multi</name></customMultiLayerMapSource>`
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "multi.xml": multiXML})
 	rec := serve(h, http.MethodGet, "/api/sources/skipped", "")
 
 	var got []struct {
@@ -227,9 +227,9 @@ func TestSourcesSkippedReturnsThePathReasonAndDetailOfEachSkippedFile(t *testing
 	if err := dec.Decode(&got); err != nil {
 		t.Fatalf("body does not parse as [{path, reason, detail}]: %v", err)
 	}
-	if len(got) != 1 || filepath.Base(got[0].Path) != "wms.xml" || got[0].Reason != xmlparser.SkipParseError ||
-		!strings.Contains(got[0].Detail, "customWmsMapSource") {
-		t.Errorf("GET /api/sources/skipped = %+v, want wms.xml with reason parse_error and the root element", got)
+	if len(got) != 1 || filepath.Base(got[0].Path) != "multi.xml" || got[0].Reason != xmlparser.SkipParseError ||
+		!strings.Contains(got[0].Detail, "customMultiLayerMapSource") {
+		t.Errorf("GET /api/sources/skipped = %+v, want multi.xml with reason parse_error and the root element", got)
 	}
 }
 
