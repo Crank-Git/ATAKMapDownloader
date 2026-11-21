@@ -148,13 +148,14 @@ func TestEngineRejectsTilesThatAreNotValidImages(t *testing.T) {
 			if rows := len(storedTiles(t, output)); rows != 0 {
 				t.Errorf("output file holds %d tile rows, want 0", rows)
 			}
-			want := []tileFailure{{tile, tt.want}}
+			// The main pass and the retry pass each report the tile.
+			want := []tileFailure{{tile, tt.want}, {tile, tt.want}}
 			if got := log.failures(); fmt.Sprint(got) != fmt.Sprint(want) {
 				t.Errorf("failed tiles = %v, want %v", got, want)
 			}
-			// A body with status 200 is not a refusal, so the engine does not retry it.
-			if n := srv.Requests(tile); n != 1 {
-				t.Errorf("tile got %d requests, want 1", n)
+			// A body with status 200 is not a refusal, so each pass sends one request for the tile.
+			if n := srv.Requests(tile); n != 2 {
+				t.Errorf("tile got %d requests, want 2", n)
 			}
 		})
 	}
@@ -177,7 +178,8 @@ func TestEngineRejectsABlockedImage(t *testing.T) {
 	if rows := len(storedTiles(t, output)); rows != 0 {
 		t.Errorf("output file holds %d tile rows, want 0", rows)
 	}
-	want := []tileFailure{{tile, ReasonBlockedImage}}
+	// The main pass and the retry pass each report the tile.
+	want := []tileFailure{{tile, ReasonBlockedImage}, {tile, ReasonBlockedImage}}
 	if got := log.failures(); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("failed tiles = %v, want %v", got, want)
 	}
@@ -192,7 +194,8 @@ func TestEngineReportsTheReasonOfAnHTTPError(t *testing.T) {
 	e.onTileFailed = log.record
 
 	_, _ = e.DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil) // The test checks the reason, not the job error.
-	want := []tileFailure{{tile, "http_404"}}
+	// The retry pass skips a not_found tile, so the engine reports it once (FR-robust-downloads-25).
+	want := []tileFailure{{tile, ReasonNotFound}}
 	if got := log.failures(); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("failed tiles = %v, want %v", got, want)
 	}
@@ -208,7 +211,8 @@ func TestEngineReportsTheReasonOfATLSFailure(t *testing.T) {
 	e.onTileFailed = log.record
 
 	_, _ = e.DownloadTiles(t.Context(), source, boundsOf(t, singleTile), []int{singleTile.Zoom}, filepath.Join(t.TempDir(), "out.sqlite"), nil) // The test checks the reason, not the job error.
-	want := []tileFailure{{tile, ReasonTLS}}
+	// The main pass and the retry pass each report the tile.
+	want := []tileFailure{{tile, ReasonTLS}, {tile, ReasonTLS}}
 	if got := log.failures(); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("failed tiles = %v, want %v", got, want)
 	}
