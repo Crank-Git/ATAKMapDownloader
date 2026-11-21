@@ -10,6 +10,7 @@ import (
 	// Each import registers the writer of one output format with the output package.
 	_ "github.com/crank-git/atak-map-downloader/internal/mbtiles"
 	_ "github.com/crank-git/atak-map-downloader/internal/output/gpkg"
+	_ "github.com/crank-git/atak-map-downloader/internal/output/osmdroid"
 )
 
 // checkFormat returns an error code and a message when a job cannot write the output format format.

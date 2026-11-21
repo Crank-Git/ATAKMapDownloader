@@ -87,9 +87,9 @@ func TestOpenUsesTheOpenerOfTheRegisteredFormat(t *testing.T) {
 }
 
 func TestOpenRejectsAFormatThatIsNotRegistered(t *testing.T) {
-	_, err := Open(OSMDroid, filepath.Join(t.TempDir(), "out.sqlite"), nil)
+	_, err := Open("kmz", filepath.Join(t.TempDir(), "out.kmz"), nil)
 	if !errors.Is(err, ErrNotRegistered) {
-		t.Errorf("Open(%q) error = %v, want ErrNotRegistered", OSMDroid, err)
+		t.Errorf("Open(%q) error = %v, want ErrNotRegistered", "kmz", err)
 	}
 }
 
@@ -99,7 +99,6 @@ func TestRegisteredReportsOnlyTheRegisteredFormats(t *testing.T) {
 		want   bool
 	}{
 		{textFormat, true},
-		{OSMDroid, false},
 		{"kmz", false},
 	}
 	for _, tt := range tests {

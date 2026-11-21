@@ -19,7 +19,6 @@ func TestDownloadRejectsAnOutputFormatThatIsNotValid(t *testing.T) {
 		wantStderr string
 	}{
 		{"rejects an unknown format and lists the valid values", "kmz", `invalid_output_format: --format "kmz" is not one of mbtiles, osmdroid, gpkg`},
-		{"rejects osmdroid until its writer is registered", "osmdroid", "not_implemented: output format osmdroid is not implemented"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -89,6 +88,27 @@ func TestDownloadResumesAGeoPackageFileAndSkipsTheStoredTiles(t *testing.T) {
 	}
 }
 
+func TestDownloadResumesAnOSMDroidFileAndSkipsTheStoredTiles(t *testing.T) {
+	srv := testtiles.New(t, nil)
+	path := filepath.Join(t.TempDir(), "out.sqlite")
+	if stderr, err := runDownloadInto(t, srv, path, []string{"--format", "osmdroid"}); err != nil {
+		t.Fatalf("download --format osmdroid error = %v, stderr %q", err, stderr)
+	}
+	if n := srv.TotalRequests(); n != 1 {
+		t.Fatalf("server got %d tile requests for the first job, want 1", n)
+	}
+	if info, err := output.ReadInfo(path); err != nil || info.Format != output.OSMDroid {
+		t.Fatalf("ReadInfo(%s) = %+v, %v; want format osmdroid", path, info, err)
+	}
+
+	if stderr, err := runDownloadInto(t, srv, path, []string{"--resume", "--format", "osmdroid"}); err != nil {
+		t.Fatalf("download --resume --format osmdroid error = %v, stderr %q", err, stderr)
+	}
+	if n := srv.TotalRequests(); n != 1 {
+		t.Errorf("server got %d tile requests in total, want 1, because the resume skips the stored tile", n)
+	}
+}
+
 func TestPrepareOutputRefusesAResumeIntoAFileOfAnotherFormat(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.sqlite")
 	writeOutputFile(t, path, map[string]string{"atakdl_source": "Test TLS"}, oneTile)
@@ -111,7 +131,6 @@ func TestJobAPIOutputFormat(t *testing.T) {
 		wantMessage string
 	}{
 		{"rejects an unknown output_format and lists the valid values", `,"output_format":"kmz"`, http.StatusBadRequest, "invalid_output_format", "mbtiles, osmdroid, gpkg"},
-		{"returns not_implemented for osmdroid until its writer is registered", `,"output_format":"osmdroid"`, http.StatusBadRequest, "not_implemented", "osmdroid"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
