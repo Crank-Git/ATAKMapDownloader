@@ -34,7 +34,7 @@ Epic 1 pull request changed names that pull request, for example (#75).
   in the zoom range.
 - FR-tile-download-2 — The engine runs at most `MaxConcurrent` tile requests at the same
   time. The default is 5.
-- FR-tile-download-3 — The engine sends the header `User-Agent: ATAK-Map-Downloader/1.0`
+- FR-tile-download-3 — Replaced by FR-polite-downloading-14 (#87). The engine sent the header `User-Agent: ATAK-Map-Downloader/1.0`
   with each tile request.
 - FR-tile-download-4 — The engine stops each tile request after 30 seconds.
 - FR-tile-download-5 — The engine verifies TLS certificates unless `VerifyTLS` is false.

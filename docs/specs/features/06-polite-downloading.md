@@ -149,12 +149,15 @@ Initial policy table. The research spike collected these sources on 2026-11-21. 
 | `*.arcgisonline.com`, `*.arcgis.com` | restricted | 1 | https://www.esri.com/content/dam/arcgisonline/docs/tou_summary.pdf |
 | `tile.openstreetmap.org`, `*.tile.openstreetmap.org` | restricted | 1 | https://operations.osmfoundation.org/policies/tiles/ |
 | `*.opentopomap.org` | conditional | 2 | https://opentopomap.org/about |
-| `*.cyclosm.*`, `*.openseamap.org`, `*.mtbmap.cz`, `*.waymarkedtrails.org` | conditional | 2 | Volunteer-run. No published limit was found. |
+| `*.tile-cyclosm.openstreetmap.fr`, `*.openseamap.org`, `*.mtbmap.cz`, `*.waymarkedtrails.org` | conditional | 2 | Volunteer-run. No published limit was found. |
 | `*.nationalmap.gov`, `*.usgs.gov` | open | 8 | https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map |
 | `*.usda.gov` (NAIP) | open | 8 | https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map (NAIP is public domain) |
-| `*.fema.gov`, `*.nrcan.gc.ca`, `*.maanmittauslaitos.fi`, `*.geoportal.gov.pl` | conditional | 2 | The license is unverified (see Open questions). |
+| `*.fema.gov`, `*.nrcan.gc.ca`, `maps.geogratis.gc.ca`, `*.maanmittauslaitos.fi`, `tiles.kartat.kapsi.fi`, `*.geoportal.gov.pl` | conditional | 2 | The license is unverified (see Open questions). |
 
-- `requests_per_second` can be lowered, but not raised, with `--rate-limit` on the CLI and `rate_limit` in the job API.
+- `requests_per_second` can be lowered, but not raised, with `--rate-limit` on the CLI and `rate_limit` in the job API. A value of 0 or below returns 400 `invalid_rate_limit` (#87).
+- The host patterns match the hosts that the bundled source files use. `tiles.kartat.kapsi.fi` and `maps.geogratis.gc.ca` were added at the #84 gate, and the CyclOSM pattern is `*.tile-cyclosm.openstreetmap.fr` (#84).
+- A host that matches no entry gets `conditional` at 4 requests per second, with `HostPattern` set to the host itself.
+- Each job counts its own consecutive refusals. The host pause is shared by every job (#87).
 - The policy class comes only from the embedded table. A source file cannot set its own policy class.
 
 ## Data touched
@@ -167,6 +170,8 @@ Initial policy table. The research spike collected these sources on 2026-11-21. 
 
 - `GET /api/sources` adds `policy_class`, `policy_reason`, `policy_reference_url` and `requests_per_second` to each item.
 - `POST /api/jobs` accepts `accept_terms` (boolean) and `rate_limit` (number, requests per second).
+- `GET /api/sources` also returns `policy_host`, the `host_pattern` of the chosen entry (#84).
+- `GET /api/config` returns `{"geocode": true|false}`. The web UI reads it at load and hides the search box when it is false (#88).
 - `POST /api/geocode` keeps its shape. It adds 429 `geocode_busy` and 502 `geocode_failed`.
 - CLI: `download --accept-terms`, `download --rate-limit <n>`, `serve --geocoder-url <url>`, `serve --no-geocode`.
 - Nominatim usage policy: at most 1 request per second, an identifying User-Agent, caching, no bulk use (https://operations.osmfoundation.org/policies/nominatim/, retrieved 2026-11-21).

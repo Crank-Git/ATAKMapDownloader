@@ -331,13 +331,19 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td><code><em>.arcgisonline.com</code>, <code></em>.arcgis.com</code></td><td>restricted</td><td>1</td><td>https://www.esri.com/content/dam/arcgisonline/docs/tou_summary.pdf</td></tr>
 <tr><td><code>tile.openstreetmap.org</code>, <code>*.tile.openstreetmap.org</code></td><td>restricted</td><td>1</td><td>https://operations.osmfoundation.org/policies/tiles/</td></tr>
 <tr><td><code>*.opentopomap.org</code></td><td>conditional</td><td>2</td><td>https://opentopomap.org/about</td></tr>
-<tr><td><code><em>.cyclosm.</em></code>, <code><em>.openseamap.org</code>, <code></em>.mtbmap.cz</code>, <code>*.waymarkedtrails.org</code></td><td>conditional</td><td>2</td><td>Volunteer-run. No published limit was found.</td></tr>
+<tr><td><code><em>.tile-cyclosm.openstreetmap.fr</code>, <code></em>.openseamap.org</code>, <code><em>.mtbmap.cz</code>, <code></em>.waymarkedtrails.org</code></td><td>conditional</td><td>2</td><td>Volunteer-run. No published limit was found.</td></tr>
 <tr><td><code><em>.nationalmap.gov</code>, <code></em>.usgs.gov</code></td><td>open</td><td>8</td><td>https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map</td></tr>
 <tr><td><code>*.usda.gov</code> (NAIP)</td><td>open</td><td>8</td><td>https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map (NAIP is public domain)</td></tr>
-<tr><td><code><em>.fema.gov</code>, <code></em>.nrcan.gc.ca</code>, <code><em>.maanmittauslaitos.fi</code>, <code></em>.geoportal.gov.pl</code></td><td>conditional</td><td>2</td><td>The license is unverified (see Open questions).</td></tr>
+<tr><td><code><em>.fema.gov</code>, <code></em>.nrcan.gc.ca</code>, <code>maps.geogratis.gc.ca</code>, <code><em>.maanmittauslaitos.fi</code>, <code>tiles.kartat.kapsi.fi</code>, <code></em>.geoportal.gov.pl</code></td><td>conditional</td><td>2</td><td>The license is unverified (see Open questions).</td></tr>
 </table></div>
 <ul>
-<li><code>requests_per_second</code> can be lowered, but not raised, with <code>--rate-limit</code> on the CLI and <code>rate_limit</code> in the job API.
+<li><code>requests_per_second</code> can be lowered, but not raised, with <code>--rate-limit</code> on the CLI and <code>rate_limit</code> in the job API. A value of 0 or below returns 400 <code>invalid_rate_limit</code> (#87).
+</li>
+<li>The host patterns match the hosts that the bundled source files use. <code>tiles.kartat.kapsi.fi</code> and <code>maps.geogratis.gc.ca</code> were added at the #84 gate, and the CyclOSM pattern is <code>*.tile-cyclosm.openstreetmap.fr</code> (#84).
+</li>
+<li>A host that matches no entry gets <code>conditional</code> at 4 requests per second, with <code>HostPattern</code> set to the host itself.
+</li>
+<li>Each job counts its own consecutive refusals. The host pause is shared by every job (#87).
 </li>
 <li>The policy class comes only from the embedded table. A source file cannot set its own policy class.
 </li>
@@ -356,6 +362,10 @@ body.rv-open .layout { padding-right:21rem; }
 <li><code>GET /api/sources</code> adds <code>policy_class</code>, <code>policy_reason</code>, <code>policy_reference_url</code> and <code>requests_per_second</code> to each item.
 </li>
 <li><code>POST /api/jobs</code> accepts <code>accept_terms</code> (boolean) and <code>rate_limit</code> (number, requests per second).
+</li>
+<li><code>GET /api/sources</code> also returns <code>policy_host</code>, the <code>host_pattern</code> of the chosen entry (#84).
+</li>
+<li><code>GET /api/config</code> returns <code>{"geocode": true|false}</code>. The web UI reads it at load and hides the search box when it is false (#88).
 </li>
 <li><code>POST /api/geocode</code> keeps its shape. It adds 429 <code>geocode_busy</code> and 502 <code>geocode_failed</code>.
 </li>
