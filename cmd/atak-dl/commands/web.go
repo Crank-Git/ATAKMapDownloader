@@ -60,7 +60,7 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 // newServerHandler returns the handler that serve gives to the HTTP server.
 // It rejects a cross-origin POST or DELETE with status 403 and the error code cross_origin
 // (FR-security-hardening-2, FR-security-hardening-3).
-// A request with no Sec-Fetch-Site header and no Origin header comes from a client that is not a browser, so it passes.
+// It passes a request with no Sec-Fetch-Site header and no Origin header, because curl and other clients send neither.
 func newServerHandler(h http.Handler) http.Handler {
 	cop := http.NewCrossOriginProtection()
 	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
