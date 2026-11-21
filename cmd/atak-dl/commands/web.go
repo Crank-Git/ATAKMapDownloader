@@ -57,18 +57,20 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 	return h
 }
 
+// newServerHandler returns the handler that serve gives to the HTTP server.
+// It rejects a cross-origin POST or DELETE with status 403 and the error code cross_origin
+// (FR-security-hardening-2, FR-security-hardening-3).
+// A request with no Sec-Fetch-Site header and no Origin header comes from a client that is not a browser, so it passes.
+func newServerHandler(h http.Handler) http.Handler {
+	cop := http.NewCrossOriginProtection()
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeError(w, http.StatusForbidden, "cross_origin", "Cross-origin request rejected")
+	}))
+	return cop.Handler(h)
+}
+
 // ServeHTTP implements http.Handler.
 func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Add CORS headers for all responses (avoids 403 on cross-origin requests)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
 	switch {
 	case r.URL.Path == "/":
 		h.serveIndex(w, r)
