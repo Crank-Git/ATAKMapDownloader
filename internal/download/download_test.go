@@ -205,8 +205,11 @@ func TestEngineRejectsASelfSignedCertificateByDefault(t *testing.T) {
 	srv := testtiles.NewTLS(t, nil)
 	source := loadFixture(t, "xyz.xml", srv)
 	output := filepath.Join(t.TempDir(), "out.sqlite")
+	e := NewEngine(testConfig())
+	// The retry pass repeats the handshake waits, so a short backoff keeps the test fast.
+	e.backoffBase = time.Millisecond
 
-	res, err := NewEngine(testConfig()).DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
+	res, err := e.DownloadTiles(t.Context(), source, boundsOf(t, oneTile), []int{oneTile.Zoom}, output, nil)
 	if res.OK {
 		t.Errorf("DownloadTiles ok = true, want false")
 	}

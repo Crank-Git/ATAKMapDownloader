@@ -25,30 +25,61 @@ const dsnPragmas = "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
 
 // The schema statements use IF NOT EXISTS, so that Open also opens an existing output file.
 // SQLite stores each statement in sqlite_master without the IF NOT EXISTS clause (FR-foundation-4).
+// The ATAK reader reads only the tiles table, so it ignores atakdl_failed_tiles (FR-robust-downloads-21).
 const schema = `
 	CREATE TABLE IF NOT EXISTS metadata (name text, value text);
 	CREATE TABLE IF NOT EXISTS tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob);
 	CREATE UNIQUE INDEX IF NOT EXISTS name ON metadata (name);
 	CREATE UNIQUE INDEX IF NOT EXISTS tile_index ON tiles (zoom_level, tile_column, tile_row);
+	CREATE TABLE IF NOT EXISTS atakdl_failed_tiles (zoom_level integer, tile_column integer, tile_row integer, reason text, attempts integer);
+	CREATE UNIQUE INDEX IF NOT EXISTS atakdl_failed_tile_index ON atakdl_failed_tiles (zoom_level, tile_column, tile_row);
 `
+
+// The statements that the writer goroutine runs for each queued operation. The row is the TMS row.
+const (
+	insertTile   = "INSERT OR REPLACE INTO tiles (zoom_level, tile_column, tile_row, tile_data) VALUES (?, ?, ?, ?)"
+	removeFailed = "DELETE FROM atakdl_failed_tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?"
+	recordFailed = `INSERT INTO atakdl_failed_tiles (zoom_level, tile_column, tile_row, reason, attempts) VALUES (?, ?, ?, ?, 1)
+		ON CONFLICT (zoom_level, tile_column, tile_row) DO UPDATE SET reason = excluded.reason, attempts = attempts + 1`
+)
 
 // key identifies one tile by zoom level, column and XYZ row.
 type key struct {
 	z, x, y int
 }
 
-// tile is one tile that waits in the queue of the writer goroutine.
-type tile struct {
+// op is one operation that waits in the queue of the writer goroutine.
+type op struct {
 	key
+	// data is the tile data of a Put.
 	data []byte
+	// reason is the failure reason of a Fail. A Put has no reason.
+	reason string
+	// reply is set only for a Failed request, and the writer goroutine sends the failed tiles to it.
+	reply chan<- failedList
+}
+
+// failedList is the answer of the writer goroutine to a Failed request.
+type failedList struct {
+	tiles []FailedTile
+	err   error
+}
+
+// FailedTile is one row of the atakdl_failed_tiles table. Y is the XYZ row.
+type FailedTile struct {
+	Z, X, Y int
+	// Reason is the failure reason of the last failure of the tile.
+	Reason string
+	// Attempts counts the calls of Fail for the tile, one per failed pass.
+	Attempts int
 }
 
 // Writer writes the tiles of one job to an output file.
 // One writer goroutine owns the database, and it commits one transaction per 500 tiles.
-// Has and Put are safe for concurrent use. Close must not run at the same time as Put.
+// Has, Put, Fail and Failed are safe for concurrent use. Close must not run at the same time as any of them.
 type Writer struct {
 	db    *sql.DB
-	queue chan tile
+	queue chan op
 	done  chan struct{}
 
 	mu   sync.RWMutex
@@ -88,7 +119,7 @@ func Open(path string, metadata map[string]string) (*Writer, error) {
 
 	w := &Writer{
 		db:    db,
-		queue: make(chan tile, queueSize),
+		queue: make(chan op, queueSize),
 		done:  make(chan struct{}),
 		keys:  keys,
 	}
@@ -170,14 +201,35 @@ func (w *Writer) Has(z, x, y int) bool {
 }
 
 // Put queues the tile z, x, y with data for the writer goroutine. The row y is the XYZ row.
+// The writer removes the row of the tile from atakdl_failed_tiles in the same transaction (FR-robust-downloads-23).
 // It returns the first write error of the writer, and the writer drops every tile after that error.
 func (w *Writer) Put(z, x, y int, data []byte) error {
 	k := key{z, x, y}
-	w.queue <- tile{key: k, data: data}
+	w.queue <- op{key: k, data: data}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.keys[k] = struct{}{}
 	return w.err
+}
+
+// Fail queues a row in atakdl_failed_tiles for the tile z, x, y with reason. The row y is the XYZ row.
+// A tile that has a row keeps one row: the writer replaces the reason and adds 1 to attempts.
+// It returns the first write error of the writer.
+func (w *Writer) Fail(z, x, y int, reason string) error {
+	w.queue <- op{key: key{z, x, y}, reason: reason}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.err
+}
+
+// Failed returns the rows of atakdl_failed_tiles, with XYZ rows, in tile order.
+// The writer goroutine commits every queued operation first, so the rows include each Fail and Put before the call.
+// It returns the first write error of the writer, or the query error.
+func (w *Writer) Failed() ([]FailedTile, error) {
+	reply := make(chan failedList, 1)
+	w.queue <- op{reply: reply}
+	l := <-reply
+	return l.tiles, l.err
 }
 
 // Close commits the queued tiles, stops the writer goroutine and closes the output file.
@@ -191,15 +243,23 @@ func (w *Writer) Close() error {
 	return errors.Join(err, w.db.Close())
 }
 
-// run writes the queued tiles until Close closes the queue.
+// run writes the queued operations until Close closes the queue.
 func (w *Writer) run() {
 	defer close(w.done)
-	batch := make([]tile, 0, batchSize)
-	for t := range w.queue {
+	batch := make([]op, 0, batchSize)
+	for o := range w.queue {
+		if o.reply != nil {
+			if len(batch) > 0 && !w.failed() {
+				w.commit(batch)
+			}
+			batch = batch[:0]
+			o.reply <- w.listFailed()
+			continue
+		}
 		if w.failed() {
 			continue
 		}
-		batch = append(batch, t)
+		batch = append(batch, o)
 		if len(batch) == batchSize {
 			w.commit(batch)
 			batch = batch[:0]
@@ -218,7 +278,7 @@ func (w *Writer) failed() bool {
 }
 
 // commit writes batch in one transaction. It records the first error in w.err.
-func (w *Writer) commit(batch []tile) {
+func (w *Writer) commit(batch []op) {
 	err := w.insert(batch)
 	if err == nil {
 		w.commits++
@@ -231,26 +291,80 @@ func (w *Writer) commit(batch []tile) {
 	}
 }
 
-// insert writes the tiles of batch in one transaction, and it replaces a stored tile with the same key.
-func (w *Writer) insert(batch []tile) error {
+// insert writes the operations of batch in one transaction, and it replaces a stored tile with the same key.
+func (w *Writer) insert(batch []op) error {
 	tx, err := w.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin the tile transaction: %w", err)
 	}
-	stmt, err := tx.Prepare("INSERT OR REPLACE INTO tiles (zoom_level, tile_column, tile_row, tile_data) VALUES (?, ?, ?, ?)")
-	if err != nil {
-		return errors.Join(fmt.Errorf("prepare the tile insert: %w", err), tx.Rollback())
+	var stmts []*sql.Stmt
+	for _, query := range []string{insertTile, removeFailed, recordFailed} {
+		stmt, err := tx.Prepare(query)
+		if err != nil {
+			return errors.Join(fmt.Errorf("prepare %q: %w", query, err), closeAll(stmts), tx.Rollback())
+		}
+		stmts = append(stmts, stmt)
 	}
-	for _, t := range batch {
-		if _, err := stmt.Exec(t.z, t.x, flip(t.z, t.y), t.data); err != nil {
-			return errors.Join(fmt.Errorf("insert tile %d/%d/%d: %w", t.z, t.x, t.y, err), stmt.Close(), tx.Rollback())
+	put, remove, record := stmts[0], stmts[1], stmts[2]
+	for _, o := range batch {
+		row := flip(o.z, o.y)
+		var err error
+		if o.reason == "" {
+			if _, err = put.Exec(o.z, o.x, row, o.data); err == nil {
+				_, err = remove.Exec(o.z, o.x, row)
+			}
+		} else {
+			_, err = record.Exec(o.z, o.x, row, o.reason)
+		}
+		if err != nil {
+			return errors.Join(fmt.Errorf("write tile %d/%d/%d: %w", o.z, o.x, o.y, err), closeAll(stmts), tx.Rollback())
 		}
 	}
-	if err := stmt.Close(); err != nil {
-		return errors.Join(fmt.Errorf("close the tile insert: %w", err), tx.Rollback())
+	if err := closeAll(stmts); err != nil {
+		return errors.Join(err, tx.Rollback())
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit %d tiles: %w", len(batch), err)
 	}
 	return nil
+}
+
+// closeAll closes each statement in stmts and returns the joined close errors.
+func closeAll(stmts []*sql.Stmt) error {
+	var errs []error
+	for _, s := range stmts {
+		if err := s.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close a tile statement: %w", err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// listFailed returns the rows of atakdl_failed_tiles with XYZ rows. Only the writer goroutine calls it.
+func (w *Writer) listFailed() failedList {
+	w.mu.RLock()
+	err := w.err
+	w.mu.RUnlock()
+	if err != nil {
+		return failedList{err: err}
+	}
+	rows, err := w.db.Query("SELECT zoom_level, tile_column, tile_row, reason, attempts FROM atakdl_failed_tiles ORDER BY zoom_level, tile_column, tile_row")
+	if err != nil {
+		return failedList{err: fmt.Errorf("read the failed tiles: %w", err)}
+	}
+	defer func() { _ = rows.Close() }() // rows.Err below reports a read failure.
+
+	var tiles []FailedTile
+	for rows.Next() {
+		var f FailedTile
+		if err := rows.Scan(&f.Z, &f.X, &f.Y, &f.Reason, &f.Attempts); err != nil {
+			return failedList{err: fmt.Errorf("read the failed tiles: %w", err)}
+		}
+		f.Y = flip(f.Z, f.Y)
+		tiles = append(tiles, f)
+	}
+	if err := rows.Err(); err != nil {
+		return failedList{err: fmt.Errorf("read the failed tiles: %w", err)}
+	}
+	return failedList{tiles: tiles}
 }
