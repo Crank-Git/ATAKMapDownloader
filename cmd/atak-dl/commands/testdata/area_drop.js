@@ -1,5 +1,6 @@
-// area_drop.js runs web/static/js/app.js in Node with a small fake DOM, drops an area file, and prints the area list as JSON.
+// area_drop.js runs web/static/js/app.js in Node with a small fake DOM, drops an area file, and prints the area list and the map moves as JSON.
 // Usage: node area_drop.js <app.js> <server URL> <area file>
+// With the area file "draw", the script draws a polygon with the Polygon tool instead of a drop.
 // The fetch calls of app.js go to the server URL, so the parse, estimate and tiles routes are the real ones.
 'use strict';
 
@@ -74,21 +75,58 @@ const document = {
 // index.html marks the banner hidden, so the fake starts the same way.
 document.getElementById('errorBanner').hidden = true;
 
-// fakeLayer stands in for a Leaflet layer. Only toGeoJSON returns data, because the area list sends the geometry.
+// FakeBounds holds the parts of L.LatLngBounds that the import code uses. With no corners it is empty, as L.latLngBounds() is.
+class FakeBounds {
+    constructor(...corners) {
+        this.south = Infinity;
+        this.west = Infinity;
+        this.north = -Infinity;
+        this.east = -Infinity;
+        for (const [lat, lng] of corners) this.extendPoint(lat, lng);
+    }
+    extendPoint(lat, lng) {
+        this.south = Math.min(this.south, lat);
+        this.west = Math.min(this.west, lng);
+        this.north = Math.max(this.north, lat);
+        this.east = Math.max(this.east, lng);
+    }
+    extend(other) {
+        if (other.isValid()) {
+            this.extendPoint(other.south, other.west);
+            this.extendPoint(other.north, other.east);
+        }
+        return this;
+    }
+    isValid() { return this.south <= this.north; }
+}
+
+// geometryBounds returns the bounds of the GeoJSON positions in geometry, which Leaflet gets from the layer.
+function geometryBounds(geometry) {
+    const bounds = new FakeBounds();
+    const walk = (c) => (typeof c[0] === 'number' ? bounds.extendPoint(c[1], c[0]) : c.forEach(walk));
+    if (geometry) walk(geometry.coordinates);
+    return bounds;
+}
+
+// fakeLayer stands in for a Leaflet layer. toGeoJSON returns the geometry, because the area list sends it.
 function fakeLayer(geometry) {
     return {
         addTo() { return this; },
         on() { return this; },
         setStyle() { return this; },
         bringToFront() { return this; },
-        getBounds() { return { isValid: () => true }; },
+        getBounds() { return geometryBounds(geometry); },
         toGeoJSON() { return { type: 'Feature', geometry }; }
     };
 }
 
+// fitBoundsCalls records each map move, so the check can see where the import put the map.
+const fitBoundsCalls = [];
 const map = {
     removeLayer() {},
-    fitBounds() {},
+    fitBounds(bounds, options) {
+        fitBoundsCalls.push({ bounds: [bounds.west, bounds.south, bounds.east, bounds.north], options: options || {} });
+    },
     pm: {
         disableDraw() {},
         disableGlobalEditMode() {},
@@ -103,7 +141,7 @@ const L = {
     geoJSON: (geometry) => ({ getLayers: () => [fakeLayer(geometry)] }),
     layerGroup: () => ({ addTo() { return this; } }),
     rectangle: () => fakeLayer(null),
-    latLngBounds: () => ({ isValid: () => true })
+    latLngBounds: (...corners) => new FakeBounds(...corners)
 };
 
 const context = vm.createContext({
@@ -130,18 +168,29 @@ const ATAKDownloader = vm.runInContext('ATAKDownloader', context);
     ATAKDownloader.prototype.init = function () {};
     const app = new ATAKDownloader();
     app.map = map;
-    const file = new File([fs.readFileSync(areaPath)], path.basename(areaPath));
-    await app.onAreaDrop({ preventDefault() {}, dataTransfer: { files: [file] } });
-    const rows = elements.areaList.children;
+    if (areaPath === 'draw') {
+        // onDrawCreate does not return the estimate request, so the script waits for each request that it starts.
+        const pending = [];
+        const areasChanged = app.areasChanged.bind(app);
+        app.areasChanged = () => { const p = areasChanged(); pending.push(p); return p; };
+        const ring = [[-121.8, 46.9], [-121.7, 46.9], [-121.7, 46.95], [-121.8, 46.9]];
+        app.onDrawCreate({ shape: 'Polygon', layer: fakeLayer({ type: 'Polygon', coordinates: [ring] }) });
+        await Promise.all(pending);
+    } else {
+        const file = new File([fs.readFileSync(areaPath)], path.basename(areaPath));
+        await app.onAreaDrop({ preventDefault() {}, dataTransfer: { files: [file] } });
+    }
+    const rows = document.getElementById('areaList').children;
     process.stdout.write(JSON.stringify({
         rows: rows.length,
         names: app.areas.map(a => a.name),
         kinds: app.areas.map(a => a.kind),
         tiles: app.areas.map(a => a.tiles),
         rowText: rows.map(r => r.textContent),
-        total: elements.areaTotal.textContent,
-        empty: elements.areaEmpty.hidden,
-        error: elements.errorBanner.hidden ? '' : elements.errorMessage.textContent
+        total: document.getElementById('areaTotal').textContent,
+        empty: document.getElementById('areaEmpty').hidden,
+        error: document.getElementById('errorBanner').hidden ? '' : document.getElementById('errorMessage').textContent,
+        fitBounds: fitBoundsCalls
     }));
 })().catch(error => {
     process.stderr.write(String(error && error.stack || error));
