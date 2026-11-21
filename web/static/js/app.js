@@ -967,7 +967,12 @@ class ATAKDownloader {
         if (result.warnings.length > 0) {
             this.showError('import', file.name + ': ' + result.warnings.join('. '), null);
         }
-        if (added > 0) await this.areasChanged();
+        if (added === 0) return;
+        // At the default view an imported area is a few pixels wide, so the map moves to the new areas (#124).
+        const bounds = L.latLngBounds();
+        this.areas.slice(-added).forEach(a => bounds.extend(a.layer.getBounds()));
+        this.map.fitBounds(bounds, { padding: [20, 20] });
+        await this.areasChanged();
     }
 
     enableEstimation() {
