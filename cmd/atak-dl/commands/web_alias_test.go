@@ -99,8 +99,8 @@ func TestEstimateResolvesAnOldSourceName(t *testing.T) {
 		wantWarning string
 	}{
 		{"returns the v2 estimate and a warning for a v0.1 name", "Google - Satellite Only", http.StatusOK, `"Google - Satellite Only" is an old map source name. The new name is "Google Satellite".`},
-		{"returns no warning for a v2 name", "Google Satellite", http.StatusOK, ""},
-		{"returns 404 for an unknown name", "No Such Source", http.StatusNotFound, ""},
+		{"returns no warning for a v2 name", "Google Satellite", http.StatusOK, "<absent>"},
+		{"returns 404 for an unknown name", "No Such Source", http.StatusNotFound, "<absent>"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,23 +115,30 @@ func TestEstimateResolvesAnOldSourceName(t *testing.T) {
 				}
 				return
 			}
-			var got struct {
-				estimateResult
-				// Warning is a pointer, so the test can tell an absent field from an empty one.
-				Warning *string `json:"warning"`
-			}
-			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-				t.Fatal(err)
-			}
+			got, warning := decodeEstimate(t, rec.Body.Bytes())
 			if got.TotalTiles != want.TotalTiles || got.EstimatedSizeMB != want.EstimatedSizeMB {
 				t.Errorf("total_tiles, estimated_size_mb = %d, %g; want the v2 estimate %d, %g", got.TotalTiles, got.EstimatedSizeMB, want.TotalTiles, want.EstimatedSizeMB)
 			}
-			switch {
-			case tt.wantWarning == "" && got.Warning != nil:
-				t.Errorf("warning = %q, want no warning field", *got.Warning)
-			case tt.wantWarning != "" && (got.Warning == nil || *got.Warning != tt.wantWarning):
-				t.Errorf("warning = %v, want %q", got.Warning, tt.wantWarning)
+			if warning != tt.wantWarning {
+				t.Errorf("warning = %q, want %q", warning, tt.wantWarning)
 			}
 		})
 	}
+}
+
+// decodeEstimate returns the POST /api/estimate response in body and its warning field.
+// The warning is "<absent>" when body has no warning field, so a test can tell an absent field from an empty one.
+func decodeEstimate(t *testing.T, body []byte) (estimateResult, string) {
+	t.Helper()
+	var got struct {
+		estimateResult
+		Warning *string `json:"warning"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Warning == nil {
+		return got.estimateResult, "<absent>"
+	}
+	return got.estimateResult, *got.Warning
 }
