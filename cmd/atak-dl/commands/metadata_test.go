@@ -79,7 +79,7 @@ func TestDownloadWarnsOnlyForAWebPTileType(t *testing.T) {
 				"--output", filepath.Join(t.TempDir(), "out.mbtiles"),
 			})
 			// The test server sends PNG tiles, so the job result can be a failure, and only the warning matters here.
-			_ = root.Execute() //nolint:errcheck // The test checks stderr, not the job result.
+			_ = root.Execute()
 			if got := strings.Contains(stderr.String(), warning); got != tt.warn {
 				t.Errorf("stderr = %q; holds %q = %v, want %v", stderr.String(), warning, got, tt.warn)
 			}
