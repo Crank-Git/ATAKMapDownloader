@@ -868,6 +868,24 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 </ul>
 </li>
+<li>2026-11-21: Batch #131 merged into <code>develop</code> (#134): <code>/api/estimate</code> resolves old map source names (#123), and an import moves the map to the new areas (#124).
+</li>
+<li>2026-11-21: Epic 8 merged into <code>develop</code> (#140). Decisions at its gates:
+<ul>
+<li>An IP over 10 failed token attempts in one minute gets 429 <code>too_many_attempts</code>, also with the correct token. The server does not trust <code>X-Forwarded-For</code> (#58).
+</li>
+<li>A second job queues. The <code>if_exists</code> check runs again when the job starts, and an overwrite deletes the file only then (#56).
+</li>
+<li>The <code>-2</code> suffix applies only to a name that a queued or running job holds. A file on disk keeps the <code>if_exists</code> rule. A resume that collides gives 409 <code>output_in_use</code> (#57).
+</li>
+<li><code>jobs.jsonl</code> stores the job request, never the token. A failed write is logged, and the job continues (#57).
+</li>
+<li>The image creates <code>/data</code> with <code>WORKDIR</code>, so a named volume is writable by the nonroot user without <code>chown</code>. The release workflow pushes only after a container smoke check of <code>/healthz</code> (#60).
+</li>
+<li><code>/api/files</code> serves output files only (<code>.mbtiles</code>, <code>.sqlite</code>, <code>.gpkg</code>, <code>.zip</code>), so <code>jobs.jsonl</code> is not downloadable (batch fix).
+</li>
+</ul>
+</li>
 </ul><nav class="pager">
 <span></span>
 <a href="html/feature-foundation.html">Feature: Foundation &rarr;</a>

@@ -2,7 +2,7 @@
 id: team-server
 feature: Team server
 epic: "Epic 8: Team server"
-status: issued
+status: built
 issues: [55, 56, 57, 58, 59, 60]
 mockups: [mockups/05-jobs.html]
 ---

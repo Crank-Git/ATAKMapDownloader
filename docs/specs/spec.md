@@ -574,3 +574,11 @@ FR coverage (each sub-issue and the requirements it quotes):
   - The three writers share one queue in `internal/output/sqlitequeue` (batch fix).
   - `--resume --data-package` reads the output file back out of the zip (batch fix). The job API does not do this yet (#129).
   - CI installs GDAL and requires the `ogrinfo` test to run (#47).
+- 2026-11-21: Batch #131 merged into `develop` (#134): `/api/estimate` resolves old map source names (#123), and an import moves the map to the new areas (#124).
+- 2026-11-21: Epic 8 merged into `develop` (#140). Decisions at its gates:
+  - An IP over 10 failed token attempts in one minute gets 429 `too_many_attempts`, also with the correct token. The server does not trust `X-Forwarded-For` (#58).
+  - A second job queues. The `if_exists` check runs again when the job starts, and an overwrite deletes the file only then (#56).
+  - The `-2` suffix applies only to a name that a queued or running job holds. A file on disk keeps the `if_exists` rule. A resume that collides gives 409 `output_in_use` (#57).
+  - `jobs.jsonl` stores the job request, never the token. A failed write is logged, and the job continues (#57).
+  - The image creates `/data` with `WORKDIR`, so a named volume is writable by the nonroot user without `chown`. The release workflow pushes only after a container smoke check of `/healthz` (#60).
+  - `/api/files` serves output files only (`.mbtiles`, `.sqlite`, `.gpkg`, `.zip`), so `jobs.jsonl` is not downloadable (batch fix).
