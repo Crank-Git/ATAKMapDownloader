@@ -566,14 +566,20 @@ func downloadConfig(adv map[string]interface{}) download.Config {
 		failureTol = 0.3
 	}
 	ignoreErrors, _ := adv["ignore_errors"].(bool)
-	verifySSL, _ := adv["verify_ssl"].(bool)
+	verifyTLS := true
+	if v, ok := adv["verify_tls"].(bool); ok {
+		verifyTLS = v
+	} else if v, ok := adv["verify_ssl"].(bool); ok {
+		// TODO(#16): Remove verify_ssl when the web UI sends verify_tls.
+		verifyTLS = v
+	}
 
 	cfg := download.DefaultConfig()
 	cfg.MaxConcurrent = maxConcurrent
 	cfg.DelayBetweenBatches = time.Duration(delay * float64(time.Second))
 	cfg.MaxFailureRate = failureTol
 	cfg.IgnoreErrors = ignoreErrors
-	cfg.VerifySSL = verifySSL
+	cfg.VerifyTLS = verifyTLS
 	return cfg
 }
 

@@ -28,6 +28,7 @@ func NewDownloadCmd() *cobra.Command {
 	cmd.Flags().String("name", "", "Custom filename (without extension)")
 	cmd.Flags().Int("concurrent", 5, "Concurrent downloads")
 	cmd.Flags().Bool("ignore-errors", false, "Continue despite failures")
+	cmd.Flags().Bool("insecure", false, "Do not verify the TLS certificates of the tile server")
 	cobra.CheckErr(cmd.MarkFlagRequired("source"))
 	cobra.CheckErr(cmd.MarkFlagRequired("bbox"))
 	return cmd
@@ -63,6 +64,14 @@ func runDownload(cmd *cobra.Command, _ []string) error {
 	cfg := download.DefaultConfig()
 	cfg.MaxConcurrent, _ = cmd.Flags().GetInt("concurrent")
 	cfg.IgnoreErrors, _ = cmd.Flags().GetBool("ignore-errors")
+	insecure, _ := cmd.Flags().GetBool("insecure")
+	cfg.VerifyTLS = !insecure
+	if insecure {
+		// The job does not start without the warning, because FR-security-hardening-6 requires it.
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: TLS certificate verification is off for this job"); err != nil {
+			return fmt.Errorf("print the TLS warning: %w", err)
+		}
+	}
 
 	engine := download.NewEngine(cfg)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
