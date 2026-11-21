@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -90,6 +91,7 @@ func TestConfigReportsTheServerFooterFields(t *testing.T) {
 	h := newTestHandler(t, nil)
 	h.addr = "0.0.0.0:5000"
 	h.workers = 3
+	h.version = "1.2.3"
 	rec := serve(h, http.MethodGet, "/api/config", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/config returned %d, want 200: %s", rec.Code, rec.Body)
@@ -98,11 +100,41 @@ func TestConfigReportsTheServerFooterFields(t *testing.T) {
 		Addr    string `json:"addr"`
 		DataDir string `json:"data_dir"`
 		Workers int    `json:"workers"`
+		Version string `json:"version"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Addr != "0.0.0.0:5000" || body.DataDir != h.outputDir || body.Workers != 3 {
-		t.Errorf("GET /api/config = %s, want addr 0.0.0.0:5000, data_dir %s and workers 3", rec.Body, h.outputDir)
+	if body.Addr != "0.0.0.0:5000" || body.DataDir != h.outputDir || body.Workers != 3 || body.Version != "1.2.3" {
+		t.Errorf("GET /api/config = %s, want addr 0.0.0.0:5000, data_dir %s, workers 3 and version 1.2.3", rec.Body, h.outputDir)
+	}
+}
+
+func TestJobRecordNamesTheFirstAreaAndKeepsTheNameAfterARestart(t *testing.T) {
+	named := `{"source":"Test Tiles","areas":[{"kind":"polygon","geometry":` + rectangleJSON(fourTiles) +
+		fmt.Sprintf(`,"min_zoom":%d,"max_zoom":%d,"name":"North camp"}]}`, fourTiles.Zoom, fourTiles.Zoom)
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"names the first area", named, "North camp"},
+		{"has no name for a legacy bounds job", jobBody(fourTiles), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s := newDataDirJobServer(t, nil, "Test Tiles", "png", dir)
+			rec := s.startJob(t, tt.body)
+			if rec.AreaName != tt.want {
+				t.Errorf("area_name = %q, want %q", rec.AreaName, tt.want)
+			}
+			s.finalRecord(t, rec.ID)
+			// jobs.jsonl holds the record, so a restart reads the same area name (FR-team-server-8).
+			reopened := newDataDirHandler(t, map[string]string{}, dir)
+			if got := reopened.jobs[rec.ID].snapshot().AreaName; got != tt.want {
+				t.Errorf("area_name after a restart = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

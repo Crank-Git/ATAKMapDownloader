@@ -189,8 +189,9 @@ func TestJobsPageRowNamesTheJob(t *testing.T) {
 		extra map[string]any
 		want  string
 	}{
-		{"shows the label", map[string]any{"label": "Base layer v3"}, "Base layer v3"},
-		{"shows a dash with no label", nil, "—"},
+		{"shows the label before the area name", map[string]any{"label": "Base layer v3", "area_name": "North camp"}, "Base layer v3"},
+		{"shows the area name with no label", map[string]any{"area_name": "North camp"}, "North camp"},
+		{"shows a dash with no label and no area name", nil, "—"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
