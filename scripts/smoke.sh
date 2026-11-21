@@ -1,6 +1,6 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, checks five responses and checks the bind warning.
-# FR-foundation-13, FR-foundation-14 and FR-security-hardening-3, -9, -17 and -25 define the checks.
+# smoke.sh builds atak-dl, starts serve on a free port, checks five responses, the bind warning and the terms exit code.
+# FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, and FR-polite-downloading-18 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -81,5 +81,18 @@ until grep -q "warning: the server has no authentication" "$stderr_file"; do
 	sleep 0.2
 done
 echo "smoke: serve --addr 0.0.0.0:0 printed the no-authentication warning"
+
+# A restricted map source without --accept-terms exits with code 2 (FR-polite-downloading-18).
+# The output directory is a regular file, so a build without the check fails before it sends a request to Google.
+terms_file=$(mktemp)
+trap 'kill "$pid" "$open_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file"' EXIT INT TERM
+status=0
+./atak-dl download --source "Google - Satellite Only" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--output "$terms_file/out.sqlite" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "2" ] || ! grep -q "https://developers.google.com/maps/documentation/tile/policies" "$stderr_file"; then
+	echo "smoke: download of a Google map source without --accept-terms exited $status, want 2 and the reference URL" >&2
+	exit 1
+fi
+echo "smoke: download of a Google map source without --accept-terms exited 2"
 
 echo "smoke: pass"
