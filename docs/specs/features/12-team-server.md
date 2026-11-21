@@ -176,7 +176,8 @@ flowchart TD
 | GET | `/healthz` | — | 200 `{status, version}` | — |
 
 - CLI: `serve --workers <n>` (1 to 8), `--data-dir <dir>` and `--token <token>`.
-- `GET /api/config` adds `addr`, `data_dir` and `workers`. The server footer of the Jobs page shows them (#59).
+- `GET /api/config` adds `version`, `addr`, `data_dir` and `workers`. The server footer of the Jobs page shows them (#59).
+- The job record adds `area_name`, the name of the first area. The Jobs page shows it when the job has no label (#59).
 - `crypto/subtle.ConstantTimeCompare`: https://pkg.go.dev/crypto/subtle.
 - GoReleaser `dockers_v2` image from Epic 0: https://goreleaser.com/customization/docker/.
 

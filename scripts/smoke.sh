@@ -185,14 +185,14 @@ for check in "/jobs  302" "/signin  200" "/static/js/signin.js  200" "/jobs $tok
 done
 echo "smoke: GET /jobs returned 302 without the token and 200 with it, and the sign-in page returned 200 without it"
 
-# The footer of the Jobs page shows the bind address and the worker count of serve.
+# The footer of the Jobs page shows the version, the bind address, the data directory and the worker count of serve.
 curl -sf -H "Authorization: Bearer $token" "http://127.0.0.1:$open_port/api/config" | python3 -c '
 import json, sys
 body = json.load(sys.stdin)
-if body.get("addr") != "0.0.0.0:" + sys.argv[1] or body.get("workers") != 1 or not body.get("data_dir"):
-    sys.exit("smoke: GET /api/config did not return the addr, data_dir and workers of serve: %s" % body)
-print("smoke: GET /api/config returned the addr, data_dir and workers of serve")
-' "$open_port"
+if body.get("version") != sys.argv[2] or body.get("addr") != "0.0.0.0:" + sys.argv[1] or body.get("workers") != 1 or not body.get("data_dir"):
+    sys.exit("smoke: GET /api/config did not return the version, addr, data_dir and workers of serve: %s" % body)
+print("smoke: GET /api/config returned the version, addr, data_dir and workers of serve")
+' "$open_port" "$(./atak-dl --version | cut -d' ' -f3)"
 
 # The health route needs no token, and it reports the version of the binary (FR-team-server-17 and -29).
 want_version=$(./atak-dl --version | cut -d' ' -f3)

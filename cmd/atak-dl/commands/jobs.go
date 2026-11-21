@@ -121,6 +121,8 @@ type jobRecord struct {
 	Reason string `json:"reason,omitempty"`
 	// Label is the label of the job request (FR-team-server-13).
 	Label string `json:"label,omitempty"`
+	// AreaName is the name of the first area. The Jobs page shows it when the job has no label (FR-team-server-26).
+	AreaName string `json:"area_name,omitempty"`
 	// Position is the queue position of a queued job, 1 for the next job. A read computes it, so it is 0 in every other state.
 	Position int `json:"position,omitempty"`
 }
@@ -593,8 +595,18 @@ func (h *WebHandler) newJob(id string, req jobRequest, source *xmlparser.MapSour
 			Total:      tilecalc.CountJobTiles(areas).Unique,
 			CreatedAt:  time.Now().UTC(),
 			Label:      label(req),
+			AreaName:   firstAreaName(areas),
 		},
 	}
+}
+
+// firstAreaName returns the name of the first area, or an empty string.
+// A restored job whose stored areas no longer resolve has no areas, so the list can be empty.
+func firstAreaName(areas []tilecalc.JobArea) string {
+	if len(areas) == 0 {
+		return ""
+	}
+	return areas[0].Name
 }
 
 // label returns the label of req, or an empty string when req has no label.

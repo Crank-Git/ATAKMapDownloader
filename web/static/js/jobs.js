@@ -9,9 +9,9 @@ const REFRESH_MS = 5000;
 // SHORT_ID is the length of the short job id in a row (FR-team-server-26).
 const SHORT_ID = 6;
 
-// jobName returns the area name or label of a row: the label, or else a dash.
+// jobName returns the area name or label of a row: the label, else the name of the first area, else a dash (PM ruling on #59).
 function jobName(record) {
-    return record.label || '—';
+    return record.label || record.area_name || '—';
 }
 
 // jobProgress returns the percent of the tiles that the output file holds.
