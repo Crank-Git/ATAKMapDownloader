@@ -113,6 +113,8 @@ func (h *WebHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveIndex(w, r)
 	case r.URL.Path == "/api/jobs" || strings.HasPrefix(r.URL.Path, "/api/jobs/"):
 		h.jobRoutes.ServeHTTP(w, r)
+	case r.URL.Path == "/api/files" || strings.HasPrefix(r.URL.Path, "/api/files/"):
+		h.serveFiles(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		h.serveAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/static/"):
@@ -255,6 +257,8 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		// Source is optional. With no source, the estimate uses the size per tile of an unknown tile type.
+		Source  string    `json:"source"`
 		Bounds  []float64 `json:"bounds"`
 		MinZoom int       `json:"min_zoom"`
 		MaxZoom int       `json:"max_zoom"`
@@ -265,6 +269,15 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 	if len(req.Bounds) != 4 {
 		writeError(w, http.StatusBadRequest, "invalid_bounds", "Bounds must hold four numbers: west, south, east, north")
 		return
+	}
+	tileType := ""
+	if req.Source != "" {
+		source := h.parser.GetSource(req.Source)
+		if source == nil {
+			writeError(w, http.StatusNotFound, "unknown_source", "Source not found")
+			return
+		}
+		tileType = source.TileType
 	}
 	west, south, east, north := req.Bounds[0], req.Bounds[1], req.Bounds[2], req.Bounds[3]
 	if req.MinZoom == 0 {
@@ -288,14 +301,23 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		totalTiles += tb.TileCount()
 		zoomBreakdown[z] = tb.TileCount()
 	}
-	estMB := float64(totalTiles*20) / 1024
-	writeJSON(w, map[string]interface{}{
-		"total_tiles":       totalTiles,
-		"estimated_size_mb": estMB,
-		"zoom_breakdown":    zoomBreakdown,
-		"bounds":            req.Bounds,
-		"zoom_range":        []int{req.MinZoom, req.MaxZoom},
+	estMB := float64(totalTiles) * tilecalc.TileSizeKB(tileType) / 1024
+	writeJSON(w, estimateResult{
+		TotalTiles:      totalTiles,
+		EstimatedSizeMB: estMB,
+		ZoomBreakdown:   zoomBreakdown,
+		Bounds:          req.Bounds,
+		ZoomRange:       []int{req.MinZoom, req.MaxZoom},
 	})
+}
+
+// estimateResult is the POST /api/estimate response. ZoomBreakdown maps each zoom level to its tile count.
+type estimateResult struct {
+	TotalTiles      int         `json:"total_tiles"`
+	EstimatedSizeMB float64     `json:"estimated_size_mb"`
+	ZoomBreakdown   map[int]int `json:"zoom_breakdown"`
+	Bounds          []float64   `json:"bounds"`
+	ZoomRange       []int       `json:"zoom_range"`
 }
 
 func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {

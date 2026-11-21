@@ -50,10 +50,12 @@ This file describes the behavior that exists today.
   range of the map source.
 - FR-area-estimate-12 — The `estimate` command prints a warning to stderr for each zoom
   level that it removes.
-- FR-area-estimate-13 — The `estimate` command uses 15 KB per tile for its size estimate.
+- FR-area-estimate-13 — The `estimate` command uses the size per tile of the map source's
+  tile type: `jpg` 18 KB, `png` 25 KB, and any other type 20 KB.
 - FR-area-estimate-14 — The `estimate` command prints the tile count, the size and the
   resolution in metres per pixel for each zoom level.
-- FR-area-estimate-15 — `POST /api/estimate` uses 20 KB per tile for its size estimate.
+- FR-area-estimate-15 — `POST /api/estimate` uses the size per tile of the tile type of the
+  named map source.
 - FR-area-estimate-16 — `POST /api/estimate` swaps the minimum and the maximum zoom level
   when the minimum is larger.
 - FR-area-estimate-17 — The `tile-info` command prints the XYZ tile, the tile bounds and
@@ -108,8 +110,8 @@ sequenceDiagram
     participant W as Web UI
     participant S as Server
     U->>W: Select Estimate Download
-    W->>W: Check the bounds, the map source and min less than max
-    W->>S: POST /api/estimate with bounds, min_zoom, max_zoom
+    W->>W: Check the bounds, the map source and min not greater than max
+    W->>S: POST /api/estimate with source, bounds, min_zoom, max_zoom
     alt bounds not valid
         S-->>W: 400 with an error string
         W->>U: Status log line Estimation error
@@ -122,9 +124,9 @@ sequenceDiagram
 1. The solo operator selects **Estimate Download**.
 2. If no bounds or no map source is selected, the web UI logs
    `Select area and map source first` and stops.
-3. If the minimum zoom level is not less than the maximum, the web UI logs
+3. If the minimum zoom level is greater than the maximum, the web UI logs
    `Invalid zoom range` and stops.
-4. The web UI sends `POST /api/estimate`. The request does not name the map source.
+4. The web UI sends `POST /api/estimate`. The request names the selected map source.
 5. If the server returns an error, the web UI logs `Estimation error: <message>`.
 6. If the server returns 200, the web UI shows the estimate and enables
    **Start Download**.
@@ -139,13 +141,13 @@ sequenceDiagram
 
   Download Estimate for 'Google - Satellite Only'
   -----------------------------------
-    Zoom 17: 5,044 tiles, 73.9 MB, 0.9 m/px
+    Zoom 17: 5,044 tiles, 88.7 MB, 0.9 m/px
   ```
 
 - CLI output of `tile-info`: `Tile coordinates`, `Tile bounds`, `Resolution`, then up to
   three sample URLs.
-- The web UI estimate panel `#estimationResult` (`web/index.html:169`), filled by
-  `displayEstimation` (`web/static/js/app.js:409-434`). It shows the tile count, the size in
+- The web UI estimate panel `#estimationResult` (`web/index.html:155`), filled by
+  `displayEstimation` (`web/static/js/app.js:773-806`). It shows the tile count, the size in
   MB or GB, the zoom range and a time at a fixed 10 tiles per second. It adds a warning
   above 10,000 tiles and a stronger warning above 100,000 tiles. Error state: a status
   log line only.
@@ -160,10 +162,11 @@ sequenceDiagram
 - `--zoom 0` is the same as no `--zoom`, so the CLI cannot request zoom level 0 with it.
   `--zoom-range 0-3` includes zoom level 0.
 - `POST /api/estimate` replaces a `min_zoom` of 0 with 1 and a `max_zoom` of 0 with 18.
-- The web UI refuses a zoom range where the minimum equals the maximum, so it cannot
-  estimate one zoom level.
-- The web UI and the CLI give different sizes for the same request: 20 KB per tile
-  against 15 KB per tile.
+- The web UI accepts a zoom range where the minimum equals the maximum, so it can
+  estimate one zoom level (FR-offline-web-ui-24).
+- The web UI and the CLI use one size-per-tile table (`tilecalc.TileSizeKB`), so they
+  give the same size for the same map source.
+- `POST /api/estimate` with no map source uses 20 KB per tile.
 - The `tile-info` command prints the tile bounds as the north-west corner, then the
   south-east corner.
 
@@ -234,22 +237,16 @@ What the code does not handle:
   than the maximum.
 - **A bad `--zoom-range` becomes zoom level 0.** `strconv.Atoi` errors are ignored
   (`estimate.go:55-56`), so `--zoom-range a-b` gives `0-0`.
-- **The size estimate ignores the map source.** It uses a fixed size per tile, and the
-  two fixed sizes disagree.
 - **No upper limit on the tile count.** `/api/estimate` accepts any zoom range and any
   bounds.
 - **The time shown in the web UI assumes 10 tiles per second**
-  (`app.js:421`). It does not use the concurrency setting.
-- **The estimate panel colour does not apply.** The JavaScript sets the class `success`,
-  `warning` or `error`, but `style.css` defines only `.estimation-success`,
-  `.estimation-warning` and `.estimation-danger`.
+  (`app.js:785`). It does not use the concurrency setting.
 
 Known defects and the planned feature that repairs each:
 
 | Defect | Repaired by |
 |---|---|
 | No tile-count cap and no output file split | `robust-downloads` (07) |
-| Two different fixed sizes per tile | `robust-downloads` (07) |
 | Estimate colour classes and the fixed time rate | `offline-web-ui` (08) |
 | Rectangle bounds only, with no polygon | `area-selection` (11) |
 | Bad `--zoom-range` silently becomes 0 | `robust-downloads` (07) |

@@ -112,22 +112,26 @@ sequenceDiagram
 ```
 
 1. The solo operator selects **Start Download**.
-2. The web UI sends `POST /api/jobs` (`web/static/js/app.js:455`).
-3. If the request is not valid, the server returns 400, 404 or 413 with the error shape.
-   The web UI logs `Download error: <message>` and resets the job controls.
-4. If a job already runs, the server returns 409 with `job_running`.
-5. The server starts the job and returns 202 with the job record. The web UI logs
+2. If a job runs, the web UI keeps Start disabled, so the solo operator cannot start a
+   second job from the same page.
+3. The web UI makes Estimate, Start and the settings read-only, and sends `POST /api/jobs`
+   (`web/static/js/app.js:883`).
+4. If the request is not valid, the server returns 400, 404 or 413 with the error shape.
+   The web UI logs `Download error: <message>` and resets the job controls. The reset
+   applies only when the job panel shows no job.
+5. If a job already runs, the server returns 409 with `job_running`.
+6. The server starts the job and returns 202 with the job record. The web UI logs
    `Output file: <name>`.
-6. The web UI opens `GET /api/jobs/{id}/events` with `EventSource` (`app.js:114`). The
+7. The web UI opens `GET /api/jobs/{id}/events` with `EventSource` (`app.js:347`). The
    first event is a `state` event.
-7. The server sends `progress` events, at most 4 per second (`jobs.go:135`).
-8. If the job succeeds, the server sends `state` with `complete`. The web UI shows the
+8. The server sends `progress` events, at most 4 per second (`jobs.go:135`).
+9. If the job succeeds, the server sends `state` with `complete`. The web UI shows the
    **Download Complete!** panel with `Downloaded N of M tiles.` and the file name.
-9. If the job fails, the server sends a `log` event with level `error`, then `state`
-   with `failed`. The web UI logs the engine error, for example
-   `failure rate 35.0% exceeds threshold 30.0%` (#76, #78).
-10. The server ends the stream after the final `state` event. The web UI closes its
-    `EventSource` (`app.js:132-138`), because `EventSource` reconnects to an ended
+10. If the job fails, the server sends a `log` event with level `error`, then `state`
+    with `failed`. The web UI logs the engine error, for example
+    `failure rate 35.0% exceeds threshold 30.0%` (#76, #78).
+11. The server ends the stream after the final `state` event. The web UI closes its
+    `EventSource` (`app.js:369-374`), because `EventSource` reconnects to an ended
     stream (#78).
 
 ### Flow 2 — The solo operator cancels a job
@@ -151,7 +155,7 @@ sequenceDiagram
 
 1. The solo operator selects **Cancel**.
 2. The web UI logs `Cancelling download...` and shows `Cancelling...` on the button.
-3. The web UI sends `DELETE /api/jobs/{id}` (`app.js:578`).
+3. The web UI sends `DELETE /api/jobs/{id}` (`app.js:987`).
 4. The server cancels the context of the job. It returns 202 with the job record, which
    still shows `running` (#76).
 5. The engine commits the stored tiles and keeps the output file (#26).
@@ -228,8 +232,8 @@ Sidebar sections, top to bottom:
 | Empty source catalog | The server returns `[]` (#74). The web UI logs `Loaded 0 map sources` and shows only the placeholder option |
 | No bounds | `Click "Draw Rectangle" to select an area on the map`. Estimate and Preview disabled |
 | Estimate or preview error | A status log line with the `message` of the error shape (#74) |
-| Request in flight | Nothing. `#loadingModal` exists but no code shows it |
-| Job running | Spinner text `Downloading...`, progress bar, **Cancel** visible |
+| Request in flight | A spinner in the button of the request, and `Loading map sources` while the source list loads (FR-offline-web-ui-18) |
+| Job running | Spinner text `Downloading...`, progress bar, **Cancel** visible. Estimate, Start and the settings are read-only |
 | Job failed | A status log line with the engine error, and the controls reset (#78) |
 | Job cancelled | The status log line `Download cancelled`, and the controls reset (#78) |
 | Job complete | **Download Complete!** panel with the tile counts and the file name |
@@ -238,23 +242,22 @@ Sidebar sections, top to bottom:
 Accessibility signals:
 
 - Present:
-  - `<label for>` on the geocode input, the zoom inputs, the file name and the advanced
-    settings.
+  - `<label for>` on the source picker, the geocode input, the zoom inputs, the file
+    name and the advanced settings.
   - `aria-expanded` and `aria-controls` on the **Advanced Settings** toggle.
-  - `role="status"` with visually hidden text on the modal spinner.
-- Missing:
-  - A label on the source picker, which has only an `<h5>`.
+  - `role="status"` on the connection indicator.
   - `aria-label` on the icon-only theme and search buttons.
-  - `aria-valuenow` on the progress bar.
-  - `aria-live` on the status log.
+  - `aria-label="Job progress"` and `aria-valuenow` on the progress bar.
+  - `aria-live="polite"` on the status log.
+- Missing:
   - A keyboard path to draw bounds.
 
 Theme and layout:
 
-- The theme toggle sets `data-bs-theme`. The web UI does not read
-  `prefers-color-scheme`.
-- In dark mode, `style.css:107-113` puts a colour filter on `.leaflet-tile` and inverts
-  the map controls. The preview image overlays do not get the filter.
+- The theme toggle sets `data-theme`. The web UI follows `prefers-color-scheme` until
+  the solo operator selects a theme (FR-offline-web-ui-29).
+- In dark mode, no CSS filter applies to the map tiles or the preview tiles, so the
+  tiles show the colours of the output file (FR-offline-web-ui-30).
 - One breakpoint at 768 px stacks the sidebar and the map.
 
 External dependencies, all loaded at run time (`web/index.html:9-16`, `:231-233`):
@@ -266,6 +269,8 @@ External dependencies, all loaded at run time (`web/index.html:9-16`, `:231-233`
 | Bootstrap CSS and bundle | 5.3.0 | cdn.jsdelivr.net |
 | Font Awesome | 6.4.0 | cdnjs.cloudflare.com |
 | Base map tiles | — | `{s}.tile.openstreetmap.org` |
+
+Feature 08 replaces these assets. Since #31, the binary embeds Leaflet and Leaflet-Geoman, and only the base map tiles come from another host.
 
 ## Behaviour rules
 
@@ -413,7 +418,8 @@ What the code handles:
 - A request body larger than 1 MiB gets 413 `body_too_large` (#81).
 - The `/static/` route uses `fs.Sub` on an `embed.FS`, which rejects `..` paths.
 - The output file name keeps only safe characters, so `name` cannot leave `./downloads`.
-- The status log writes text through `textContent` (`app.js:545`, #78).
+- The status log writes text through `textContent` (`app.js:960`, #78).
+- The geocode popup writes `display_name` through `textContent` (`app.js:752`).
 
 What the code does not handle:
 
@@ -429,10 +435,9 @@ What the code does not handle:
   callback of the last tile, the engine does not see it. The job state is `cancelled`,
   but the output file stays (`jobs.go:369-397`).
 - **Preview tiles can fail to show.** The overlays set `crossOrigin: 'anonymous'`
-  (`app.js:349`), so a tile server that sends no CORS header blocks the image.
+  (`app.js:621`), so a tile server that sends no CORS header blocks the image.
 - **The web UI needs the internet.** Every library and the base map come from public
   hosts, so the page does not work on a disconnected machine.
-- **The geocode popup writes `display_name` as HTML** (`app.js:398`).
 - **The geocode route breaks the Nominatim usage policy.** It has no rate limit, no cache
   and no contact detail in the User-Agent
   ([Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/),
@@ -441,15 +446,13 @@ What the code does not handle:
   identifying User-Agent and forbids offline bulk use
   ([OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/),
   retrieved 2026-11-21). The browser sends its own User-Agent.
-- **Unused code:** the `mapsDir` field (`web.go:25`) and the `loadingModal` object
-  (`app.js:562-567`).
+- **Unused code:** the `mapsDir` field (`web.go:24`).
 
 Known defects and the planned feature that repairs each:
 
 | Defect | Repaired by |
 |---|---|
 | No authentication on a non-loopback bind | `team-server` (12) |
-| The geocode popup HTML | `security-hardening` (05) |
 | Geocode route that breaks the Nominatim policy | `polite-downloading` (06) |
 | Late cancel that keeps the output file | `robust-downloads` (07) |
 | CDN dependencies, OSM base map, no fetch of the output file, missing loading and error states, accessibility gaps | `offline-web-ui` (08) |

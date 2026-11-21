@@ -379,3 +379,71 @@ func TestPutReportsAWriteFailureAndCloseReturnsIt(t *testing.T) {
 		t.Errorf("Close error = %v, want an error that names the missing table", err)
 	}
 }
+
+func TestReadTileReadsTheTMSRowOfTheXYZRequest(t *testing.T) {
+	w, path := create(t, map[string]string{"name": "test"})
+	closeWriter(t, w)
+	// The row goes in by SQL, so the test sets the TMS row without the conversion in Put.
+	if _, err := openFile(t, path).ExecContext(t.Context(),
+		"INSERT INTO tiles (zoom_level, tile_column, tile_row, tile_data) VALUES (3, 2, 1, ?)", []byte("south")); err != nil {
+		t.Fatalf("insert the tile: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		z, x, y  int
+		wantData string
+		wantOK   bool
+	}{
+		{"returns the tile at the XYZ row that maps to TMS row 1", 3, 2, 6, "south", true},
+		{"returns no tile at the XYZ row equal to the TMS row", 3, 2, 1, "", false},
+		{"returns no tile at another zoom level", 4, 2, 6, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, ok, err := ReadTile(path, tt.z, tt.x, tt.y)
+			if err != nil || ok != tt.wantOK || string(data) != tt.wantData {
+				t.Errorf("ReadTile(%d, %d, %d) = %q, %v, %v; want %q, %v, nil", tt.z, tt.x, tt.y, data, ok, err, tt.wantData, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestReadTileReturnsAnErrorForAFileThatIsNotAnOutputFile(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name string
+		file string
+		body []byte
+	}{
+		{"rejects a text file", "notes.txt", []byte("not a database")},
+		{"rejects a zip file", "package.zip", []byte("PK\x03\x04 a data package")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(dir, tt.file)
+			if err := os.WriteFile(path, tt.body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := ReadTile(path, 0, 0, 0); err == nil {
+				t.Error("ReadTile returned no error")
+			}
+		})
+	}
+}
+
+func TestReadTileReadsTheCommittedTilesWhileTheWriterIsOpen(t *testing.T) {
+	w, path := create(t, map[string]string{"name": "test"})
+	t.Cleanup(func() { closeWriter(t, w) })
+	if err := w.Put(5, 10, 12, []byte("running")); err != nil {
+		t.Fatal(err)
+	}
+	// Failed commits every queued Put first, so the tile is in a committed transaction.
+	if _, err := w.Failed(); err != nil {
+		t.Fatal(err)
+	}
+	data, ok, err := ReadTile(path, 5, 10, 12)
+	if err != nil || !ok || string(data) != "running" {
+		t.Errorf("ReadTile = %q, %v, %v; want \"running\", true, nil", data, ok, err)
+	}
+}

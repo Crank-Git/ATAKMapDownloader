@@ -148,6 +148,29 @@ func ReadMetadata(path, name string) (string, bool, error) {
 	return value, true, nil
 }
 
+// ReadTile returns the tile data of the tile z, x, y in the output file at path, and true when the file holds the tile.
+// The row y is the XYZ row. ReadTile never writes to the file.
+// It reads only committed rows, so it is safe while a job writes the file in WAL mode.
+// Call it only for a file that exists, because the driver creates a missing file.
+// It returns an error when the file is not an SQLite database or has no tiles table.
+func ReadTile(path string, z, x, y int) ([]byte, bool, error) {
+	db, err := sql.Open("sqlite", path+"?_busy_timeout=5000&_query_only=1")
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = db.Close() }() // The file is read-only here, so a close error loses no data.
+
+	var data []byte
+	err = db.QueryRow("SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?", z, x, flip(z, y)).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read tile %d/%d/%d: %w", z, x, y, err)
+	}
+	return data, true, nil
+}
+
 // writeMetadata stores the rows in metadata in one transaction.
 func writeMetadata(db *sql.DB, metadata map[string]string) error {
 	tx, err := db.Begin()
