@@ -10,13 +10,16 @@ import (
 	"testing"
 )
 
-// The output file schema must not change with the driver (FR-foundation-4).
+// The four MBTiles statements must not change with the driver (FR-foundation-4).
+// The failed tile table follows them (FR-robust-downloads-21). The ATAK reader reads only tiles.
 // SQLite stores each statement text in sqlite_master without its IF NOT EXISTS clause.
 var wantSchema = []string{
 	"CREATE TABLE metadata (name text, value text)",
 	"CREATE TABLE tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob)",
 	"CREATE UNIQUE INDEX name ON metadata (name)",
 	"CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row)",
+	"CREATE TABLE atakdl_failed_tiles (zoom_level integer, tile_column integer, tile_row integer, reason text, attempts integer)",
+	"CREATE UNIQUE INDEX atakdl_failed_tile_index ON atakdl_failed_tiles (zoom_level, tile_column, tile_row)",
 }
 
 // create returns a writer for a new output file in a temporary directory, and the path of the file.
@@ -63,7 +66,7 @@ func count(t *testing.T, db *sql.DB) int {
 	return n
 }
 
-func TestCreateWritesTheFourSchemaStatements(t *testing.T) {
+func TestOpenWritesTheMBTilesSchemaAndTheFailedTileTable(t *testing.T) {
 	w, path := create(t, map[string]string{"name": "test"})
 	closeWriter(t, w)
 

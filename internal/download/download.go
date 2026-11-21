@@ -133,7 +133,7 @@ type Engine struct {
 	backoffBase time.Duration
 	// blocked is the set of SHA-256 hashes of the tiles that the engine rejects. A test adds a fixture hash.
 	blocked map[[sha256.Size]byte]struct{}
-	// onTileFailed gets each failed tile and its reason. It is nil until the writer stores failed tiles (#28).
+	// onTileFailed gets each failed tile and its reason. A test sets it, and it is nil in production.
 	onTileFailed func(z, x, y int, reason Reason)
 }
 
@@ -163,6 +163,7 @@ func NewEngine(cfg Config) *Engine {
 
 // DownloadTiles downloads the tiles of bounds at zoomLevels, and one writer goroutine writes them to outputPath.
 // It opens an existing output file and skips each tile that the file holds, so the caller decides whether a file may exist.
+// After the main pass, a retry pass requests each tile in the atakdl_failed_tiles table of the file once more.
 // The error is ErrServerRefused or ErrWriteFailed when either stops the job.
 // It is the context error when the job is cancelled. Every outcome keeps the output file.
 func (e *Engine) DownloadTiles(
@@ -217,13 +218,16 @@ func (e *Engine) DownloadTiles(
 			go func(x, y, z int) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				e.fetchTile(jobCtx, jg, w, source, cb, &c, x, y, z)
+				e.fetchTile(jobCtx, jg, w, source, cb, &c, x, y, z, false)
 			}(x, y, z)
 		}
 	}
 
 wait:
 	wg.Wait()
+	if jobCtx.Err() == nil && !c.cancelled.Load() {
+		e.retryPass(jobCtx, jg, w, source, cb, &c)
+	}
 
 	// Close commits the last transaction, so the output file holds every tile that the job downloaded.
 	closeErr := w.Close()
@@ -307,6 +311,38 @@ type tileCounters struct {
 	cancelled  atomic.Bool
 	// placeholder counts the hashes of the first tiles of the job (FR-robust-downloads-20).
 	placeholder placeholderCheck
+
+	// failedTiles holds the tiles that failed in this job, so that a tile that fails in both passes counts once.
+	mu          sync.Mutex
+	failedTiles map[[3]int]struct{}
+}
+
+// countFailure adds the failed tile z, x, y to c, once per job.
+func (c *tileCounters) countFailure(z, x, y int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	k := [3]int{z, x, y}
+	if _, ok := c.failedTiles[k]; ok {
+		return
+	}
+	if c.failedTiles == nil {
+		c.failedTiles = make(map[[3]int]struct{})
+	}
+	c.failedTiles[k] = struct{}{}
+	c.failed.Add(1)
+}
+
+// countDownload adds the downloaded tile z, x, y to c.
+// A tile that failed earlier in the job moves from failed to downloaded, because the retry pass stored it.
+func (c *tileCounters) countDownload(z, x, y int) {
+	c.mu.Lock()
+	k := [3]int{z, x, y}
+	if _, ok := c.failedTiles[k]; ok {
+		delete(c.failedTiles, k)
+		c.failed.Add(-1)
+	}
+	c.mu.Unlock()
+	c.downloaded.Add(1)
 }
 
 // snapshot returns a copy of the counters in c.
@@ -321,7 +357,8 @@ func (c *tileCounters) snapshot() Progress {
 }
 
 // fetchTile downloads one tile, sends it to w, and updates c.
-// It skips a tile that w holds (FR-robust-downloads-8).
+// The main pass skips a tile that w holds (FR-robust-downloads-8).
+// The retry pass sets retry, because a stale failed tile row can name a tile that w holds (FR-robust-downloads-24).
 // It sets c.cancelled when the callback returns false, and it stops the job when w fails.
 func (e *Engine) fetchTile(
 	ctx context.Context,
@@ -331,11 +368,12 @@ func (e *Engine) fetchTile(
 	cb ProgressCallback,
 	c *tileCounters,
 	x, y, z int,
+	retry bool,
 ) {
 	if c.cancelled.Load() {
 		return
 	}
-	if w.Has(z, x, y) {
+	if !retry && w.Has(z, x, y) {
 		c.skipped.Add(1)
 		if cb != nil && !cb(c.snapshot()) {
 			c.cancelled.Store(true)
@@ -348,8 +386,8 @@ func (e *Engine) fetchTile(
 
 	data, err := e.downloadTileWithRetry(ctx, jg, url, fmt.Sprintf("%d/%d/%d", z, x, y))
 	if err != nil {
-		c.failed.Add(1)
-		e.tileFailed(z, x, y, reasonOf(err))
+		c.countFailure(z, x, y)
+		e.tileFailed(jg, w, z, x, y, reasonOf(err))
 		if cb != nil && !cb(c.snapshot()) {
 			c.cancelled.Store(true)
 		}
@@ -363,25 +401,67 @@ func (e *Engine) fetchTile(
 
 	if err := w.Put(z, x, y, data); err != nil {
 		slog.Error("write tile failed", "x", x, "y", y, "z", z, "err", err)
-		c.failed.Add(1)
-		e.tileFailed(z, x, y, ReasonWriteFailed)
+		c.countFailure(z, x, y)
+		e.tileFailed(jg, w, z, x, y, ReasonWriteFailed)
 		jg.stop(fmt.Errorf("%w: %w", ErrWriteFailed, err))
 		return
 	}
 
-	c.downloaded.Add(1)
+	c.countDownload(z, x, y)
 	if cb != nil && !cb(c.snapshot()) {
 		c.cancelled.Store(true)
 	}
 }
 
-// tileFailed reports one failed tile and its reason.
-// A job stop or a cancel ends the tile with no reason, so the engine reports nothing for it.
-func (e *Engine) tileFailed(z, x, y int, reason Reason) {
-	if reason == "" || e.onTileFailed == nil {
+// tileFailed records one failed tile and its reason in w (FR-robust-downloads-21).
+// A job stop or a cancel ends the tile with no reason, so the engine records nothing for it.
+// It stops the job when w fails.
+func (e *Engine) tileFailed(jg *jobGate, w *mbtiles.Writer, z, x, y int, reason Reason) {
+	if reason == "" {
 		return
 	}
-	e.onTileFailed(z, x, y, reason)
+	if e.onTileFailed != nil {
+		e.onTileFailed(z, x, y, reason)
+	}
+	if err := w.Fail(z, x, y, string(reason)); err != nil {
+		jg.stop(fmt.Errorf("%w: %w", ErrWriteFailed, err))
+	}
+}
+
+// retryPass sends each tile in atakdl_failed_tiles through fetchTile one more time (FR-robust-downloads-22).
+// It reads the whole table, so a resume also retries the failed tiles of an earlier job (FR-robust-downloads-24).
+// It skips a not_found tile, because the server has no such tile (FR-robust-downloads-25).
+func (e *Engine) retryPass(
+	ctx context.Context,
+	jg *jobGate,
+	w *mbtiles.Writer,
+	source *xmlparser.MapSource,
+	cb ProgressCallback,
+	c *tileCounters,
+) {
+	failed, err := w.Failed()
+	if err != nil {
+		jg.stop(fmt.Errorf("%w: %w", ErrWriteFailed, err))
+		return
+	}
+	sem := make(chan struct{}, e.cfg.MaxConcurrent)
+	var wg sync.WaitGroup
+	for _, f := range failed {
+		if Reason(f.Reason) == ReasonNotFound {
+			continue
+		}
+		if ctx.Err() != nil || c.cancelled.Load() {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			e.fetchTile(ctx, jg, w, source, cb, c, f.X, f.Y, f.Z, true)
+		}()
+	}
+	wg.Wait()
 }
 
 // jobGate holds the request limits of one job.
@@ -459,6 +539,9 @@ func (e *Engine) downloadTileWithRetry(ctx context.Context, jg *jobGate, url, ti
 			if err := e.refuse(jg, resp, tile); err != nil {
 				return nil, err
 			}
+		case resp.status == http.StatusNotFound:
+			jg.refusals.Store(0)
+			return nil, &TileError{Reason: ReasonNotFound}
 		default:
 			jg.refusals.Store(0)
 			return nil, &TileError{Reason: HTTPReason(resp.status)}
