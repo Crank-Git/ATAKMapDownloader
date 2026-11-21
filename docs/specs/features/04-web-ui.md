@@ -267,6 +267,8 @@ External dependencies, all loaded at run time (`web/index.html:9-16`, `:231-233`
 | Font Awesome | 6.4.0 | cdnjs.cloudflare.com |
 | Base map tiles | — | `{s}.tile.openstreetmap.org` |
 
+Feature 08 replaces these assets. Since #31, the binary embeds Leaflet and Leaflet-Geoman, and only the base map tiles come from another host.
+
 ## Behaviour rules
 
 - The server has no authentication.
