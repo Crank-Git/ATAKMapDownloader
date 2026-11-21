@@ -415,6 +415,8 @@ func TestJobAPIErrorResponses(t *testing.T) {
 		{"post rejects min_zoom above max_zoom", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"min_zoom":5,"max_zoom":4}`, http.StatusBadRequest, "zoom_out_of_range"},
 		{"post rejects a negative min_zoom", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"min_zoom":-1,"max_zoom":4}`, http.StatusBadRequest, "zoom_out_of_range"},
 		{"post rejects a concurrency of 0", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"max_zoom":1,"concurrency":0}`, http.StatusBadRequest, "invalid_concurrency"},
+		{"post rejects a concurrency of 33", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"max_zoom":1,"concurrency":33}`, http.StatusBadRequest, "invalid_concurrency"},
+		{"post rejects max_zoom above the source max_zoom", http.MethodPost, "/api/jobs", `{"source":"Test Tiles","bounds":[0,0,1,1],"min_zoom":0,"max_zoom":19}`, http.StatusBadRequest, "zoom_out_of_range"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

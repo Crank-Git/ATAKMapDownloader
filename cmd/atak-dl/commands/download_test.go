@@ -71,3 +71,47 @@ func TestDownloadWithInsecurePrintsTheWarningAndAcceptsASelfSignedCertificate(t 
 		t.Errorf("server got %d tile requests, want 1", n)
 	}
 }
+
+func TestDownloadRejectsAZoomRangeOrConcurrencyOutsideTheLimits(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		code string
+	}{
+		{"rejects a max-zoom above the source maximum", []string{"--min-zoom", "10", "--max-zoom", "19"}, "zoom_out_of_range"},
+		{"rejects a min-zoom above max-zoom", []string{"--min-zoom", "11", "--max-zoom", "10"}, "zoom_out_of_range"},
+		{"rejects a concurrency of 0", []string{"--concurrent", "0"}, "invalid_concurrency"},
+		{"rejects a concurrency of 33", []string{"--concurrent", "33"}, "invalid_concurrency"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := testtiles.New(t, nil)
+			root := &cobra.Command{Use: "atak-dl"}
+			root.PersistentFlags().String("mapsources-dir", "", "")
+			root.AddCommand(NewDownloadCmd())
+			var stderr bytes.Buffer
+			root.SetErr(&stderr)
+			args := []string{
+				"--mapsources-dir", writeSource(t, srv),
+				"download",
+				"--source", "Test TLS",
+				"--bbox", oneTileBBox(),
+				"--min-zoom", "10", "--max-zoom", "10",
+				"--output", filepath.Join(t.TempDir(), "out.sqlite"),
+			}
+			// A later flag value replaces an earlier one, so the case arguments come last.
+			root.SetArgs(append(args, tt.args...))
+
+			err := root.Execute()
+			if err == nil || !strings.HasPrefix(err.Error(), tt.code+": ") {
+				t.Fatalf("Execute() returned %v, want an error that starts with %q", err, tt.code+": ")
+			}
+			if !strings.Contains(stderr.String(), tt.code) {
+				t.Errorf("stderr = %q, want it to hold %q", stderr.String(), tt.code)
+			}
+			if n := srv.TotalRequests(); n != 0 {
+				t.Errorf("server got %d tile requests, want 0", n)
+			}
+		})
+	}
+}

@@ -3,12 +3,14 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -170,8 +172,7 @@ func (h *WebHandler) apiEstimate(w http.ResponseWriter, r *http.Request) {
 		MinZoom int       `json:"min_zoom"`
 		MaxZoom int       `json:"max_zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if len(req.Bounds) != 4 {
@@ -220,8 +221,7 @@ func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
 		Lon  float64 `json:"lon"`
 		Zoom int     `json:"zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.Zoom == 0 {
@@ -247,8 +247,7 @@ func (h *WebHandler) apiValidateSource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SourceName string `json:"source_name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	source := h.parser.GetSource(req.SourceName)
@@ -278,8 +277,7 @@ func (h *WebHandler) apiPreview(w http.ResponseWriter, r *http.Request) {
 		MinZoom int       `json:"min_zoom"`
 		MaxZoom int       `json:"max_zoom"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if req.Source == "" {
@@ -354,8 +352,7 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query string `json:"query"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if len(strings.TrimSpace(req.Query)) == 0 {
@@ -386,10 +383,13 @@ func (h *WebHandler) apiGeocode(w http.ResponseWriter, r *http.Request) {
 	}
 	var locations []map[string]interface{}
 	for _, r := range results {
-		var lat, lon float64
-		// A value that does not parse stays 0. #17 adds the input validation.
-		_, _ = fmt.Sscanf(r.Lat, "%f", &lat)
-		_, _ = fmt.Sscanf(r.Lon, "%f", &lon)
+		// Nominatim sends lat and lon as JSON strings.
+		lat, latErr := strconv.ParseFloat(r.Lat, 64)
+		lon, lonErr := strconv.ParseFloat(r.Lon, 64)
+		if latErr != nil || lonErr != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Geocoding failed: the result has a coordinate that is not a number")
+			return
+		}
 		locations = append(locations, map[string]interface{}{
 			"display_name": r.DisplayName,
 			"lat":          lat,
@@ -623,6 +623,24 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	_ = json.NewEncoder(w).Encode(apiError{Error: apiErrorDetail{Code: code, Message: message}})
 }
 
+// decodeJSON decodes the request body into v.
+// It returns false when it wrote an error response:
+//   - 413 body_too_large when the body is larger than maxBodyBytes.
+//   - 400 invalid_json when the body is not valid JSON.
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	err := json.NewDecoder(r.Body).Decode(v)
+	var tooLarge *http.MaxBytesError
+	switch {
+	case err == nil:
+		return true
+	case errors.As(err, &tooLarge):
+		writeBodyTooLarge(w)
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_json", "Request body is not valid JSON")
+	}
+	return false
+}
+
 // sendJSON sends v as one websocket message.
 // A failed write means that the client left, so the error is not used. #16 removes the websocket.
 func sendJSON(conn *websocket.Conn, v interface{}) {
@@ -635,11 +653,7 @@ func toFloat(v interface{}) float64 {
 		return x
 	case int:
 		return float64(x)
-	case string:
-		var f float64
-		// A value that does not parse stays 0. #17 adds the input validation.
-		_, _ = fmt.Sscanf(x, "%f", &f)
-		return f
 	}
+	// The web UI sends JSON numbers, so a value of another type is a client error. #16 removes this websocket path.
 	return 0
 }

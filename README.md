@@ -48,7 +48,7 @@ docker run -p 5000:5000 ghcr.io/crank-git/atak-map-downloader:<tag>
 docker run ghcr.io/crank-git/atak-map-downloader:<tag> --version
 ```
 
-The image runs `atak-dl serve --addr 0.0.0.0:5000` by default. Arguments after the image name replace `serve --addr 0.0.0.0:5000`.
+The image runs `atak-dl serve --addr 0.0.0.0:5000` by default. Arguments after the image name replace `serve --addr 0.0.0.0:5000`. The address `0.0.0.0` is not loopback, so the server prints a warning that it has no authentication.
 
 ## Build
 
@@ -119,13 +119,13 @@ Then open http://localhost:5000 in your browser.
 | Command | Flag | Default | Description |
 |---------|------|---------|-------------|
 | (global) | `--mapsources-dir` | `mapsources` | Directory containing XML map source files |
-| `serve` | `--addr` | `localhost:5000` | Address to listen on |
+| `serve` | `--addr` | `localhost:5000` | Address to listen on. If the host is not a loopback address, `serve` prints a warning, because the server has no authentication. |
 | `download` | `--source` | - | Map source name (required) |
 | `download` | `--bbox` | - | Bounding box: min_lat,min_lon,max_lat,max_lon (required) |
-| `download` | `--min-zoom` | 1 | Minimum zoom level |
-| `download` | `--max-zoom` | 15 | Maximum zoom level |
+| `download` | `--min-zoom` | 1 | Minimum zoom level. It must not be below the map source's minimum zoom level, or the command fails with `zoom_out_of_range`. |
+| `download` | `--max-zoom` | 15 | Maximum zoom level. It must not be above the map source's maximum zoom level, or the command fails with `zoom_out_of_range`. |
 | `download` | `--output` | `downloads/<name>.sqlite` | Output file path |
-| `download` | `--concurrent` | 5 | Concurrent downloads |
+| `download` | `--concurrent` | 5 | Concurrent downloads, from 1 to 32. A value outside this range fails with `invalid_concurrency`. |
 
 ## Map Sources
 
