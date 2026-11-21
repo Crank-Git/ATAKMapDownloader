@@ -142,29 +142,31 @@ func runDownload(cmd *cobra.Command, userAgent string) error {
 		}
 		return true
 	})
-	output, perr := packageOutput(ctx, cmd, output, pkg, source, err)
+	finishCtx, output, perr := packageOutput(ctx, cmd, output, pkg, source, err)
 	if perr != nil {
 		return perr
 	}
-	return finishDownload(ctx, cmd, res, err, output)
+	return finishDownload(finishCtx, cmd, res, err, output)
 }
 
-// packageOutput writes the data package of pkg for the job of the output file at output, and returns the path of the result.
-// The result is the zip path, or output when pkg is nil or the job did not complete.
+// packageOutput writes the data package of pkg for the job of the output file at output.
+// It returns the context and the path for finishDownload. The path is the zip path, or output when pkg is nil or the job did not complete.
 // A cancelled or failed job has an incomplete output file, so it gets no data package.
+// After the zip step, the context ignores a cancel, because the job is complete and its output file is gone.
 // It returns the package_failed error of writeDataPackage.
-func packageOutput(ctx context.Context, cmd *cobra.Command, output string, pkg *packageOptions, source *xmlparser.MapSource, jobErr error) (string, error) {
+func packageOutput(ctx context.Context, cmd *cobra.Command, output string, pkg *packageOptions,
+	source *xmlparser.MapSource, jobErr error) (context.Context, string, error) {
 	if pkg == nil || jobErr != nil || ctx.Err() != nil {
-		return output, nil
+		return ctx, output, nil
 	}
 	zipPath, err := writeDataPackage(output, pkg, source)
 	if err != nil {
 		// The error starts on a new line, because the progress line has no line end.
 		_, _ = fmt.Fprintln(cmd.OutOrStdout()) // The line end is only for the user, so a failed write loses nothing.
 		cmd.SilenceUsage = true
-		return "", err
+		return ctx, "", err
 	}
-	return zipPath, nil
+	return context.WithoutCancel(ctx), zipPath, nil
 }
 
 // outputFlags returns the output format of the --format flag of cmd and the data package settings of packageFlags.

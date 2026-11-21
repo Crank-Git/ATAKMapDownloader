@@ -85,6 +85,7 @@ func Write(zipPath, name string, files []File) (err error) {
 	defer func() {
 		if err != nil {
 			// The temporary file holds a partial zip, so it goes with the error.
+			// The error of the write step is the one to report, so the close and remove errors are not used.
 			_ = tmp.Close()
 			_ = os.Remove(tmp.Name())
 		}
@@ -101,6 +102,14 @@ func Write(zipPath, name string, files []File) (err error) {
 	}
 	if err := zw.Close(); err != nil {
 		return fmt.Errorf("finish the data package: %w", err)
+	}
+	// The caller removes the output file after Write, so the zip must be on the disk before the rename.
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync the data package: %w", err)
+	}
+	// CreateTemp gives mode 0600, and the zip gets the mode of the output file that it replaces.
+	if err := tmp.Chmod(0o644); err != nil { //nolint:gosec // G302: An output file is readable by other users, and the zip holds the same tiles.
+		return fmt.Errorf("set the mode of the data package: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close the data package: %w", err)
