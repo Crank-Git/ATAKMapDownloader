@@ -284,7 +284,6 @@ func setUp(db *sql.DB, metadata map[string]string) (string, error) {
 }
 
 // writeSchema creates the tables in tx and writes the rows of the job, and it returns the name of the tile pyramid table.
-// An existing output file keeps the table name in its gpkg_contents, so a resume writes to the same table.
 func writeSchema(tx *sql.Tx, metadata map[string]string) (string, error) {
 	if _, err := tx.Exec(schema); err != nil {
 		return "", fmt.Errorf("create the GeoPackage tables: %w", err)
@@ -292,22 +291,40 @@ func writeSchema(tx *sql.Tx, metadata map[string]string) (string, error) {
 	if _, err := tx.Exec(insertSRS); err != nil {
 		return "", fmt.Errorf("write gpkg_spatial_ref_sys: %w", err)
 	}
-	var table string
-	err := tx.QueryRow("SELECT table_name FROM gpkg_contents WHERE data_type = 'tiles' ORDER BY table_name LIMIT 1").Scan(&table)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		table = tableName(metadata["atakdl_source"])
-	case err != nil:
-		return "", fmt.Errorf("read gpkg_contents: %w", err)
-	default:
-		if err := checkMatrixSet(tx, table); err != nil {
-			return "", err
-		}
+	table, err := pyramidTable(tx, metadata["atakdl_source"])
+	if err != nil {
+		return "", err
 	}
-
 	if _, err := tx.Exec(fmt.Sprintf(createPyramid, quote(table))); err != nil {
 		return "", fmt.Errorf("create the tile pyramid table %s: %w", table, err)
 	}
+	if err := writeTileRows(tx, table, metadata); err != nil {
+		return "", err
+	}
+	for k, v := range metadata {
+		if _, err := tx.Exec("INSERT OR REPLACE INTO atakdl_metadata (name, value) VALUES (?, ?)", k, v); err != nil {
+			return "", fmt.Errorf("write atakdl_metadata %s: %w", k, err)
+		}
+	}
+	return table, nil
+}
+
+// pyramidTable returns the name of the tile pyramid table in tx, or the name for the map source source in a new file.
+// An existing output file keeps the table name in its gpkg_contents, so a resume writes to the same table.
+func pyramidTable(tx *sql.Tx, source string) (string, error) {
+	var table string
+	err := tx.QueryRow("SELECT table_name FROM gpkg_contents WHERE data_type = 'tiles' ORDER BY table_name LIMIT 1").Scan(&table)
+	if errors.Is(err, sql.ErrNoRows) {
+		return tableName(source), nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read gpkg_contents: %w", err)
+	}
+	return table, checkMatrixSet(tx, table)
+}
+
+// writeTileRows writes the gpkg_contents, gpkg_tile_matrix_set and gpkg_tile_matrix rows of table for the job.
+func writeTileRows(tx *sql.Tx, table string, metadata map[string]string) error {
 	var bounds [4]any
 	if b, ok := parseBounds(metadata["bounds"]); ok {
 		for i, v := range mercatorBounds(b) {
@@ -316,28 +333,24 @@ func writeSchema(tx *sql.Tx, metadata map[string]string) (string, error) {
 	}
 	if _, err := tx.Exec(upsertContents, table, metadata["atakdl_source"], metadata["description"],
 		bounds[0], bounds[1], bounds[2], bounds[3], srsID); err != nil {
-		return "", fmt.Errorf("write gpkg_contents: %w", err)
+		return fmt.Errorf("write gpkg_contents: %w", err)
 	}
 	if _, err := tx.Exec("INSERT OR IGNORE INTO gpkg_tile_matrix_set (table_name, srs_id, min_x, min_y, max_x, max_y) VALUES (?, ?, ?, ?, ?, ?)",
 		table, srsID, -worldExtent, -worldExtent, worldExtent, worldExtent); err != nil {
-		return "", fmt.Errorf("write gpkg_tile_matrix_set: %w", err)
+		return fmt.Errorf("write gpkg_tile_matrix_set: %w", err)
 	}
 	// A job without valid zoom rows gets its gpkg_tile_matrix rows from the tiles that Put stores.
 	minZoom, minErr := strconv.Atoi(metadata["minzoom"])
 	maxZoom, maxErr := strconv.Atoi(metadata["maxzoom"])
-	if minErr == nil && maxErr == nil {
-		for z := minZoom; z <= maxZoom; z++ {
-			if _, err := tx.Exec(insertMatrix, matrixRow(table, z)...); err != nil {
-				return "", fmt.Errorf("write gpkg_tile_matrix for zoom level %d: %w", z, err)
-			}
+	if minErr != nil || maxErr != nil {
+		return nil
+	}
+	for z := minZoom; z <= maxZoom; z++ {
+		if _, err := tx.Exec(insertMatrix, matrixRow(table, z)...); err != nil {
+			return fmt.Errorf("write gpkg_tile_matrix for zoom level %d: %w", z, err)
 		}
 	}
-	for k, v := range metadata {
-		if _, err := tx.Exec("INSERT OR REPLACE INTO atakdl_metadata (name, value) VALUES (?, ?)", k, v); err != nil {
-			return "", fmt.Errorf("write atakdl_metadata %s: %w", k, err)
-		}
-	}
-	return table, nil
+	return nil
 }
 
 // checkMatrixSet returns an error when the tile pyramid table of an existing file is not in the GoogleMapsCompatible tile matrix set.
@@ -652,19 +665,17 @@ func (w *Writer) insert(batch []op) error {
 		}
 		stmts = append(stmts, stmt)
 	}
+	newZooms := w.newZooms(batch)
+	for _, z := range newZooms {
+		if _, err := tx.Exec(insertMatrix, matrixRow(w.table, z)...); err != nil {
+			return errors.Join(fmt.Errorf("write gpkg_tile_matrix for zoom level %d: %w", z, err), closeAll(stmts), tx.Rollback())
+		}
+	}
 	put, remove, record := stmts[0], stmts[1], stmts[2]
-	var newZooms []int
 	for _, o := range batch {
 		var err error
 		if o.reason == "" {
-			if !w.zooms[o.z] && !slices.Contains(newZooms, o.z) {
-				newZooms = append(newZooms, o.z)
-				_, err = tx.Exec(insertMatrix, matrixRow(w.table, o.z)...)
-			}
-			if err == nil {
-				_, err = put.Exec(o.z, o.x, o.y, o.data)
-			}
-			if err == nil {
+			if _, err = put.Exec(o.z, o.x, o.y, o.data); err == nil {
 				_, err = remove.Exec(o.z, o.x, o.y)
 			}
 		} else {
@@ -685,6 +696,17 @@ func (w *Writer) insert(batch []op) error {
 		w.zooms[z] = true
 	}
 	return nil
+}
+
+// newZooms returns the zoom levels of the tiles in batch that gpkg_tile_matrix has no row for.
+func (w *Writer) newZooms(batch []op) []int {
+	var zooms []int
+	for _, o := range batch {
+		if o.reason == "" && !w.zooms[o.z] && !slices.Contains(zooms, o.z) {
+			zooms = append(zooms, o.z)
+		}
+	}
+	return zooms
 }
 
 // closeAll closes each statement in stmts and returns the joined close errors.

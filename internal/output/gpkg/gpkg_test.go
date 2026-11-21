@@ -159,7 +159,7 @@ func TestOpenWritesTheContentsRowInEPSG3857(t *testing.T) {
 	}
 }
 
-func TestOpenWritesTheGoogleMapsCompatibleTileMatrix(t *testing.T) {
+func TestOpenWritesTheGoogleMapsCompatibleTileMatrixSet(t *testing.T) {
 	w, path := create(t, jobMetadata)
 	closeWriter(t, w)
 	db := openFile(t, path)
@@ -175,6 +175,12 @@ func TestOpenWritesTheGoogleMapsCompatibleTileMatrix(t *testing.T) {
 	if srsID != 3857 || minX != -worldExtent || minY != -worldExtent || maxX != worldExtent || maxY != worldExtent {
 		t.Errorf("gpkg_tile_matrix_set = %d %f %f %f %f, want 3857 and the world extent", srsID, minX, minY, maxX, maxY)
 	}
+}
+
+func TestOpenWritesATileMatrixRowForEachZoomLevelOfTheJob(t *testing.T) {
+	w, path := create(t, jobMetadata)
+	closeWriter(t, w)
+	db := openFile(t, path)
 
 	rows, err := db.QueryContext(t.Context(),
 		"SELECT zoom_level, matrix_width, matrix_height, tile_width, tile_height, pixel_x_size, pixel_y_size FROM gpkg_tile_matrix WHERE table_name = 'Test_XYZ' ORDER BY zoom_level")
@@ -341,6 +347,49 @@ func TestDetectorRejectsAnMBTilesFile(t *testing.T) {
 	}
 	if info, err := output.ReadInfo(path); err != nil || info.Format != output.MBTiles {
 		t.Errorf("ReadInfo(MBTiles file) = %+v, %v; want format mbtiles", info, err)
+	}
+}
+
+func TestOpenOfAnExistingFileGrowsTheContentsBoundsToHoldBothJobs(t *testing.T) {
+	w, path := create(t, jobMetadata)
+	closeWriter(t, w)
+	second := map[string]string{"atakdl_source": "Test XYZ", "bounds": "-123.0000,44.0000,-121.5000,45.5000"}
+	w, err := Open(path, second)
+	if err != nil {
+		t.Fatalf("Open of the existing file: %v", err)
+	}
+	closeWriter(t, w)
+
+	var minX, minY, maxX, maxY float64
+	if err := openFile(t, path).QueryRowContext(t.Context(), "SELECT min_x, min_y, max_x, max_y FROM gpkg_contents").
+		Scan(&minX, &minY, &maxX, &maxY); err != nil {
+		t.Fatalf("read gpkg_contents: %v", err)
+	}
+	// The values are the Web Mercator coordinates of 123 W, 44 N and 121 W, 46 N.
+	want := []float64{-13692297.367573, 5465442.183322, -13469658.385986, 5780349.220256}
+	for i, got := range []float64{minX, minY, maxX, maxY} {
+		if math.Abs(got-want[i]) > 0.01 {
+			t.Errorf("gpkg_contents bounds = %f %f %f %f, want %v", minX, minY, maxX, maxY, want)
+			break
+		}
+	}
+}
+
+func TestOpenRejectsAnExistingTablePyramidInAnotherTileMatrixSet(t *testing.T) {
+	w, path := create(t, jobMetadata)
+	closeWriter(t, w)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open output file: %v", err)
+	}
+	_, err = db.ExecContext(t.Context(), "UPDATE gpkg_tile_matrix_set SET srs_id = 4326, min_x = -180, max_y = 90")
+	if cerr := db.Close(); err != nil || cerr != nil {
+		t.Fatalf("change the tile matrix set: %v, %v", err, cerr)
+	}
+
+	if w, err := Open(path, jobMetadata); err == nil {
+		closeWriter(t, w)
+		t.Fatal("Open = nil error, want an error for a tile matrix set in EPSG:4326")
 	}
 }
 
