@@ -305,8 +305,10 @@ func TestJobsPageStates(t *testing.T) {
 }
 
 func TestJobsPageRetryLoadsTheListAgain(t *testing.T) {
+	responses := listed(nil)
+	responses["GET /api/jobs?page=1"] = response{Reject: true}
 	got := runJobsPage(t, jobsScenario{
-		Responses: map[string]response{"GET /api/jobs?page=1": {Reject: true}},
+		Responses: responses,
 		Steps: []jobsStep{
 			{Do: "respond", Key: "GET /api/jobs?page=1", Response: &response{Status: 200, Body: map[string]any{"jobs": []any{record("abcdef12", "complete", nil)}, "page": 1, "pages": 1}}},
 			{Do: "click", Element: "errorRetry"},

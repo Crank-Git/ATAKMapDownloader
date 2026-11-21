@@ -215,9 +215,6 @@ func TestEveryPageHasALangATitleLabelledControlsAndLiveRegions(t *testing.T) {
 		{"jobs.html", string(JobsHTML()), []string{`<p id="jobsStatus"[^>]*\baria-live="polite"`, `<div id="drawerLog"[^>]*\baria-live="polite"`, `<div id="errorBanner"[^>]*\brole="alert"`}},
 		{"signin.html", string(SigninHTML()), []string{`<p id="signinError"[^>]*\brole="alert"`}},
 	}
-	control := regexp.MustCompile(`<(?:select|input|textarea)\b[^>]*\bid="([^"]+)"`)
-	button := regexp.MustCompile(`(?s)<button\b([^>]*)>(.*?)</button>`)
-	tag := regexp.MustCompile(`<[^>]+>`)
 	for _, tt := range tests {
 		t.Run(tt.page, func(t *testing.T) {
 			if !strings.Contains(tt.html, `<html lang="en"`) {
@@ -226,26 +223,33 @@ func TestEveryPageHasALangATitleLabelledControlsAndLiveRegions(t *testing.T) {
 			if !regexp.MustCompile(`<title>\s*\S[^<]*</title>`).MatchString(tt.html) {
 				t.Error("the page has no title")
 			}
-			for _, m := range control.FindAllStringSubmatch(tt.html, -1) {
-				if !regexp.MustCompile(`<label\b[^>]*\bfor="` + regexp.QuoteMeta(m[1]) + `"[^>]*>\s*\S`).MatchString(tt.html) {
-					t.Errorf("the control %q has no <label for> with text (FR-offline-web-ui-25)", m[1])
-				}
-			}
-			buttons := button.FindAllStringSubmatch(tt.html, -1)
-			if len(buttons) == 0 {
-				t.Fatal("the page has no button, so the pattern is stale")
-			}
-			for _, m := range buttons {
-				if strings.TrimSpace(tag.ReplaceAllString(m[2], "")) == "" && !strings.Contains(m[1], `aria-label="`) {
-					t.Errorf("the button <button%s> has no text and no aria-label (FR-offline-web-ui-26)", m[1])
-				}
-			}
+			checkControlNames(t, tt.html)
 			for _, live := range tt.live {
 				if !regexp.MustCompile(live).MatchString(tt.html) {
 					t.Errorf("the page does not match %s (FR-offline-web-ui-27)", live)
 				}
 			}
 		})
+	}
+}
+
+// checkControlNames checks that each form control of page has a label and each button has a name.
+func checkControlNames(t *testing.T, page string) {
+	t.Helper()
+	for _, m := range regexp.MustCompile(`<(?:select|input|textarea)\b[^>]*\bid="([^"]+)"`).FindAllStringSubmatch(page, -1) {
+		if !regexp.MustCompile(`<label\b[^>]*\bfor="` + regexp.QuoteMeta(m[1]) + `"[^>]*>\s*\S`).MatchString(page) {
+			t.Errorf("the control %q has no <label for> with text (FR-offline-web-ui-25)", m[1])
+		}
+	}
+	buttons := regexp.MustCompile(`(?s)<button\b([^>]*)>(.*?)</button>`).FindAllStringSubmatch(page, -1)
+	if len(buttons) == 0 {
+		t.Fatal("the page has no button, so the pattern is stale")
+	}
+	tag := regexp.MustCompile(`<[^>]+>`)
+	for _, m := range buttons {
+		if strings.TrimSpace(tag.ReplaceAllString(m[2], "")) == "" && !strings.Contains(m[1], `aria-label="`) {
+			t.Errorf("the button <button%s> has no text and no aria-label (FR-offline-web-ui-26)", m[1])
+		}
 	}
 }
 
