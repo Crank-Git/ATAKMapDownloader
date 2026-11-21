@@ -330,8 +330,8 @@ func TestJobAPIRejectsASecondJobWhileOneRuns(t *testing.T) {
 
 	closeBody(s.request(t, http.MethodDelete, "/api/jobs/"+rec.ID, ""))
 	s.finalRecord(t, rec.ID)
-	// The job lock is free again after the job ends.
-	next := s.startJob(t, jobBody(slowArea))
+	// The job lock is free again after the job ends. The first job kept its output file, so the next one overwrites it.
+	next := s.startJob(t, strings.TrimSuffix(jobBody(slowArea), "}")+`,"if_exists":"overwrite"}`)
 	closeBody(s.request(t, http.MethodDelete, "/api/jobs/"+next.ID, ""))
 	s.finalRecord(t, next.ID)
 }

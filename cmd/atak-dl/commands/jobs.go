@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +33,8 @@ type jobRequest struct {
 	AcceptTerms      *bool     `json:"accept_terms"`
 	// RateLimit lowers the request rate in requests per second. The engine ignores a value above the policy rate.
 	RateLimit *float64 `json:"rate_limit"`
+	// IfExists is the rule for an existing output file. An empty value means ifExistsFail.
+	IfExists ifExists `json:"if_exists"`
 }
 
 // engineConfig returns the engine configuration for the request.
@@ -76,7 +79,7 @@ type jobRecord struct {
 	OutputFile string    `json:"output_file"`
 	Total      int       `json:"total"`
 	Downloaded int64     `json:"downloaded"`
-	// Skipped stays 0 until feature 07 adds resume, because only resume skips a tile.
+	// Skipped counts the tiles that the output file already holds, so only a resume makes it above 0.
 	Skipped   int64     `json:"skipped"`
 	Failed    int64     `json:"failed"`
 	CreatedAt time.Time `json:"created_at"`
@@ -186,7 +189,7 @@ func (j *job) sendEvents() {
 func (j *job) applyProgress(p progressEvent) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	j.record.Downloaded, j.record.Failed = p.Downloaded, p.Failed
+	j.record.Downloaded, j.record.Skipped, j.record.Failed = p.Downloaded, p.Skipped, p.Failed
 }
 
 // finalSlots is the number of events that finish sends to one subscriber: the error log event and the final state event.
@@ -265,6 +268,7 @@ func (h *WebHandler) routeJobs(mux *http.ServeMux) {
 
 // createJob starts a job and returns 202 with its record (FR-security-hardening-8).
 // It returns 409 job_running when a job runs (FR-security-hardening-12).
+// It returns 409 output_exists when the if_exists rule does not accept the existing output file (FR-robust-downloads-14).
 func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	var req jobRequest
 	if !decodeJSON(w, r, &req) {
@@ -281,6 +285,11 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "job_running", "A job is already running")
 		return
 	}
+	// The job lock is held, so no other job writes the output file between the check and the start.
+	if !h.checkOutput(w, req, source, bounds) {
+		h.dlState.Unlock()
+		return
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	j := h.newJob(req, bounds, cancel)
 	h.dlState.downloading = true
@@ -290,6 +299,28 @@ func (h *WebHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	go j.sendEvents()
 	go h.runJob(ctx, j, req, source, bounds)
 	writeAccepted(w, j.snapshot())
+}
+
+// checkOutput applies the if_exists rule of req to its output file.
+// It writes the error response and returns false when the rule does not accept the file or the check fails.
+// The API has no force field, so a resume accepts a v0.1 output file with no map source name.
+func (h *WebHandler) checkOutput(w http.ResponseWriter, req jobRequest, source *xmlparser.MapSource, bounds *tilecalc.GeographicBounds) bool {
+	rule := req.IfExists
+	if rule == "" {
+		rule = ifExistsFail
+	}
+	path := filepath.Join(h.outputDir, download.GenerateOutputFilename(req.Source, bounds, req.MinZoom, req.MaxZoom, req.Name))
+	err := prepareOutput(path, rule, source.Name, true)
+	var conflict *outputConflict
+	switch {
+	case errors.Is(err, errOutputExists):
+		writeError(w, http.StatusConflict, "output_exists", `Output file exists; send "if_exists": "resume" or "overwrite"`)
+	case errors.As(err, &conflict):
+		writeError(w, http.StatusConflict, "output_exists", conflict.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+	}
+	return err == nil
 }
 
 // checkJobRequest returns the map source and the bounds of req.
@@ -320,6 +351,12 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req jobRequest) (*xm
 	// Zero rate_limit keeps the policy rate in the engine, so the API rejects it with the negative values.
 	if req.RateLimit != nil && *req.RateLimit <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid_rate_limit", fmt.Sprintf("rate_limit %g is not above 0", *req.RateLimit))
+		return nil, nil, false
+	}
+	switch req.IfExists {
+	case "", ifExistsFail, ifExistsResume, ifExistsOverwrite:
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_if_exists", fmt.Sprintf("if_exists %q is not fail, resume or overwrite", req.IfExists))
 		return nil, nil, false
 	}
 	if entry, restricted := restrictedEntry(source); restricted && (req.AcceptTerms == nil || !*req.AcceptTerms) {
@@ -392,6 +429,7 @@ func (h *WebHandler) runJob(ctx context.Context, j *job, req jobRequest, source 
 		func(p download.Progress) bool {
 			j.progress <- progressEvent{
 				Downloaded: p.Downloaded,
+				Skipped:    p.Skipped,
 				Failed:     p.Failed,
 				Total:      p.TotalTiles,
 				Rate:       p.TilesPerSecond(),

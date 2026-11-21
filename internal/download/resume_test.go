@@ -56,19 +56,7 @@ func TestEngineSkipsTilesThatTheOutputFileHolds(t *testing.T) {
 			if !res.OK || err != nil {
 				t.Fatalf("DownloadTiles = %v, %v; want true, nil", res.OK, err)
 			}
-			stored := make(map[testtiles.Tile]bool)
-			for _, tile := range tt.stored {
-				stored[tile] = true
-			}
-			for _, tile := range all {
-				want := 1
-				if stored[tile] {
-					want = 0
-				}
-				if n := srv.Requests(tile); n != want {
-					t.Errorf("tile %v got %d requests, want %d", tile, n, want)
-				}
-			}
+			checkRequestsOfMissingTiles(t, srv, all, tt.stored)
 			wantSkipped := int64(len(tt.stored))
 			if res.Skipped != wantSkipped || res.Downloaded != int64(len(all))-wantSkipped {
 				t.Errorf("Skipped, Downloaded = %d, %d; want %d, %d", res.Skipped, res.Downloaded, wantSkipped, int64(len(all))-wantSkipped)
@@ -77,6 +65,24 @@ func TestEngineSkipsTilesThatTheOutputFileHolds(t *testing.T) {
 				t.Errorf("output file holds %d tile rows, want %d", n, len(all))
 			}
 		})
+	}
+}
+
+// checkRequestsOfMissingTiles reports an error when a tile of all that stored omits did not get exactly one request,
+// or when a tile in stored got a request.
+func checkRequestsOfMissingTiles(t *testing.T, srv *testtiles.Server, all, stored []testtiles.Tile) {
+	t.Helper()
+	want := make(map[testtiles.Tile]int)
+	for _, tile := range all {
+		want[tile] = 1
+	}
+	for _, tile := range stored {
+		want[tile] = 0
+	}
+	for tile, n := range want {
+		if got := srv.Requests(tile); got != n {
+			t.Errorf("tile %v got %d requests, want %d", tile, got, n)
+		}
 	}
 }
 

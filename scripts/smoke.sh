@@ -1,6 +1,8 @@
 #!/bin/sh
-# smoke.sh builds atak-dl, starts serve on a free port, checks six responses, the bind warning, the terms exit code and --no-geocode.
-# FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, and FR-polite-downloading-18 and -26 define the checks.
+# smoke.sh builds atak-dl, starts serve on a free port, and checks six responses and the bind warning.
+# It also checks the terms exit code, the output file exit code and --no-geocode.
+# FR-foundation-13, FR-foundation-14, FR-security-hardening-3, -9, -17 and -25, FR-polite-downloading-18 and -26,
+# and FR-robust-downloads-6 define the checks.
 # It needs go, curl and python3. It exits 0 when every check passes.
 set -eu
 
@@ -103,12 +105,27 @@ if [ "$status" != "2" ] || ! grep -q "https://developers.google.com/maps/documen
 fi
 echo "smoke: download of a Google map source without --accept-terms exited 2"
 
+# An existing output file without --resume or --overwrite exits with code 3 and stays unchanged (FR-robust-downloads-6).
+# The CLI checks the output file before --rate-limit, so a build without the check stops at the -1 before a request.
+exists_file=$(mktemp)
+trap 'kill "$pid" "$open_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file" "$exists_file"' EXIT INT TERM
+echo "smoke notes" >"$exists_file"
+status=0
+./atak-dl download --source "USGS - Usgsbasemap" --bbox 40.7,-74.1,40.8,-74.0 --min-zoom 10 --max-zoom 10 \
+	--rate-limit -1 --output "$exists_file" >/dev/null 2>"$stderr_file" || status=$?
+if [ "$status" != "3" ] || ! grep -q "output file exists: use --resume or --overwrite" "$stderr_file" ||
+	[ "$(cat "$exists_file")" != "smoke notes" ]; then
+	echo "smoke: download into an existing output file exited $status, want 3, the message and the file unchanged" >&2
+	exit 1
+fi
+echo "smoke: download into an existing output file exited 3"
+
 # serve --no-geocode removes the geocode route and reports geocode false (FR-polite-downloading-26).
 port2=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 base2="http://127.0.0.1:$port2"
 ./atak-dl serve --addr "127.0.0.1:$port2" --no-geocode >/dev/null &
 off_pid=$!
-trap 'kill "$pid" "$open_pid" "$off_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file"' EXIT INT TERM
+trap 'kill "$pid" "$open_pid" "$off_pid" 2>/dev/null || true; rm -f "$stderr_file" "$terms_file" "$exists_file"' EXIT INT TERM
 attempt=0
 until [ "$(curl -s -o /dev/null -w '%{http_code}' "$base2/" || true)" = "200" ]; do
 	attempt=$((attempt + 1))

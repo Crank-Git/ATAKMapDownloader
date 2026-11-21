@@ -64,14 +64,12 @@ func TestDownloadIntoAnExistingOutputFile(t *testing.T) {
 	}{
 		{
 			name:       "refuses the job with exit code 3 and keeps the file without a flag",
-			metadata:   nil,
 			exitCode:   3,
 			wantStderr: "output file exists: use --resume or --overwrite",
 			unchanged:  true,
 		},
 		{
 			name:     "deletes the file and downloads every tile with --overwrite",
-			metadata: nil,
 			args:     []string{"--overwrite"},
 			requests: 1,
 		},
@@ -79,7 +77,6 @@ func TestDownloadIntoAnExistingOutputFile(t *testing.T) {
 			name:     "skips the stored tile with --resume",
 			metadata: map[string]string{"atakdl_source": "Test TLS"},
 			args:     []string{"--resume"},
-			requests: 0,
 		},
 		{
 			name:       "refuses a file of another map source with exit code 3 and --resume",
@@ -101,7 +98,6 @@ func TestDownloadIntoAnExistingOutputFile(t *testing.T) {
 			name:     "accepts a file with no map source name with --resume --force",
 			metadata: map[string]string{"name": "v0.1"},
 			args:     []string{"--resume", "--force"},
-			requests: 0,
 		},
 		{
 			name:       "rejects --resume together with --overwrite",
@@ -116,55 +112,72 @@ func TestDownloadIntoAnExistingOutputFile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := testtiles.New(t, nil)
 			output := filepath.Join(t.TempDir(), "out.sqlite")
-			if tt.metadata == nil {
-				if err := os.WriteFile(output, []byte("my notes"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				writeOutputFile(t, output, tt.metadata, oneTile)
-			}
-			before, err := os.ReadFile(output)
-			if err != nil {
-				t.Fatal(err)
-			}
+			before := writeExistingFile(t, output, tt.metadata)
 
-			root := &cobra.Command{Use: "atak-dl"}
-			root.PersistentFlags().String("mapsources-dir", "", "")
-			root.AddCommand(NewDownloadCmd(testUserAgent))
-			var stderr bytes.Buffer
-			root.SetErr(&stderr)
-			root.SetArgs(append([]string{
-				"--mapsources-dir", writeSource(t, srv),
-				"download",
-				"--source", "Test TLS",
-				"--bbox", oneTileBBox(),
-				"--min-zoom", "10", "--max-zoom", "10",
-				"--concurrent", "1",
-				"--output", output,
-			}, tt.args...))
-
-			err = root.Execute()
+			stderr, err := runDownloadInto(t, srv, output, tt.args)
 			if got := ExitCode(err); got != tt.exitCode {
 				t.Errorf("ExitCode(%v) = %d, want %d", err, got, tt.exitCode)
 			}
-			if !strings.Contains(stderr.String(), tt.wantStderr) {
-				t.Errorf("stderr = %q, want it to hold %q", stderr.String(), tt.wantStderr)
+			if !strings.Contains(stderr, tt.wantStderr) {
+				t.Errorf("stderr = %q, want it to hold %q", stderr, tt.wantStderr)
 			}
 			if n := srv.TotalRequests(); n != tt.requests {
 				t.Errorf("server got %d tile requests, want %d", n, tt.requests)
 			}
-			if tt.unchanged {
-				after, err := os.ReadFile(output)
-				if err != nil || !bytes.Equal(after, before) {
-					t.Errorf("output file changed: read error %v, %d bytes before, %d bytes after", err, len(before), len(after))
-				}
-				return
-			}
-			if n := tileRows(t, output); n != 1 {
-				t.Errorf("output file holds %d tile rows, want 1", n)
+			switch after := readFile(t, output); {
+			case tt.unchanged && !bytes.Equal(after, before):
+				t.Errorf("output file changed: %d bytes before, %d bytes after", len(before), len(after))
+			case !tt.unchanged && tileRows(t, output) != 1:
+				t.Errorf("output file holds %d tile rows, want 1", tileRows(t, output))
 			}
 		})
 	}
+}
+
+// writeExistingFile writes the file at path before a job and returns its bytes.
+// A nil metadata writes a text file, and other metadata writes an output file that holds oneTile.
+func writeExistingFile(t *testing.T, path string, metadata map[string]string) []byte {
+	t.Helper()
+	if metadata == nil {
+		if err := os.WriteFile(path, []byte("my notes"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		writeOutputFile(t, path, metadata, oneTile)
+	}
+	return readFile(t, path)
+}
+
+// readFile returns the bytes of the file at path.
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // The test reads the file in its own temporary directory.
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// runDownloadInto runs the download command for oneTile of the map source of srv into output, with args last.
+// It returns the stderr of the command and its error.
+func runDownloadInto(t *testing.T, srv *testtiles.Server, output string, args []string) (string, error) {
+	t.Helper()
+	root := &cobra.Command{Use: "atak-dl"}
+	root.PersistentFlags().String("mapsources-dir", "", "")
+	root.AddCommand(NewDownloadCmd(testUserAgent))
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+	root.SetArgs(append([]string{
+		"--mapsources-dir", writeSource(t, srv),
+		"download",
+		"--source", "Test TLS",
+		"--bbox", oneTileBBox(),
+		"--min-zoom", "10", "--max-zoom", "10",
+		"--concurrent", "1",
+		"--output", output,
+	}, args...))
+	err := root.Execute()
+	return stderr.String(), err
 }
 
 // fourTiles is a 2×2 tile area at zoom level 10.
