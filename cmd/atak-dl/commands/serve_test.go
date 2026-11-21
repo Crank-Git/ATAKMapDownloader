@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -73,37 +74,68 @@ func TestServerLimitsTheRequestBody(t *testing.T) {
 	}
 }
 
-func TestServePrintsTheNoAuthenticationWarningForANonLoopbackAddress(t *testing.T) {
+// runServeOnce runs serve with args and a cancelled context, so serve stops right after its start messages.
+// It returns stdout and stderr.
+func runServeOnce(t *testing.T, args ...string) (string, string) {
+	t.Helper()
+	// serve makes the downloads directory in the working directory.
+	t.Chdir(t.TempDir())
+	root := &cobra.Command{Use: "atak-dl"}
+	root.PersistentFlags().String("mapsources-dir", "", "")
+	root.AddCommand(NewServeCmd(testUserAgent))
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs(append([]string{"--mapsources-dir", t.TempDir(), "serve"}, args...))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("Execute() returned %v", err)
+	}
+	return stdout.String(), stderr.String()
+}
+
+// tokenLine matches the start line of a generated token (FR-team-server-19).
+var tokenLine = regexp.MustCompile(`(?m)^token: ([0-9a-f]{32}) `)
+
+func TestServePrintsAGeneratedTokenForANonLoopbackAddress(t *testing.T) {
 	tests := []struct {
-		addr string
-		warn bool
+		name  string
+		args  []string
+		env   string
+		print bool
 	}{
-		{"0.0.0.0:0", true},
-		{":0", true},
-		{"127.0.0.1:0", false},
-		{"localhost:0", false},
-		{"[::1]:0", false},
+		{"prints a token for 0.0.0.0", []string{"--addr", "0.0.0.0:0"}, "", true},
+		{"prints a token for an empty host", []string{"--addr", ":0"}, "", true},
+		{"prints no token for 127.0.0.1", []string{"--addr", "127.0.0.1:0"}, "", false},
+		{"prints no token for localhost", []string{"--addr", "localhost:0"}, "", false},
+		{"prints no token for ::1", []string{"--addr", "[::1]:0"}, "", false},
+		{"prints no token from --token", []string{"--addr", "0.0.0.0:0", "--token", "flagtoken"}, "", false},
+		{"prints no token from ATAKDL_TOKEN", []string{"--addr", "0.0.0.0:0"}, "envtoken", false},
 	}
 	for _, tt := range tests {
-		t.Run(tt.addr, func(t *testing.T) {
-			// serve makes the downloads directory in the working directory.
-			t.Chdir(t.TempDir())
-			root := &cobra.Command{Use: "atak-dl"}
-			root.PersistentFlags().String("mapsources-dir", "", "")
-			root.AddCommand(NewServeCmd(testUserAgent))
-			var stderr bytes.Buffer
-			root.SetErr(&stderr)
-			root.SetArgs([]string{"--mapsources-dir", t.TempDir(), "serve", "--addr", tt.addr})
-
-			// A cancelled context makes serve stop at once, after it prints the warning.
-			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
-			if err := root.ExecuteContext(ctx); err != nil {
-				t.Fatalf("Execute() returned %v", err)
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("ATAKDL_TOKEN", tt.env)
+			logs := captureLog(t)
+			stdout, stderr := runServeOnce(t, tt.args...)
+			matches := tokenLine.FindAllStringSubmatch(stderr, -1)
+			if tt.print != (len(matches) == 1) || len(matches) > 1 {
+				t.Fatalf("stderr = %q, want one token line: %v", stderr, tt.print)
 			}
-			warning := "warning: the server has no authentication and is reachable from other machines on " + tt.addr + "\n"
-			if got := strings.Contains(stderr.String(), warning); got != tt.warn {
-				t.Errorf("stderr = %q, want the warning: %v", stderr.String(), tt.warn)
+			if strings.Contains(stderr, "no authentication") {
+				t.Errorf("stderr = %q, want no authentication warning", stderr)
+			}
+			secrets := []string{"flagtoken", "envtoken"}
+			if tt.print {
+				secrets = append(secrets, matches[0][1])
+			}
+			for _, secret := range secrets {
+				if strings.Contains(stdout, secret) || strings.Contains(logs.String(), secret) {
+					t.Errorf("stdout %q or the log %q holds the token %q", stdout, logs.String(), secret)
+				}
+				if secret != "" && !tt.print && strings.Contains(stderr, secret) {
+					t.Errorf("stderr = %q, want no token %q from the flag or the environment", stderr, secret)
+				}
 			}
 		})
 	}
