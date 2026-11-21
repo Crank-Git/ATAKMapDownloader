@@ -290,6 +290,18 @@ func postEstimate(t *testing.T, h http.Handler, body string) estimateResponse {
 	return est
 }
 
+func TestEstimateEncodesATypedResponse(t *testing.T) {
+	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML})
+	rec := serve(h, http.MethodPost, "/api/estimate", `{"bounds":[0,0,1,1],"min_zoom":1,"max_zoom":2}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	// A map encodes its keys in sorted order, and a struct keeps its field order, so total_tiles comes first.
+	if want := `{"total_tiles":`; !strings.HasPrefix(rec.Body.String(), want) {
+		t.Errorf("body = %s, want the prefix %s of the typed response", rec.Body, want)
+	}
+}
+
 func TestEstimateUsesTheSizePerTileOfTheMapSource(t *testing.T) {
 	h := newTestHandler(t, map[string]string{"test.xml": testSourceXML, "jpg.xml": testJPGSourceXML})
 	tests := []struct {

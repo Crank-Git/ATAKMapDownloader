@@ -298,8 +298,8 @@ func TestAppJSSelectsTheNewestOutputFileWhenOfflineAtLoad(t *testing.T) {
 	app := string(b)
 	fallback := methodBody(t, app, "fallBackToLocalBaseMap")
 	for _, want := range []string{
-		"navigator.onLine",
-		"this.connectionState === 'offline'",
+		"navigator.onLine === false",
+		"this.onlineTileFailed",
 		// GET /api/files sorts newest first, so the first file is the most recent one (FR-offline-web-ui-16).
 		"this.outputFiles[0]",
 		"this.showError('baseMap', 'Offline: no local base map'",
@@ -308,8 +308,12 @@ func TestAppJSSelectsTheNewestOutputFileWhenOfflineAtLoad(t *testing.T) {
 			t.Errorf("fallBackToLocalBaseMap does not contain %q", want)
 		}
 	}
-	if !strings.Contains(methodBody(t, app, "setConnection"), "this.fallBackToLocalBaseMap()") {
-		t.Error("setConnection does not call fallBackToLocalBaseMap, so the offline indicator does not change the base map")
+	// An offline indicator means that the server is down, and the local base map comes from the same server.
+	if strings.Contains(fallback, "connectionState") {
+		t.Error("fallBackToLocalBaseMap reads the connection state, which tells nothing about the internet")
+	}
+	if strings.Contains(methodBody(t, app, "setConnection"), "this.fallBackToLocalBaseMap()") {
+		t.Error("setConnection calls fallBackToLocalBaseMap, so a server outage changes the base map")
 	}
 }
 

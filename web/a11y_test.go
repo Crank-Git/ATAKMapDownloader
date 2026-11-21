@@ -54,6 +54,8 @@ func TestIndexMarksTheLiveRegionsAndTheProgressBar(t *testing.T) {
 	}{
 		{"job status region (FR-offline-web-ui-27)", regexp.MustCompile(`<p id="jobSummary"[^>]*\baria-live="polite"`)},
 		{"status log (FR-offline-web-ui-27)", regexp.MustCompile(`<div id="statusLog"[^>]*\baria-live="polite"`)},
+		// The status log scrolls, so a keyboard user needs a focus stop to scroll it.
+		{"status log takes keyboard focus", regexp.MustCompile(`<div id="statusLog"[^>]*\btabindex="0"`)},
 		{"connection indicator", regexp.MustCompile(`<span id="connStatus"[^>]*\brole="status"`)},
 		{"error banner", regexp.MustCompile(`<div id="errorBanner"[^>]*\brole="alert"`)},
 		{"progress bar (FR-offline-web-ui-28)", regexp.MustCompile(`id="jobBar"[^>]*role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"`)},
@@ -67,6 +69,32 @@ func TestIndexMarksTheLiveRegionsAndTheProgressBar(t *testing.T) {
 	}
 	if !strings.Contains(methodBody(t, appJS(t), "updateDownloadProgress"), "bar.setAttribute('aria-valuenow'") {
 		t.Error("updateDownloadProgress does not set aria-valuenow on the progress bar (FR-offline-web-ui-28)")
+	}
+}
+
+func TestAppJSNamesTheGeomanToolbarButtons(t *testing.T) {
+	// Geoman puts the title on the button container and none on the link, so the link has no accessible name.
+	geoman, err := staticFS.ReadFile("static/vendor/leaflet-geoman/leaflet-geoman.min.js")
+	if err != nil {
+		t.Fatalf("read leaflet-geoman.min.js: %v", err)
+	}
+	for _, want := range []string{`e.title&&r.setAttribute("title",e.title)`, `"leaflet-buttons-control-button",r`} {
+		if !strings.Contains(string(geoman), want) {
+			t.Errorf("leaflet-geoman.min.js does not contain %q, so the selector in initDrawControls is stale", want)
+		}
+	}
+	draw := methodBody(t, appJS(t), "initDrawControls")
+	for _, want := range []string{
+		"querySelectorAll('.button-container[title] > .leaflet-buttons-control-button')",
+		"setAttribute('aria-label', button.parentElement.title)",
+	} {
+		if !strings.Contains(draw, want) {
+			t.Errorf("initDrawControls does not contain %q (FR-offline-web-ui-26)", want)
+		}
+	}
+	// The toolbar exists only after addControls, so the names come after it.
+	if strings.Index(draw, "setAttribute('aria-label'") < strings.Index(draw, "this.map.pm.addControls(") {
+		t.Error("initDrawControls names the toolbar buttons before Geoman creates them")
 	}
 }
 
