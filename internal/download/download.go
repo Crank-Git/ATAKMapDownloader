@@ -270,7 +270,7 @@ func outputMetadata(source *xmlparser.MapSource, bounds *tilecalc.GeographicBoun
 
 // outcome returns the result of a job that was not cancelled.
 // It returns an error when no tile was processed or when the failure rate is above the limit.
-// A skipped tile counts as processed, so a resume of a complete output file succeeds.
+// A job that skips every tile succeeds, because a resume of a complete output file is not an error.
 func (e *Engine) outcome(downloaded, skipped, failed int64) (bool, error) {
 	if e.cfg.IgnoreErrors {
 		return true, nil
