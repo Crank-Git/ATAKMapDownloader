@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/crank-git/atak-map-downloader/internal/datapackage"
 	"github.com/crank-git/atak-map-downloader/internal/snapshot"
@@ -35,6 +36,7 @@ func packageNameMessage(field, name string) string {
 }
 
 // packageFlags returns the data package settings of the --data-package, --include-source and --package-name flags of cmd.
+// It trims the spaces around the package name before the check, so a name of spaces only is not valid.
 // It returns nil settings without --data-package. It returns an error in each of these cases:
 //   - --include-source or --package-name without --data-package.
 //   - An invalid_package_name error for a package name that datapackage.ValidName rejects.
@@ -60,6 +62,7 @@ func packageFlags(cmd *cobra.Command) (*packageOptions, error) {
 		}
 		return nil, nil
 	}
+	name = strings.TrimSpace(name)
 	if !datapackage.ValidName(name) {
 		return nil, errors.New("invalid_package_name: " + packageNameMessage("--package-name", name))
 	}

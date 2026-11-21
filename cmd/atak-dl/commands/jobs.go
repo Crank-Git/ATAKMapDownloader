@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -405,7 +406,8 @@ func (h *WebHandler) checkJobRequest(w http.ResponseWriter, req *jobRequest) (*x
 }
 
 // checkOutputOptions checks the output_format, if_exists and package_name fields of req for a job of source.
-// It sets an empty output_format to output.MBTiles. It checks package_name only when data_package is true.
+// It sets an empty output_format to output.MBTiles, and it trims the spaces around package_name.
+// It checks package_name only when data_package is true.
 // It writes the error response and returns false when a field is not valid.
 func checkOutputOptions(w http.ResponseWriter, req *jobRequest, source *xmlparser.MapSource) bool {
 	if req.OutputFormat == "" {
@@ -415,6 +417,8 @@ func checkOutputOptions(w http.ResponseWriter, req *jobRequest, source *xmlparse
 		writeError(w, http.StatusBadRequest, code, message)
 		return false
 	}
+	// The web UI trims the name too, so the CLI, the API and the preview give the same zip name.
+	req.PackageName = strings.TrimSpace(req.PackageName)
 	if req.DataPackage && !datapackage.ValidName(req.PackageName) {
 		writeError(w, http.StatusBadRequest, "invalid_package_name", packageNameMessage("package_name", req.PackageName))
 		return false

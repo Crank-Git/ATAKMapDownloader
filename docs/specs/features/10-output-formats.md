@@ -137,7 +137,7 @@ States: the default (MBTiles selected, no data package), a data package with an 
 - Device locations, as shown in the help box:
   - MBTiles, OSMDroid and GeoPackage files go to `atak/imagery/`.
   - A data package goes through ATAK's Import Manager.
-- The package name allows `[A-Za-z0-9 _-]`, 1 to 64 characters. Spaces become `_` in the file name.
+- The package name allows `[A-Za-z0-9 _-]`, 1 to 64 characters, after the CLI and the API trim the spaces around it. Spaces become `_` in the file name.
 - `--data-package` with `--resume` resumes the inner output file and then rebuilds the zip.
 
 ## Data touched
