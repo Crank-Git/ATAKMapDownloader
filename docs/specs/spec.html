@@ -321,7 +321,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li><strong>Web UI: vanilla JavaScript + Leaflet 1.9.4 + Leaflet-Geoman (planned), embedded with <code>embed.FS</code>.</strong> Leaflet 2.0 is still in beta (https://github.com/Leaflet/Leaflet/releases). Leaflet.draw has had no release since 2018, and Leaflet-Geoman v2.20.8 is active (https://github.com/geoman-io/leaflet-geoman/releases). Bootstrap and Font Awesome are removed. All assets are vendored, so the page works offline.
 </li>
-<li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Today there is a copied folder of 34 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
+<li><strong>Map sources: MOBAC XML from joshuafuller/ATAK-Maps (MIT).</strong> Today there is a copied folder of 33 files. Planned: an embedded snapshot of ATAK-Maps v2.3.1 with 53 source files (https://github.com/joshuafuller/ATAK-Maps/releases). See <a href="../adr/0004-mobac-xml-sources.md">ADR 0004</a> and <a href="../adr/0008-embedded-source-snapshot.md">ADR 0008</a>.
 </li>
 <li><strong>Release: GoReleaser v2 on GitHub Actions (planned).</strong> Release targets are GitHub Releases and a GHCR image. GoReleaser v2.20.3 is current (https://github.com/goreleaser/goreleaser/releases). The project publishes no Homebrew tap, to keep the release surface small.
 </li>
@@ -608,7 +608,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>Contradicted — "1:1 functionality matching the Python version".</strong> <code>README.md:5</code>. No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim. Epic 0 removes it.
 </li>
-<li><strong>Contradicted — "30+ map sources".</strong> 34 files ship. 30 load. Three WMS source files are skipped with no log (<code>internal/xmlparser/xmlparser.go:129-132</code>), and one file is not a source file.
+<li><strong>Contradicted — "30+ map sources".</strong> 33 files ship. 30 load. Three WMS source files are skipped with no log (<code>internal/xmlparser/xmlparser.go:129-132</code>).
 </li>
 <li><strong>Contradicted — "MBTiles output".</strong> The output file has a <code>.sqlite</code> extension and lacks the <code>center</code> key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
 </li>

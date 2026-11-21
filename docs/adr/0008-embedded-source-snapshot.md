@@ -5,7 +5,7 @@ Status: accepted
 
 ## Context
 
-The project reads source files from a `mapsources/` folder that must sit next to the binary (ADR 0004). The folder is a February 2026 copy of 34 files. ATAK-Maps v2.3.1 has 53 files in a new layout and new map source names. The options were: embed a snapshot, download on first run, or keep the folder.
+The project reads source files from a `mapsources/` folder that must sit next to the binary (ADR 0004). The folder is a February 2026 copy of 33 files. ATAK-Maps v2.3.1 has 53 files in a new layout and new map source names. The options were: embed a snapshot, download on first run, or keep the folder.
 
 ## Decision
 

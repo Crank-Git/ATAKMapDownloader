@@ -9,7 +9,7 @@ mockups: []
 
 ## Purpose
 
-Today the project reads source files from a `mapsources/` folder that must sit next to the binary. The folder is a February 2026 copy of 34 files from joshuafuller/ATAK-Maps. ATAK-Maps is now at v2.3.1 with 53 source files in a new layout (`maps/base/<provider>/`, `maps/overlays/`), and it renamed every map source in v2.0.0 (https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md). Some endpoints in the old copy are dead: USDA FSTopo, NAIP TNM and Finland MML were removed upstream in commit 66be333.
+Today the project reads source files from a `mapsources/` folder that must sit next to the binary. The folder is a February 2026 copy of 33 files from joshuafuller/ATAK-Maps. ATAK-Maps is now at v2.3.1 with 53 source files in a new layout (`maps/base/<provider>/`, `maps/overlays/`), and it renamed every map source in v2.0.0 (https://github.com/joshuafuller/ATAK-Maps/blob/master/CHANGELOG.md). Some endpoints in the old copy are dead: USDA FSTopo, NAIP TNM and Finland MML were removed upstream in commit 66be333.
 
 The parser skips the three WMS source files with no log (`internal/xmlparser/xmlparser.go:129-132`). It splits server parts on whitespace only, although some source files use commas. It ignores `invertYCoordinate`, and the `serve` command's local `--mapsources-dir` flag shadows the global one (`cmd/atak-dl/commands/serve.go:21`).
 
