@@ -22,6 +22,8 @@ const FORMAT_NAMES = { mbtiles: 'MBTiles', osmdroid: 'OSMDroid', gpkg: 'GeoPacka
 const DATA_PACKAGE = 'data_package';
 // The rule of datapackage.ValidName lets the web UI reject a package name before the server does.
 const PACKAGE_NAME = /^[A-Za-z0-9 _-]{1,64}$/;
+// A job in one of these states has no final state yet, so its stream stays open (FR-team-server-1).
+const ACTIVE_STATES = ['queued', 'running'];
 // The server accepts at most 20 areas in one job (FR-area-selection-5).
 const MAX_AREAS = 20;
 const KIND_LABEL = { bounds: 'Rectangle', polygon: 'Polygon', route_buffer: 'Route' };
@@ -536,10 +538,16 @@ class ATAKDownloader {
     }
 
     onJobState(record) {
-        if (record.state !== 'running') {
+        if (!ACTIVE_STATES.includes(record.state)) {
             this.onJobComplete();
         }
         switch (record.state) {
+            case 'queued':
+                // The job waits for a free worker. Cancel removes it from the queue (FR-team-server-4).
+                this.setJobLocked(true);
+                this.showCancelButton(true);
+                this.logStatus('Job queued at position ' + record.position);
+                break;
             case 'running':
                 this.setJobLocked(true);
                 this.showCancelButton(true);

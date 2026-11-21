@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/jobs"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
 	"github.com/crank-git/atak-map-downloader/internal/xmlparser"
 	"github.com/crank-git/atak-map-downloader/web"
@@ -42,13 +43,12 @@ type WebHandler struct {
 	geocodeCache *geocodeCache
 	// auth is the token check of FR-team-server-17. It is nil on loopback.
 	auth *tokenAuth
-	// dlState is the job lock. createJob takes it, so two jobs never run at once.
-	dlState struct {
-		sync.Mutex
-		downloading bool
-		// job is the last job that the job API started. It stays after the job ends, so GET can read its result.
-		job *job
-	}
+	// queue holds the queued jobs and starts them on its workers (FR-team-server-1, -2, -3).
+	queue *jobs.Queue
+	// jobMu guards jobs.
+	jobMu sync.Mutex
+	// jobs holds every job of the server by id. A job stays after it ends, so GET can read its result.
+	jobs map[string]*job
 }
 
 // NewWebHandler creates a new web handler.
@@ -68,7 +68,9 @@ func NewWebHandler(parser *xmlparser.XMLParser, calc *tilecalc.TileCalculator, m
 		geocodeClient:  &http.Client{Timeout: 10 * time.Second},
 		geocodeWait:    geocodeWait,
 		geocodeCache:   newGeocodeCache(),
+		jobs:           map[string]*job{},
 	}
+	h.queue = jobs.NewQueue(h.startJob)
 	h.routeJobs(h.jobRoutes)
 	return h
 }

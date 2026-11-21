@@ -97,6 +97,23 @@ func TestAppJSLoadsTheOutputFilesThroughTheSharedRequestPath(t *testing.T) {
 	}
 }
 
+func TestAppJSKeepsAQueuedJobActive(t *testing.T) {
+	state := methodBody(t, appJS(t), "onJobState")
+	// A queued job has no final state, so it must not take the final-state path of onJobComplete.
+	if !strings.Contains(state, "if (!ACTIVE_STATES.includes(record.state))") {
+		t.Error("onJobState calls onJobComplete for a state that is not final")
+	}
+	if !regexp.MustCompile(`ACTIVE_STATES = \['queued', 'running'\]`).MatchString(appJS(t)) {
+		t.Error("ACTIVE_STATES does not name queued and running")
+	}
+	queued := regexp.MustCompile(`(?s)case 'queued':.*?break;`).FindString(state)
+	for _, want := range []string{"this.setJobLocked(true)", "this.showCancelButton(true)"} {
+		if !strings.Contains(queued, want) {
+			t.Errorf("the queued case of onJobState does not contain %q", want)
+		}
+	}
+}
+
 func TestAppJSOnJobCompleteTakesNoParameter(t *testing.T) {
 	if !strings.HasPrefix(methodBody(t, appJS(t), "onJobComplete"), "    onJobComplete() {") {
 		t.Error("onJobComplete declares a parameter that it does not use")

@@ -78,6 +78,16 @@ func TestServerLimitsTheRequestBody(t *testing.T) {
 // It returns stdout and stderr.
 func runServeOnce(t *testing.T, args ...string) (string, string) {
 	t.Helper()
+	stdout, stderr, err := executeServe(t, args...)
+	if err != nil {
+		t.Fatalf("Execute() returned %v", err)
+	}
+	return stdout, stderr
+}
+
+// executeServe runs serve like runServeOnce, and returns the error of Execute too.
+func executeServe(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
 	// serve makes the downloads directory in the working directory.
 	t.Chdir(t.TempDir())
 	root := &cobra.Command{Use: "atak-dl"}
@@ -89,10 +99,31 @@ func runServeOnce(t *testing.T, args ...string) (string, string) {
 	root.SetArgs(append([]string{"--mapsources-dir", t.TempDir(), "serve"}, args...))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := root.ExecuteContext(ctx); err != nil {
-		t.Fatalf("Execute() returned %v", err)
+	err := root.ExecuteContext(ctx)
+	return stdout.String(), stderr.String(), err
+}
+
+func TestServeAcceptsOneToEightWorkers(t *testing.T) {
+	tests := []struct {
+		workers string
+		valid   bool
+	}{
+		{"0", false},
+		{"1", true},
+		{"8", true},
+		{"9", false},
 	}
-	return stdout.String(), stderr.String()
+	for _, tt := range tests {
+		t.Run("--workers "+tt.workers, func(t *testing.T) {
+			_, _, err := executeServe(t, "--workers", tt.workers)
+			if tt.valid && err != nil {
+				t.Errorf("Execute() returned %v, want no error", err)
+			}
+			if !tt.valid && (err == nil || !strings.Contains(err.Error(), "--workers")) {
+				t.Errorf("Execute() returned %v, want an error that names --workers", err)
+			}
+		})
+	}
 }
 
 // tokenLine matches the start line of a generated token (FR-team-server-19).
