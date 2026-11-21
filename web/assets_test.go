@@ -182,6 +182,70 @@ func TestIndexLoadsTheVendoredLibrariesFromTheServer(t *testing.T) {
 	}
 }
 
+func TestIndexHoldsTheIndicatorTheBannerAndTheJobPanel(t *testing.T) {
+	index := string(IndexHTML())
+	tests := []struct {
+		name string
+		want []string
+	}{
+		{"connection indicator in the header (FR-offline-web-ui-17)", []string{`id="connStatus" class="chip ok"`}},
+		{"loading state of the source picker (FR-offline-web-ui-18)", []string{`id="sourceLoading"`}},
+		{"error banner with Retry (FR-offline-web-ui-19, 20)", []string{
+			`id="errorBanner" class="banner err" hidden`,
+			`id="errorMessage"`,
+			`id="errorRetry"`,
+			`>Retry</button>`,
+		}},
+		{"job panel counts (FR-offline-web-ui-21)", []string{
+			`id="jobDownloaded"`,
+			`id="jobSkipped"`,
+			`id="jobFailed"`,
+			`id="jobRate"`,
+			`id="jobEta"`,
+		}},
+		{"if the file exists choice (FR-offline-web-ui-22)", []string{
+			`<label for="ifExists">If the file exists</label>`,
+			`<option value="fail" selected>Fail</option>`,
+			`<option value="resume">Resume</option>`,
+			`<option value="overwrite">Overwrite</option>`,
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, s := range tt.want {
+				if !strings.Contains(index, s) {
+					t.Errorf("index.html does not contain %q", s)
+				}
+			}
+		})
+	}
+}
+
+func TestAppJSSendsTheStateFieldsAndAcceptsOneZoomLevel(t *testing.T) {
+	b, err := staticFS.ReadFile("static/js/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	app := string(b)
+	for _, want := range []string{
+		"if_exists: document.getElementById('ifExists').value",
+		"this.onJobComplete(record)",
+		"this.connectionState",
+	} {
+		if !strings.Contains(app, want) {
+			t.Errorf("app.js does not contain %q", want)
+		}
+	}
+	// The server picks the size per tile from the map source, so the estimate request names it (FR-offline-web-ui-23).
+	if !regexp.MustCompile(`'/api/estimate'[^}]*\{\s*source:`).MatchString(app) {
+		t.Error("app.js sends no source field in the /api/estimate request")
+	}
+	// A zoom range with one level is valid (FR-offline-web-ui-24), so no check rejects min equal to max.
+	if strings.Contains(app, "minZoom >= maxZoom") {
+		t.Error("app.js rejects a zoom range where min_zoom equals max_zoom")
+	}
+}
+
 func TestEveryElementIDThatAppJSReadsIsInIndex(t *testing.T) {
 	app, err := staticFS.ReadFile("static/js/app.js")
 	if err != nil {
