@@ -190,7 +190,7 @@ class ATAKDownloader {
                 this.populateSourceSelect();
                 this.logStatus('Loaded ' + sources.length + ' map sources');
             } else {
-                throw new Error(sources.error || 'Failed to load sources');
+                throw new Error((sources.error && sources.error.message) || 'Failed to load sources');
             }
         } catch (error) {
             this.logStatus('Error loading sources: ' + error.message, 'error');
@@ -309,7 +309,7 @@ class ATAKDownloader {
                 document.getElementById('downloadBtn').disabled = false;
                 this.logStatus('Download estimation completed');
             } else {
-                throw new Error(result.error || 'Estimation failed');
+                throw new Error((result.error && result.error.message) || 'Estimation failed');
             }
         } catch (error) {
             this.logStatus('Estimation error: ' + error.message, 'error');
@@ -346,7 +346,7 @@ class ATAKDownloader {
                 this.displayPreview(result);
                 this.logStatus('Preview loaded: ' + result.total_tiles + ' tiles at zoom ' + result.zoom);
             } else {
-                throw new Error(result.error || 'Preview failed');
+                throw new Error((result.error && result.error.message) || 'Preview failed');
             }
         } catch (error) {
             this.logStatus('Preview error: ' + error.message, 'error');
