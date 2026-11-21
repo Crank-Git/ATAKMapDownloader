@@ -21,7 +21,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # The GeoPackage test reads the output file with ogrinfo and gdalinfo, and the variable makes a missing GDAL fail it.
+      - run: sudo apt-get update && sudo apt-get install -y gdal-bin
       - run: go test -race ./...
+        env:
+          ATAKDL_REQUIRE_GDAL: "1"
 
   lint:
     runs-on: ubuntu-latest

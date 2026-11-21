@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/crank-git/atak-map-downloader/internal/download"
+	"github.com/crank-git/atak-map-downloader/internal/output"
 	"github.com/crank-git/atak-map-downloader/internal/policy"
 	"github.com/crank-git/atak-map-downloader/internal/testtiles"
 	"github.com/crank-git/atak-map-downloader/internal/tilecalc"
@@ -40,7 +41,7 @@ var conformanceArea = tilecalc.TileBounds{MinX: 300, MaxX: 301, MinY: 400, MaxY:
 
 func TestMBTilesOutputFileConformsToTheATAKReaderAndMBTiles13(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.mbtiles")
-	edges := writeJob(t, path)
+	edges := writeJob(t, path, output.MBTiles)
 	db := openReadOnly(t, path)
 
 	// parseSQLiteDb returns null for a file with the .gpkg extension before it opens the file.
@@ -69,8 +70,9 @@ func TestMBTilesOutputFileConformsToTheATAKReaderAndMBTiles13(t *testing.T) {
 	checkMBTiles13Metadata(t, db, meta)
 }
 
-// writeJob downloads the tiles of conformanceArea from a test tile server to path, and returns the tile edges of the area.
-func writeJob(t *testing.T, path string) *tilecalc.GeographicBounds {
+// writeJob downloads the tiles of conformanceArea from a test tile server to path in the output format format.
+// It returns the tile edges of the area.
+func writeJob(t *testing.T, path, format string) *tilecalc.GeographicBounds {
 	t.Helper()
 	srv := testtiles.New(t, nil)
 	source := &xmlparser.MapSource{
@@ -80,6 +82,7 @@ func writeJob(t *testing.T, path string) *tilecalc.GeographicBounds {
 	cfg := download.DefaultConfig()
 	cfg.Timeout = 5 * time.Second
 	cfg.UserAgent = "atak-dl-test"
+	cfg.Format = format
 	cfg.Policy = policy.Entry{HostPatterns: []string{"127.0.0.1"}, PolicyClass: policy.Open, RequestsPerSecond: 1e6}
 
 	edges := tilecalc.NewTileCalculator().TileBoundsToGeographic(&conformanceArea)
