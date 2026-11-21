@@ -99,6 +99,8 @@ class JobsPage {
         this.render(list.jobs);
         // The list holds no event stream, so the page reloads it while a job can change state (PM ruling on #59).
         if (list.jobs.some(j => ACTIVE_STATES.includes(j.state))) {
+            // Two loads can overlap, for example a timer and an action, so the second clears the timer of the first.
+            clearTimeout(this.timer);
             this.timer = setTimeout(() => this.load(), REFRESH_MS);
         }
     }
@@ -344,7 +346,10 @@ class JobsPage {
     // fail shows message in the error banner, and Retry calls retry. A 401 already left the page, so it shows nothing.
     fail(message, error, retry) {
         if (error.signedOut) return;
-        if (!this.loaded) document.getElementById('jobsLoading').hidden = true;
+        if (!this.loaded) {
+            document.getElementById('jobsLoading').hidden = true;
+            document.getElementById('jobsStatus').textContent = '';
+        }
         this.retryRequest = retry;
         document.getElementById('errorMessage').textContent = message;
         document.getElementById('errorBanner').hidden = false;
