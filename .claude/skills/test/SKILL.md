@@ -9,8 +9,8 @@ allowed-tools: Bash, Read
 1. Format: `gofmt -l .` must print nothing.
 2. Vet: `go vet ./...`
 3. Unit and integration tests: `go test -race ./...`. Integration tests use `internal/testtiles`, and no test calls a real server.
-4. Lint (after Epic 0): `go tool golangci-lint run`
-5. Smoke (after Epic 0): `./scripts/smoke.sh`
+4. Lint: `go tool golangci-lint run`. On macOS 27, prefix the command with `CGO_ENABLED=0`, because the CGO link step fails.
+5. Smoke: `./scripts/smoke.sh`
 
 Which extra suite a change needs:
 
@@ -20,5 +20,3 @@ Which extra suite a change needs:
 | `internal/download/` | `go test -race -count=3 ./internal/download/...`, because races show up intermittently |
 | `cmd/atak-dl/commands/` or `internal/server/` | `./scripts/smoke.sh` |
 | `web/` | Load the web UI with the `run` skill and check the browser console for errors |
-
-Until Epic 0 replaces the CGO driver, packages that import `internal/mbtiles` can fail to link on macOS 27. If so, run `go test ./internal/tilecalc/... ./internal/xmlparser/...`, and report the link failure as an environment problem, not a test failure.
