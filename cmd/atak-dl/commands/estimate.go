@@ -52,25 +52,9 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	}
 	bounds, coords := parseBBox(bboxStr)
 
-	zoom, _ := cmd.Flags().GetInt("zoom")
-	zoomRange, _ := cmd.Flags().GetString("zoom-range")
-	maxTiles, _ := cmd.Flags().GetInt("max-tiles")
-
-	var zoomLevels []int
-	if zoom > 0 {
-		zoomLevels = []int{zoom}
-	} else if zoomRange != "" {
-		r := strings.Split(zoomRange, "-")
-		if len(r) != 2 {
-			exitErr("Invalid zoom range format. Use min-max")
-		}
-		minZ, _ := strconv.Atoi(strings.TrimSpace(r[0]))
-		maxZ, _ := strconv.Atoi(strings.TrimSpace(r[1]))
-		zoomLevels = zoomLevelsBetween(minZ, maxZ)
-	} else {
-		optZoom := calc.CalculateZoomForArea(bounds, maxTiles)
-		zoomLevels = []int{optZoom}
-		fmt.Printf("Auto-selected zoom level: %d\n", optZoom)
+	zoomLevels, err := estimateZoomLevels(cmd, calc, bounds)
+	if err != nil {
+		return err
 	}
 
 	// Filter valid zooms
@@ -109,6 +93,36 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("Center: %.4f, %.4f\n", clat, clon)
 	fmt.Printf("Area: %.6f square degrees\n", bounds.AreaDegrees())
 	return nil
+}
+
+// estimateZoomLevels returns the zoom levels of a bounds estimate: --zoom, each level of --zoom-range, or the auto zoom for --max-tiles.
+// It returns an error when --zoom-range is not min-max.
+func estimateZoomLevels(cmd *cobra.Command, calc *tilecalc.TileCalculator, bounds *tilecalc.GeographicBounds) ([]int, error) {
+	zoom, err := cmd.Flags().GetInt("zoom")
+	if err != nil {
+		return nil, fmt.Errorf("read --zoom: %w", err)
+	}
+	zoomRange, err := cmd.Flags().GetString("zoom-range")
+	if err != nil {
+		return nil, fmt.Errorf("read --zoom-range: %w", err)
+	}
+	maxTiles, err := cmd.Flags().GetInt("max-tiles")
+	if err != nil {
+		return nil, fmt.Errorf("read --max-tiles: %w", err)
+	}
+	if zoom > 0 {
+		return []int{zoom}, nil
+	}
+	if zoomRange != "" {
+		var minZ, maxZ int
+		if _, err := fmt.Sscanf(zoomRange, "%d-%d", &minZ, &maxZ); err != nil {
+			return nil, fmt.Errorf("--zoom-range %q is not min-max: %w", zoomRange, err)
+		}
+		return zoomLevelsBetween(minZ, maxZ), nil
+	}
+	optZoom := calc.CalculateZoomForArea(bounds, maxTiles)
+	fmt.Printf("Auto-selected zoom level: %d\n", optZoom)
+	return []int{optZoom}, nil
 }
 
 // estimateAreaFile prints the tile count of each area of the --area file at path and the unique tile count (FR-area-selection-17).
