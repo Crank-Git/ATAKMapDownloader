@@ -39,8 +39,9 @@ func TestCommandErrorsPrintTheSpecMessageAndExitWithCode1(t *testing.T) {
 			if err == nil || ExitCode(err) != 1 {
 				t.Fatalf("Execute() = %v (exit code %d), want exit code 1", err, ExitCode(err))
 			}
-			if got := stderr.String(); !strings.HasSuffix(got, tt.want) || strings.Contains(got, "Error:") || strings.Contains(got, "Usage:") {
-				t.Errorf("stderr = %q, want it to end with %q and to hold no \"Error:\" prefix and no usage text", got, tt.want)
+			// The spec names the stderr text verbatim, so cobra adds no "Error: " prefix and no usage text.
+			if got := stderr.String(); got != tt.want {
+				t.Errorf("stderr = %q, want exactly %q", got, tt.want)
 			}
 		})
 	}
