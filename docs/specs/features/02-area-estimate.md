@@ -66,6 +66,12 @@ This file describes the behavior that exists today.
   for one coordinate as JSON.
 - FR-area-estimate-20 — If `source` names an old map source, `POST /api/estimate` returns
   the estimate for the new name and the deprecation warning in `warning` (FR-source-sync-16).
+- FR-area-estimate-21 — The `tile-info` command rejects a `--lat` value outside -85.0511 to
+  85.0511 with exit code 1. Web Mercator shows no latitude outside this range.
+- FR-area-estimate-22 — The `tile-info` command rejects a `--lon` value outside -180 to 180
+  with exit code 1.
+- FR-area-estimate-23 — The `tile-info` command rejects a `--zoom` value outside 0 to 25
+  with exit code 1. 25 is the highest zoom level of an area (`tilecalc.MaxZoomLevel`).
 
 ## User flows
 
@@ -187,8 +193,9 @@ None on disk. The calculations are pure functions in `internal/tilecalc`.
 | | `--zoom` | 0 | One zoom level when greater than 0 |
 | | `--zoom-range` | — | `min-max` |
 | | `--max-tiles` | 10000 | Tile budget for auto zoom |
-| `tile-info` | `--lat`, `--lon` | — | Required |
-| | `--zoom` | 10 | Marked required |
+| `tile-info` | `--lat` | — | Required. From -85.0511 to 85.0511 |
+| | `--lon` | — | Required. From -180 to 180 |
+| | `--zoom` | 10 | Marked required. From 0 to 25 |
 
 ### HTTP
 
@@ -261,6 +268,8 @@ Known defects and the planned feature that repairs each:
       prints a `min_lat` error and exits with code 1.
 - [ ] `atak-dl tile-info --lat=40.7589 --lon=-73.9851 --zoom=15` prints
       `Tile coordinates: (9649, 12314)`.
+- [ ] `atak-dl tile-info --lat=85.0512 --lon=0 --zoom=10` prints
+      `Error: --lat 85.0512 is outside the range -85.0511 to 85.0511` and exits with code 1.
 - [ ] `go test ./internal/tilecalc/` passes, including the NYC zoom 10 tile `(301, 385)`.
 - [ ] `POST /api/estimate` with inverted bounds returns status 400.
 - [ ] `POST /api/estimate` with `min_zoom` 12 and `max_zoom` 10 returns

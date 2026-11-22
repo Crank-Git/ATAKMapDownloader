@@ -117,7 +117,7 @@ func (t *TileCalculator) RadToDeg(radians float64) float64 {
 
 // LatLonToTile converts lat/lon to tile coordinates.
 func (t *TileCalculator) LatLonToTile(lat, lon float64, zoom int) (int, int) {
-	lat = max(-85.0511, min(85.0511, lat))
+	lat = max(-MaxLatitude, min(MaxLatitude, lat))
 	latRad := t.DegToRad(lat)
 	n := math.Pow(2, float64(zoom))
 	tileX := int((lon + 180) / 360 * n)

@@ -272,6 +272,21 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 </ul>
 <p>the estimate for the new name and the deprecation warning in <code>warning</code> (FR-source-sync-16).</p>
+<ul>
+<li>FR-area-estimate-21 — The <code>tile-info</code> command rejects a <code>--lat</code> value outside -85.0511 to
+</li>
+</ul>
+<p>85.0511 with exit code 1. Web Mercator shows no latitude outside this range.</p>
+<ul>
+<li>FR-area-estimate-22 — The <code>tile-info</code> command rejects a <code>--lon</code> value outside -180 to 180
+</li>
+</ul>
+<p>with exit code 1.</p>
+<ul>
+<li>FR-area-estimate-23 — The <code>tile-info</code> command rejects a <code>--zoom</code> value outside 0 to 25
+</li>
+</ul>
+<p>with exit code 1. 25 is the highest zoom level of an area (<code>tilecalc.MaxZoomLevel</code>).</p>
 <h3 id="area-estimate-user-flows">User flows</h3>
 <h4 id="area-estimate-flow-1-the-solo-operator-runs-the-estimate-command">Flow 1 — The solo operator runs the <code>estimate</code> command</h4>
 <div class="diagram"><pre class="mermaid">flowchart TD
@@ -419,8 +434,9 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td></td><td><code>--zoom</code></td><td>0</td><td>One zoom level when greater than 0</td></tr>
 <tr><td></td><td><code>--zoom-range</code></td><td>—</td><td><code>min-max</code></td></tr>
 <tr><td></td><td><code>--max-tiles</code></td><td>10000</td><td>Tile budget for auto zoom</td></tr>
-<tr><td><code>tile-info</code></td><td><code>--lat</code>, <code>--lon</code></td><td>—</td><td>Required</td></tr>
-<tr><td></td><td><code>--zoom</code></td><td>10</td><td>Marked required</td></tr>
+<tr><td><code>tile-info</code></td><td><code>--lat</code></td><td>—</td><td>Required. From -85.0511 to 85.0511</td></tr>
+<tr><td></td><td><code>--lon</code></td><td>—</td><td>Required. From -180 to 180</td></tr>
+<tr><td></td><td><code>--zoom</code></td><td>10</td><td>Marked required. From 0 to 25</td></tr>
 </table></div>
 <h4 id="area-estimate-http">HTTP</h4>
 <p><code>POST /api/estimate</code> (<code>cmd/atak-dl/commands/web.go:266-328</code>).</p>
@@ -512,6 +528,11 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 </ul>
 <p><code>Tile coordinates: (9649, 12314)</code>.</p>
+<ul>
+<li>[ ] <code>atak-dl tile-info --lat=85.0512 --lon=0 --zoom=10</code> prints
+</li>
+</ul>
+<p><code>Error: --lat 85.0512 is outside the range -85.0511 to 85.0511</code> and exits with code 1.</p>
 <ul>
 <li>[ ] <code>go test ./internal/tilecalc/</code> passes, including the NYC zoom 10 tile <code>(301, 385)</code>.
 </li>

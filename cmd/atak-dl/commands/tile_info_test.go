@@ -78,3 +78,40 @@ func TestTileInfoReturnsTheReadErrorOfAMissingFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestTileInfoChecksTheRangeOfEachFlag(t *testing.T) {
+	tests := []struct {
+		name    string
+		lat     string
+		lon     string
+		zoom    string
+		wantErr string
+	}{
+		{"accepts the north latitude limit", "85.0511", "0", "10", ""},
+		{"rejects a latitude above the north limit", "85.0512", "0", "10", "--lat 85.0512 is outside the range -85.0511 to 85.0511"},
+		{"accepts the south latitude limit", "-85.0511", "0", "10", ""},
+		{"rejects a latitude below the south limit", "-85.0512", "0", "10", "--lat -85.0512 is outside the range -85.0511 to 85.0511"},
+		{"accepts the east longitude limit", "0", "180", "10", ""},
+		{"rejects a longitude above the east limit", "0", "180.0001", "10", "--lon 180.0001 is outside the range -180 to 180"},
+		{"accepts the west longitude limit", "0", "-180", "10", ""},
+		{"rejects a longitude below the west limit", "0", "-180.0001", "10", "--lon -180.0001 is outside the range -180 to 180"},
+		{"accepts zoom level 0", "0", "0", "0", ""},
+		{"rejects zoom level -1", "0", "0", "-1", "--zoom -1 is outside the range 0 to 25"},
+		{"accepts zoom level 25", "0", "0", "25", ""},
+		{"rejects zoom level 26", "0", "0", "26", "--zoom 26 is outside the range 0 to 25"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := runTileInfoArgs(t, "--lat", tt.lat, "--lon", tt.lon, "--zoom", tt.zoom)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("tile-info error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tt.wantErr || ExitCode(err) != 1 {
+				t.Errorf("tile-info error = %v (exit code %d), want exit code 1 and %q", err, ExitCode(err), tt.wantErr)
+			}
+		})
+	}
+}

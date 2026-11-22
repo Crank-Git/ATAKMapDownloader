@@ -39,6 +39,16 @@ func runTileInfo(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("read --zoom: %w", err)
 	}
+	// LatLonToTile clamps a coordinate outside Web Mercator, so an unchecked value gives a tile that does not hold it (FR-area-estimate-21 to -23).
+	if lat < -tilecalc.MaxLatitude || lat > tilecalc.MaxLatitude {
+		return fmt.Errorf("--lat %g is outside the range %g to %g", lat, -tilecalc.MaxLatitude, tilecalc.MaxLatitude)
+	}
+	if lon < -180 || lon > 180 {
+		return fmt.Errorf("--lon %g is outside the range -180 to 180", lon)
+	}
+	if zoom < 0 || zoom > tilecalc.MaxZoomLevel {
+		return fmt.Errorf("--zoom %d is outside the range 0 to %d", zoom, tilecalc.MaxZoomLevel)
+	}
 
 	tileX, tileY := calc.LatLonToTile(lat, lon, zoom)
 	tileLat, tileLon := calc.TileToLatLon(tileX, tileY, zoom)
