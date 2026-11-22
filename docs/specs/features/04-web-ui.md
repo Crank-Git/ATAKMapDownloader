@@ -355,7 +355,7 @@ Every JSON success response sets `Content-Type: application/json` (`web.go:423-4
 | GET | `/static/*` | — | Embedded file | 404 `not_found` |
 | any | `/api/sources` | — | See `01-map-sources.md` | — |
 | POST | `/api/estimate` | See `02-area-estimate.md`, and `areas` in feature 11 | `warning` for an old map source name (FR-area-estimate-20) | 400 `invalid_json`, `invalid_bounds`, `invalid_area`, `zoom_out_of_range`; 404 `unknown_source`; 405 `method_not_allowed`; 413 |
-| POST | `/api/tile-info` | See `02-area-estimate.md` | | 400 `invalid_json`; 405; 413 |
+| POST | `/api/tile-info` | See `02-area-estimate.md` | | 400 `invalid_json`, `invalid_coordinate` or `zoom_out_of_range`; 405; 413 |
 | POST | `/api/validate-source` | See `01-map-sources.md` | | 400 `invalid_json`; 404 `unknown_source`; 405; 413 |
 | POST | `/api/preview` | `{"source", "bounds": [w, s, e, n], "min_zoom", "max_zoom"}` | `{"tiles": [{"url", "x", "y", "zoom", "bounds": [w, s, e, n]}], "zoom", "source", "total_tiles", "bounds"}` | 400 `invalid_json`, `unknown_source`, `invalid_bounds`; 404 `unknown_source`; 405; 413 |
 | POST | `/api/geocode` | `{"query"}` | `{"query", "results": [{"display_name", "lat", "lon", "boundingbox", "type", "class"}], "count"}` | 400 `invalid_json`, `invalid_query`; 405; 413; 500 `internal` |
@@ -477,7 +477,7 @@ Known defects and the planned feature that repairs each:
 
 - [ ] `atak-dl serve` prints `Open http://localhost:5000 in your browser` and serves the
       page at that address.
-- [ ] `GET /` returns HTML whose `<title>` is `ATAK Tile Downloader`.
+- [ ] `GET /` returns HTML whose `<title>` is `ATAK Map Downloader`.
 - [ ] No response carries an `Access-Control-Allow-Origin` header.
 - [ ] A `POST /api/jobs` with `Sec-Fetch-Site: cross-site` returns 403 with code
       `cross_origin`.

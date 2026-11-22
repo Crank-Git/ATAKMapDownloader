@@ -1,4 +1,4 @@
-// Command atak-dl downloads map tiles to MBTiles files for ATAK.
+// Command atak-dl downloads map tiles to MBTiles, OSMDroid or GeoPackage files for ATAK.
 package main
 
 import (
@@ -35,7 +35,7 @@ func userAgent(version string) string {
 func newRootCmd(version, commit, date string) *cobra.Command {
 	root := &cobra.Command{
 		Use:     "atak-dl",
-		Short:   "ATAK Tile Downloader - Download map tiles and create MBTILES databases",
+		Short:   "ATAK Map Downloader - Download map tiles to MBTiles, OSMDroid or GeoPackage files",
 		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 	}
 

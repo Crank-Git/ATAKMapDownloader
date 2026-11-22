@@ -190,14 +190,14 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>snapshot</td><td>noun</td><td>The pinned copy of ATAK-Maps source files embedded in the binary (feature 09).</td><td>bundle, vendor copy</td></tr>
 <tr><td>user source directory</td><td>noun</td><td>The directory that <code>--mapsources-dir</code> names. Its map sources replace snapshot map sources with the same name (feature 09).</td><td>override folder, mapsources folder</td></tr>
 <tr><td>overlay</td><td>noun</td><td>A map source with transparent tiles, drawn on top of another map source.</td><td>layer</td></tr>
-<tr><td>policy class</td><td>noun</td><td>The terms-of-use class of a map source: <code>open</code>, <code>conditional</code> or <code>restricted</code> (planned, feature 06).</td><td>license, tier</td></tr>
+<tr><td>policy class</td><td>noun</td><td>The terms-of-use class of a map source: <code>open</code>, <code>conditional</code> or <code>restricted</code> (feature 06).</td><td>license, tier</td></tr>
 <tr><td>rate limit</td><td>noun</td><td>The maximum number of requests per second that the project sends to one host.</td><td>throttle</td></tr>
 <tr><td>tile</td><td>noun</td><td>One square raster image at one zoom level, column and row.</td><td>image, chunk</td></tr>
 <tr><td>zoom level</td><td>noun</td><td>An integer from 0 to 25 that selects the tile grid.</td><td>level, z (in prose)</td></tr>
 <tr><td>zoom range</td><td>noun</td><td>A minimum and a maximum zoom level, both included.</td><td>levels</td></tr>
 <tr><td>bounds</td><td>noun</td><td>A geographic rectangle: minimum and maximum latitude and longitude. The <code>--bbox</code> flag name stays as it is.</td><td>bbox (in prose), extent, box</td></tr>
 <tr><td>area</td><td>noun</td><td>The region that a job covers: bounds, a polygon or a route buffer (feature 11).</td><td>AOI, region, selection</td></tr>
-<tr><td>route buffer</td><td>noun</td><td>An area made from a line and a distance in metres on each side of it (feature 11).</td><td>corridor</td></tr>
+<tr><td>route buffer</td><td>noun</td><td>An area made from a line and a distance in meters on each side of it (feature 11).</td><td>corridor</td></tr>
 <tr><td>vertex</td><td>noun</td><td>One position of a polygon ring or of a line. An area holds at most 20,000 (feature 11).</td><td>node, corner</td></tr>
 <tr><td>estimate</td><td>noun</td><td>A prediction of the tile count, file size and time for an area and a zoom range. The <code>estimate</code> command name stays as it is.</td><td>quote, calculation</td></tr>
 <tr><td>preview</td><td>noun</td><td>A grid of sample tiles from a map source, shown on the map over the area.</td><td>thumbnail</td></tr>
@@ -290,7 +290,7 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>Source sync and WMS</td><td><a href="html/feature-source-sync.html">features/09-source-sync.md</a></td><td>Epic 5: Source sync and WMS</td><td>built</td><td>—</td></tr>
 <tr><td>Output formats</td><td><a href="html/feature-output-formats.html">features/10-output-formats.md</a></td><td>Epic 6: Output formats</td><td>built</td><td>03-export-options</td></tr>
 <tr><td>Area selection</td><td><a href="html/feature-area-selection.html">features/11-area-selection.md</a></td><td>Epic 7: Area selection</td><td>built</td><td>02-area-tools</td></tr>
-<tr><td>Team server</td><td><a href="html/feature-team-server.html">features/12-team-server.md</a></td><td>Epic 8: Team server</td><td>planned</td><td>05-jobs</td></tr>
+<tr><td>Team server</td><td><a href="html/feature-team-server.html">features/12-team-server.md</a></td><td>Epic 8: Team server</td><td>built</td><td>05-jobs</td></tr>
 </table></div>
 <h2 id="architecture-stack">Architecture &amp; stack</h2>
 <p>The diagram shows the target architecture after Epic 8. Components that exist today are marked "built".</p>
@@ -301,11 +301,11 @@ body.rv-open .layout { padding-right:21rem; }
     WebUI["Web UI: embedded page (built, reworked)"]
     Catalog["Source catalog: xmlparser (built)"]
     Snapshot["Snapshot: embedded ATAK-Maps (built)"]
-    Policy["Source policy table (planned)"]
+    Policy["Source policy table (built)"]
     TileCalc["tilecalc: tile math (built)"]
     Engine["Download engine (built, reworked)"]
     Writer["Output writer: mbtiles / osmdroid / gpkg (built)"]
-    Jobs["Job queue and store (planned)"]
+    Jobs["Job queue and store (built)"]
   end
   Browser["Browser"] --&gt;|HTTP + SSE| Server
   Server --&gt; WebUI
@@ -399,17 +399,17 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
     string reference_url
   }
   JOB {
-    string id PK "planned"
+    string id PK
     string source_name FK
     int min_zoom
     int max_zoom
     string state
-    string output_format "planned"
+    string output_format "in the job request"
     int total
     int downloaded
     int skipped
     int failed
-    time created_at "planned"
+    time created_at
   }
   AREA {
     string kind "bounds, polygon, route_buffer"
@@ -456,18 +456,18 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 </li>
 <li><strong>AREA</strong> (built, feature 11). Its kind is <code>bounds</code>, <code>polygon</code> or <code>route_buffer</code>, with GeoJSON geometry and a zoom range for each area. A job holds 1 to 20 areas, and the output file metadata <code>atakdl_areas</code> stores them.
 </li>
-<li><strong>OUTPUT_FILE</strong> (built). Path: <code>./downloads/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;.sqlite</code>. An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row <code>atakdl_source</code> names the map source. Planned: an extension per output format (feature 10).
+<li><strong>OUTPUT_FILE</strong> (built). Path: <code>&lt;data directory&gt;/&lt;name&gt;_z&lt;min&gt;-&lt;max&gt;</code>, with the extension of the output format: <code>.mbtiles</code>, <code>.sqlite</code> or <code>.gpkg</code> (feature 10, <code>internal/output/output.go:23-27</code>). An existing file at that path stops the job unless the user asks to resume or overwrite it, and a cancelled job keeps its file (feature 07). The metadata row <code>atakdl_source</code> names the map source.
 </li>
 <li><strong>TILE</strong> (built, <code>internal/mbtiles/mbtiles.go:20,22</code>). <code>UNIQUE (zoom_level, tile_column, tile_row)</code>. <code>tile_row</code> is TMS: <code>(1&lt;&lt;z)-1-y</code>. <code>tile_data</code> holds the bytes the server returned. The engine stores only a body whose signature is PNG, JPEG, GIF or WebP (feature 07, #27).
 </li>
-<li><strong>METADATA_ENTRY</strong> (built). Keys: <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>format</code>, <code>bounds</code>, <code>minzoom</code>, <code>maxzoom</code>, <code>atakdl_source</code> and <code>atakdl_areas</code>. The <code>--resume</code> check reads <code>atakdl_source</code> (feature 07, #26), and it rebuilds the tile set from <code>atakdl_areas</code> (feature 11). Planned: <code>center</code> and <code>attribution</code> (feature 10).
+<li><strong>METADATA_ENTRY</strong> (built). Keys: <code>name</code>, <code>type</code>, <code>version</code>, <code>description</code>, <code>attribution</code>, <code>format</code>, <code>bounds</code>, <code>center</code>, <code>minzoom</code>, <code>maxzoom</code>, <code>atakdl_source</code> and <code>atakdl_areas</code> (<code>internal/download/download.go:316-329</code>). The <code>--resume</code> check reads <code>atakdl_source</code> (feature 07, #26), and it rebuilds the tile set from <code>atakdl_areas</code> (feature 11).
 </li>
 <li><strong>FAILED_TILE</strong> (built, feature 07, #28). A table <code>atakdl_failed_tiles</code> in the output file. The retry pass and <code>--resume</code> request each tile in it again, except a <code>not_found</code> tile. ATAK reads only the <code>tiles</code> and <code>metadata</code> tables, so an extra table is safe. This is inferred from ATAK-CIV <code>TilesetInfo.java</code> and is a risk item.
 </li>
 <li><strong>JOB_EVENT</strong> (built in memory, #76). An SSE message: <code>progress</code>, <code>state</code> or <code>log</code>. The server does not store it.
 </li>
 </ul>
-<p>Job lifecycle (planned, features 05, 07 and 12):</p>
+<p>Job lifecycle (built, features 05, 07 and 12):</p>
 <div class="diagram"><pre class="mermaid">stateDiagram-v2
   [*] --&gt; queued
   queued --&gt; running : worker free
@@ -506,21 +506,21 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <ul>
 <li>The tile count is at most <code>--max-tiles</code>, with a default of 500,000 (<code>too_many_tiles</code>, feature 07, #29).
 </li>
-<li><strong>Logging.</strong> <code>log/slog</code> with the text handler today. Planned: every job log line carries <code>job_id</code>, and every failed tile is logged at debug level with its URL and reason.
+<li><strong>Logging.</strong> <code>log/slog</code> with its default handler (built). Planned: every job log line carries <code>job_id</code>, and the engine logs every failed tile at debug level with its URL and reason.
 </li>
-<li><strong>Politeness.</strong> Planned (feature 06):
+<li><strong>Politeness.</strong> Built (feature 06):
 <ul>
 <li>The User-Agent is <code>atak-map-downloader/&lt;version&gt; (+https://github.com/Crank-Git/ATAK-Map-Downloader)</code>.
 </li>
 <li>Each host has a rate limit.
 </li>
-<li>The project backs off on 429 and 503 and honours <code>Retry-After</code>.
+<li>The engine backs off on 403, 429 and 503. It obeys <code>Retry-After</code> on 429 and 503.
 </li>
-<li>Geocoding is limited to 1 request per second across the whole server, as the Nominatim policy requires (https://operations.osmfoundation.org/policies/nominatim/).
+<li>The server sends at most 1 geocode request per second, as the Nominatim policy requires (https://operations.osmfoundation.org/policies/nominatim/).
 </li>
 </ul>
 </li>
-<li><strong>Accessibility.</strong> Planned (feature 08):
+<li><strong>Accessibility.</strong> Built (feature 08):
 <ul>
 <li>Every control has a label.
 </li>
@@ -543,7 +543,7 @@ docs/specs/ docs/adr/   this spec and the decision records</code></pre>
 <ul>
 <li><strong>Environments.</strong> One environment: the user's machine, or a LAN server or container. The project has no hosted deployment. Releases are the deploy target: GitHub Releases and <code>ghcr.io/crank-git/atak-map-downloader</code>.
 </li>
-<li><strong>Configuration.</strong> Configuration is through flags today, and no code reads an environment variable. Planned environment variables:
+<li><strong>Configuration.</strong> Configuration is through flags and two environment variables (built):
 </li>
 </ul>
 <div class="table-wrap"><table>

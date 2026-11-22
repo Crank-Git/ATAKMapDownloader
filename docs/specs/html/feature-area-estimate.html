@@ -241,7 +241,7 @@ body.rv-open .layout { padding-right:21rem; }
 <li>FR-area-estimate-14 — The <code>estimate</code> command prints the tile count, the size and the
 </li>
 </ul>
-<p>resolution in metres per pixel for each zoom level.</p>
+<p>resolution in meters per pixel for each zoom level.</p>
 <ul>
 <li>FR-area-estimate-15 — <code>POST /api/estimate</code> uses the size per tile of the tile type of the
 </li>
@@ -272,6 +272,36 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 </ul>
 <p>the estimate for the new name and the deprecation warning in <code>warning</code> (FR-source-sync-16).</p>
+<ul>
+<li>FR-area-estimate-21 — The <code>tile-info</code> command rejects a <code>--lat</code> value outside -85.0511 to
+</li>
+</ul>
+<p>85.0511 with exit code 1. Web Mercator shows no latitude outside this range.</p>
+<ul>
+<li>FR-area-estimate-22 — The <code>tile-info</code> command rejects a <code>--lon</code> value outside -180 to 180
+</li>
+</ul>
+<p>with exit code 1.</p>
+<ul>
+<li>FR-area-estimate-23 — The <code>tile-info</code> command rejects a <code>--zoom</code> value outside 0 to 25
+</li>
+</ul>
+<p>with exit code 1. 25 is the highest zoom level of an area (<code>tilecalc.MaxZoomLevel</code>).</p>
+<ul>
+<li>FR-area-estimate-24 — The project rejects bounds whose latitudes are all outside
+</li>
+</ul>
+<p>-85.0511 to 85.0511. Bounds that cross the limit stay valid, and FR-area-estimate-5 clamps them.</p>
+<ul>
+<li>FR-area-estimate-25 — <code>POST /api/tile-info</code> returns 400 <code>invalid_coordinate</code> for a <code>lat</code>
+</li>
+</ul>
+<p>outside -85.0511 to 85.0511 or a <code>lon</code> outside -180 to 180.</p>
+<ul>
+<li>FR-area-estimate-26 — <code>POST /api/tile-info</code> returns 400 <code>zoom_out_of_range</code> for a <code>zoom</code>
+</li>
+</ul>
+<p>outside 0 to 25.</p>
 <h3 id="area-estimate-user-flows">User flows</h3>
 <h4 id="area-estimate-flow-1-the-solo-operator-runs-the-estimate-command">Flow 1 — The solo operator runs the <code>estimate</code> command</h4>
 <div class="diagram"><pre class="mermaid">flowchart TD
@@ -419,8 +449,9 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td></td><td><code>--zoom</code></td><td>0</td><td>One zoom level when greater than 0</td></tr>
 <tr><td></td><td><code>--zoom-range</code></td><td>—</td><td><code>min-max</code></td></tr>
 <tr><td></td><td><code>--max-tiles</code></td><td>10000</td><td>Tile budget for auto zoom</td></tr>
-<tr><td><code>tile-info</code></td><td><code>--lat</code>, <code>--lon</code></td><td>—</td><td>Required</td></tr>
-<tr><td></td><td><code>--zoom</code></td><td>10</td><td>Marked required</td></tr>
+<tr><td><code>tile-info</code></td><td><code>--lat</code></td><td>—</td><td>Required. From -85.0511 to 85.0511</td></tr>
+<tr><td></td><td><code>--lon</code></td><td>—</td><td>Required. From -180 to 180</td></tr>
+<tr><td></td><td><code>--zoom</code></td><td>10</td><td>Marked required. From 0 to 25</td></tr>
 </table></div>
 <h4 id="area-estimate-http">HTTP</h4>
 <p><code>POST /api/estimate</code> (<code>cmd/atak-dl/commands/web.go:266-328</code>).</p>
@@ -433,7 +464,7 @@ body.rv-open .layout { padding-right:21rem; }
 <tr><td>413</td><td><code>body_too_large</code> (#81)</td></tr>
 </table></div>
 <p>Every error body has the error shape <code>{"error": {"code": "&lt;code&gt;", "message": "&lt;text&gt;"}}</code> and <code>Content-Type: application/json</code> (#74).</p>
-<p><code>POST /api/tile-info</code> (<code>web.go:348-374</code>). Request: <code>{"lat", "lon", "zoom"}</code>. A <code>zoom</code> of 0 becomes 10. Response: <code>{"tile_x", "tile_y", "zoom", "bounds": [west, south, east, north], "coordinate": [lat, lon]}</code>. The web UI does not call this route.</p>
+<p><code>POST /api/tile-info</code> (<code>web.go:348-374</code>). Request: <code>{"lat", "lon", "zoom"}</code>. A <code>zoom</code> of 0 becomes 10. Response: <code>{"tile_x", "tile_y", "zoom", "bounds": [west, south, east, north], "coordinate": [lat, lon]}</code>. A <code>lat</code> or <code>lon</code> outside its range returns 400 <code>invalid_coordinate</code>, and a <code>zoom</code> outside 0 to 25 returns 400 <code>zoom_out_of_range</code> (FR-area-estimate-25, FR-area-estimate-26). The web UI does not call this route.</p>
 <h4 id="area-estimate-module-contract">Module contract</h4>
 <p><code>internal/tilecalc</code>:</p>
 <ul>
@@ -464,9 +495,10 @@ body.rv-open .layout { padding-right:21rem; }
 </ul>
 <p><code>/api/estimate</code>.</p>
 <ul>
-<li>Latitudes beyond the Web Mercator limit are clamped, not rejected.
+<li>A latitude beyond the Web Mercator limit is clamped when the bounds cross the limit.
 </li>
 </ul>
+<p>Bounds wholly beyond the limit are rejected (FR-area-estimate-24).</p>
 <p>What the code does not handle:</p>
 <ul>
 <li><strong>Bounds that cross the antimeridian are rejected.</strong> The minimum longitude must be less
@@ -512,6 +544,18 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 </ul>
 <p><code>Tile coordinates: (9649, 12314)</code>.</p>
+<ul>
+<li>[ ] <code>atak-dl estimate --source="OpenTopoMap" --bbox=86,0,89,1 --zoom=5</code> prints
+</li>
+</ul>
+<p><code>Error: invalid bbox: latitude 86 to 89 is outside the Web Mercator range -85.0511 to 85.0511</code> and exits with code 1.</p>
+<ul>
+<li>[ ] <code>POST /api/tile-info</code> with <code>{"lat": 85.0512, "lon": 0, "zoom": 3}</code> returns 400 <code>invalid_coordinate</code>.
+</li>
+<li>[ ] <code>atak-dl tile-info --lat=85.0512 --lon=0 --zoom=10</code> prints
+</li>
+</ul>
+<p><code>Error: --lat 85.0512 is outside the range -85.0511 to 85.0511</code> and exits with code 1.</p>
 <ul>
 <li>[ ] <code>go test ./internal/tilecalc/</code> passes, including the NYC zoom 10 tile <code>(301, 385)</code>.
 </li>

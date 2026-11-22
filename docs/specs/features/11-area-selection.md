@@ -30,6 +30,7 @@ This feature adds polygons, GeoJSON and KML import, and route buffers. It also l
 - FR-area-selection-5 — A job holds 1 to 20 areas.
 - FR-area-selection-30 — An area holds at most 20,000 vertices. The API returns 400 `invalid_area` above the cap, and the CLI exits with code 1.
 - FR-area-selection-31 — A job holds at most 50,000 vertices over all its areas. The API and the CLI reject a larger job as in FR-area-selection-30.
+- FR-area-selection-32 — The API and the CLI reject an area whose latitudes are all outside -85.0511 to 85.0511, with error code `invalid_area`. The latitudes of a `route_buffer` area include its buffer. An area that crosses the limit stays valid.
 
 ### Tile selection
 
@@ -45,7 +46,7 @@ This feature adds polygons, GeoJSON and KML import, and route buffers. It also l
 - FR-area-selection-12 — The CLI detects the file type from the extension: `.geojson` and `.json` are GeoJSON, `.kml` is KML and `.kmz` is zipped KML.
 - FR-area-selection-13 — For a GeoJSON Feature, the properties `min_zoom`, `max_zoom` and `buffer_m` set the area's values when they are present.
 - FR-area-selection-14 — For a feature with no zoom properties, the CLI uses `--min-zoom` and `--max-zoom`.
-- FR-area-selection-15 — `--buffer <metres>` sets `buffer_m` for every line feature that has no `buffer_m` property.
+- FR-area-selection-15 — `--buffer <meters>` sets `buffer_m` for every line feature that has no `buffer_m` property.
 - FR-area-selection-16 — `--area` and `--bbox` cannot be used together. The CLI exits with code 1 if both are present.
 - FR-area-selection-17 — The `estimate` command accepts `--area` with the same rules.
 - FR-area-selection-18 — The CLI ignores Point features and prints a warning with their count.
@@ -53,7 +54,7 @@ This feature adds polygons, GeoJSON and KML import, and route buffers. It also l
 ### Web UI
 
 - FR-area-selection-19 — The area toolbar offers Rectangle, Polygon, Route and Import.
-- FR-area-selection-20 — The Route tool draws a line and asks for the buffer in metres. The default is 500.
+- FR-area-selection-20 — The Route tool draws a line and asks for the buffer in meters. The default is 500.
 - FR-area-selection-21 — Import accepts a `.geojson`, `.json`, `.kml` or `.kmz` file by file picker or by drop.
 - FR-area-selection-22 — The area list shows each area with its kind, name, zoom range and tile count, and a **Remove** button.
 - FR-area-selection-23 — The user edits an area's zoom range in the area list.
@@ -135,7 +136,7 @@ Regions: the area toolbar, the import drop zone, the area list and the shaded ti
 ## Behaviour rules
 
 - `tilecalc` tests a tile against the polygon with Web Mercator coordinates at each zoom level.
-- The buffer uses metres on the ground at the line's latitude. Accuracy within 5% is enough.
+- The buffer uses meters on the ground at the line's latitude. Accuracy within 5% is enough.
 - Areas are processed in list order. Each tile is downloaded once, at the first area that selects it.
 - A KML `Placemark` with a `Polygon` becomes a `polygon` area, and one with a `LineString` becomes a `route_buffer` area. The Placemark `name` becomes the area name.
 - An imported file is at most 5 MiB.
@@ -167,6 +168,7 @@ Regions: the area toolbar, the import drop zone, the area list and the shaded ti
 
 - A triangle polygon at zoom level 10 selects fewer tiles than its bounding rectangle, and every selected tile intersects the triangle.
 - Two overlapping areas produce a unique count lower than the sum of their counts, and the engine requests each shared tile once.
+- An area file with a polygon from latitude 85.0512 to 86 fails with `invalid_area`, and a polygon from 85.0511 to 86 is accepted.
 - `atak-dl download --area trail.kml --buffer 300` downloads only tiles within about 300 m of the line. The test checks a tile 1 km away, which is not requested.
 - `--area` together with `--bbox` exits with code 1.
 - A GeoJSON Feature with `"max_zoom": 16` uses zoom level 16 for that area, whatever `--max-zoom` is.

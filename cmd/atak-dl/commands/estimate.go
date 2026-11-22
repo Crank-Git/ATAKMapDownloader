@@ -25,7 +25,7 @@ func NewEstimateCmd() *cobra.Command {
 	cmd.Flags().String("source", "", "Map source name (required)")
 	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required, except with --area)")
 	cmd.Flags().String("area", "", "GeoJSON, KML or KMZ file of the areas, in place of --bbox")
-	cmd.Flags().Float64("buffer", 0, "Buffer in metres for each line of the --area file with no buffer_m property")
+	cmd.Flags().Float64("buffer", 0, "Buffer in meters for each line of the --area file with no buffer_m property")
 	cmd.Flags().Int("zoom", 0, "Single zoom level")
 	cmd.Flags().String("zoom-range", "", "Zoom range as min-max")
 	cmd.Flags().Int("max-tiles", 10000, "Maximum tiles for auto zoom")
@@ -45,32 +45,22 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 		return errors.New("--bbox or --area is required")
 	}
 
-	source := sourceFlag(cmd, parser)
+	source, err := sourceFlag(cmd, parser)
+	if err != nil {
+		return err
+	}
 	sourceName := source.Name
 	if areaFile != "" {
 		return estimateAreaFile(cmd, areaFile, source)
 	}
-	bounds, coords := parseBBox(bboxStr)
+	bounds, coords, err := parseBBox(bboxStr)
+	if err != nil {
+		return err
+	}
 
-	zoom, _ := cmd.Flags().GetInt("zoom")
-	zoomRange, _ := cmd.Flags().GetString("zoom-range")
-	maxTiles, _ := cmd.Flags().GetInt("max-tiles")
-
-	var zoomLevels []int
-	if zoom > 0 {
-		zoomLevels = []int{zoom}
-	} else if zoomRange != "" {
-		r := strings.Split(zoomRange, "-")
-		if len(r) != 2 {
-			exitErr("Invalid zoom range format. Use min-max")
-		}
-		minZ, _ := strconv.Atoi(strings.TrimSpace(r[0]))
-		maxZ, _ := strconv.Atoi(strings.TrimSpace(r[1]))
-		zoomLevels = zoomLevelsBetween(minZ, maxZ)
-	} else {
-		optZoom := calc.CalculateZoomForArea(bounds, maxTiles)
-		zoomLevels = []int{optZoom}
-		fmt.Printf("Auto-selected zoom level: %d\n", optZoom)
+	zoomLevels, err := estimateZoomLevels(cmd, calc, bounds)
+	if err != nil {
+		return err
 	}
 
 	// Filter valid zooms
@@ -83,7 +73,7 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	if len(valid) == 0 {
-		exitErr("No valid zoom levels for this source")
+		return specError(cmd, "No valid zoom levels for this source")
 	}
 
 	fmt.Printf("\nDownload Estimate for '%s'\n", sourceName)
@@ -109,6 +99,36 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("Center: %.4f, %.4f\n", clat, clon)
 	fmt.Printf("Area: %.6f square degrees\n", bounds.AreaDegrees())
 	return nil
+}
+
+// estimateZoomLevels returns the zoom levels of a bounds estimate: --zoom, each level of --zoom-range, or the auto zoom for --max-tiles.
+// It returns an error when --zoom-range is not min-max.
+func estimateZoomLevels(cmd *cobra.Command, calc *tilecalc.TileCalculator, bounds *tilecalc.GeographicBounds) ([]int, error) {
+	zoom, err := cmd.Flags().GetInt("zoom")
+	if err != nil {
+		return nil, fmt.Errorf("read --zoom: %w", err)
+	}
+	zoomRange, err := cmd.Flags().GetString("zoom-range")
+	if err != nil {
+		return nil, fmt.Errorf("read --zoom-range: %w", err)
+	}
+	maxTiles, err := cmd.Flags().GetInt("max-tiles")
+	if err != nil {
+		return nil, fmt.Errorf("read --max-tiles: %w", err)
+	}
+	if zoom > 0 {
+		return []int{zoom}, nil
+	}
+	if zoomRange != "" {
+		var minZ, maxZ int
+		if _, err := fmt.Sscanf(zoomRange, "%d-%d", &minZ, &maxZ); err != nil {
+			return nil, fmt.Errorf("--zoom-range %q is not min-max: %w", zoomRange, err)
+		}
+		return zoomLevelsBetween(minZ, maxZ), nil
+	}
+	optZoom := calc.CalculateZoomForArea(bounds, maxTiles)
+	fmt.Printf("Auto-selected zoom level: %d\n", optZoom)
+	return []int{optZoom}, nil
 }
 
 // estimateAreaFile prints the tile count of each area of the --area file at path and the unique tile count (FR-area-selection-17).

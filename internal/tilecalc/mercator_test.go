@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestMercatorBoundsReturnsTheTileEdgesInMetres(t *testing.T) {
+func TestMercatorBoundsReturnsTheTileEdgesInMeters(t *testing.T) {
 	// half is the distance from the origin of EPSG:3857 to the edge of the world.
 	const half = 20037508.342789244
 	tests := []struct {

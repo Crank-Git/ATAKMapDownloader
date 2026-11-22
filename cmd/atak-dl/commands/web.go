@@ -394,6 +394,19 @@ func (h *WebHandler) apiTileInfo(w http.ResponseWriter, r *http.Request) {
 	if req.Zoom == 0 {
 		req.Zoom = 10
 	}
+	// The ranges are the ranges of the tile-info command (FR-area-estimate-25, FR-area-estimate-26).
+	if req.Lat < -tilecalc.MaxLatitude || req.Lat > tilecalc.MaxLatitude {
+		writeError(w, http.StatusBadRequest, "invalid_coordinate", fmt.Sprintf("lat %g is outside the range %g to %g", req.Lat, -tilecalc.MaxLatitude, tilecalc.MaxLatitude))
+		return
+	}
+	if req.Lon < -180 || req.Lon > 180 {
+		writeError(w, http.StatusBadRequest, "invalid_coordinate", fmt.Sprintf("lon %g is outside the range -180 to 180", req.Lon))
+		return
+	}
+	if req.Zoom < 0 || req.Zoom > tilecalc.MaxZoomLevel {
+		writeError(w, http.StatusBadRequest, "zoom_out_of_range", fmt.Sprintf("zoom %d is outside the range 0-%d", req.Zoom, tilecalc.MaxZoomLevel))
+		return
+	}
 	tileX, tileY := h.calc.LatLonToTile(req.Lat, req.Lon, req.Zoom)
 	topLat, leftLon := h.calc.TileToLatLon(tileX, tileY, req.Zoom)
 	botLat, rightLon := h.calc.TileToLatLon(tileX+1, tileY+1, req.Zoom)

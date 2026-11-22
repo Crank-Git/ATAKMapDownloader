@@ -185,6 +185,8 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-area-selection-31 — A job holds at most 50,000 vertices over all its areas. The API and the CLI reject a larger job as in FR-area-selection-30.
 </li>
+<li>FR-area-selection-32 — The API and the CLI reject an area whose latitudes are all outside -85.0511 to 85.0511, with error code <code>invalid_area</code>. The latitudes of a <code>route_buffer</code> area include its buffer. An area that crosses the limit stays valid.
+</li>
 </ul>
 <h4 id="area-selection-tile-selection">Tile selection</h4>
 <ul>
@@ -209,7 +211,7 @@ body.rv-open .layout { padding-right:21rem; }
 </li>
 <li>FR-area-selection-14 — For a feature with no zoom properties, the CLI uses <code>--min-zoom</code> and <code>--max-zoom</code>.
 </li>
-<li>FR-area-selection-15 — <code>--buffer &lt;metres&gt;</code> sets <code>buffer_m</code> for every line feature that has no <code>buffer_m</code> property.
+<li>FR-area-selection-15 — <code>--buffer &lt;meters&gt;</code> sets <code>buffer_m</code> for every line feature that has no <code>buffer_m</code> property.
 </li>
 <li>FR-area-selection-16 — <code>--area</code> and <code>--bbox</code> cannot be used together. The CLI exits with code 1 if both are present.
 </li>
@@ -222,7 +224,7 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li>FR-area-selection-19 — The area toolbar offers Rectangle, Polygon, Route and Import.
 </li>
-<li>FR-area-selection-20 — The Route tool draws a line and asks for the buffer in metres. The default is 500.
+<li>FR-area-selection-20 — The Route tool draws a line and asks for the buffer in meters. The default is 500.
 </li>
 <li>FR-area-selection-21 — Import accepts a <code>.geojson</code>, <code>.json</code>, <code>.kml</code> or <code>.kmz</code> file by file picker or by drop.
 </li>
@@ -318,7 +320,7 @@ body.rv-open .layout { padding-right:21rem; }
 <ul>
 <li><code>tilecalc</code> tests a tile against the polygon with Web Mercator coordinates at each zoom level.
 </li>
-<li>The buffer uses metres on the ground at the line's latitude. Accuracy within 5% is enough.
+<li>The buffer uses meters on the ground at the line's latitude. Accuracy within 5% is enough.
 </li>
 <li>Areas are processed in list order. Each tile is downloaded once, at the first area that selects it.
 </li>
@@ -369,6 +371,8 @@ body.rv-open .layout { padding-right:21rem; }
 <li>A triangle polygon at zoom level 10 selects fewer tiles than its bounding rectangle, and every selected tile intersects the triangle.
 </li>
 <li>Two overlapping areas produce a unique count lower than the sum of their counts, and the engine requests each shared tile once.
+</li>
+<li>An area file with a polygon from latitude 85.0512 to 86 fails with <code>invalid_area</code>, and a polygon from 85.0511 to 86 is accepted.
 </li>
 <li><code>atak-dl download --area trail.kml --buffer 300</code> downloads only tiles within about 300 m of the line. The test checks a tile 1 km away, which is not requested.
 </li>
