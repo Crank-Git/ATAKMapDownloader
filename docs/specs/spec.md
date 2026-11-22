@@ -62,7 +62,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | snapshot | noun | The pinned copy of ATAK-Maps source files embedded in the binary (feature 09). | bundle, vendor copy |
 | user source directory | noun | The directory that `--mapsources-dir` names. Its map sources replace snapshot map sources with the same name (feature 09). | override folder, mapsources folder |
 | overlay | noun | A map source with transparent tiles, drawn on top of another map source. | layer |
-| policy class | noun | The terms-of-use class of a map source: `open`, `conditional` or `restricted` (planned, feature 06). | license, tier |
+| policy class | noun | The terms-of-use class of a map source: `open`, `conditional` or `restricted` (feature 06). | license, tier |
 | rate limit | noun | The maximum number of requests per second that the project sends to one host. | throttle |
 | tile | noun | One square raster image at one zoom level, column and row. | image, chunk |
 | zoom level | noun | An integer from 0 to 25 that selects the tile grid. | level, z (in prose) |
@@ -164,11 +164,11 @@ flowchart LR
     WebUI["Web UI: embedded page (built, reworked)"]
     Catalog["Source catalog: xmlparser (built)"]
     Snapshot["Snapshot: embedded ATAK-Maps (built)"]
-    Policy["Source policy table (planned)"]
+    Policy["Source policy table (built)"]
     TileCalc["tilecalc: tile math (built)"]
     Engine["Download engine (built, reworked)"]
     Writer["Output writer: mbtiles / osmdroid / gpkg (built)"]
-    Jobs["Job queue and store (planned)"]
+    Jobs["Job queue and store (built)"]
   end
   Browser["Browser"] -->|HTTP + SSE| Server
   Server --> WebUI
@@ -261,17 +261,17 @@ erDiagram
     string reference_url
   }
   JOB {
-    string id PK "planned"
+    string id PK
     string source_name FK
     int min_zoom
     int max_zoom
     string state
-    string output_format "planned"
+    string output_format "in the job request"
     int total
     int downloaded
     int skipped
     int failed
-    time created_at "planned"
+    time created_at
   }
   AREA {
     string kind "bounds, polygon, route_buffer"
@@ -320,7 +320,7 @@ Per entity:
 - **FAILED_TILE** (built, feature 07, #28). A table `atakdl_failed_tiles` in the output file. The retry pass and `--resume` request each tile in it again, except a `not_found` tile. ATAK reads only the `tiles` and `metadata` tables, so an extra table is safe. This is inferred from ATAK-CIV `TilesetInfo.java` and is a risk item.
 - **JOB_EVENT** (built in memory, #76). An SSE message: `progress`, `state` or `log`. The server does not store it.
 
-Job lifecycle (planned, features 05, 07 and 12):
+Job lifecycle (built, features 05, 07 and 12):
 
 ```mermaid
 stateDiagram-v2
@@ -349,13 +349,13 @@ stateDiagram-v2
   - A geocode result with a coordinate that is not a number gives 500 `internal`.
 
   - The tile count is at most `--max-tiles`, with a default of 500,000 (`too_many_tiles`, feature 07, #29).
-- **Logging.** `log/slog` with the text handler today. Planned: every job log line carries `job_id`, and every failed tile is logged at debug level with its URL and reason.
-- **Politeness.** Planned (feature 06):
+- **Logging.** `log/slog` with its default handler (built). Planned: every job log line carries `job_id`, and the engine logs every failed tile at debug level with its URL and reason.
+- **Politeness.** Built (feature 06):
   - The User-Agent is `atak-map-downloader/<version> (+https://github.com/Crank-Git/ATAK-Map-Downloader)`.
   - Each host has a rate limit.
-  - The project backs off on 429 and 503 and honours `Retry-After`.
-  - Geocoding is limited to 1 request per second across the whole server, as the Nominatim policy requires (https://operations.osmfoundation.org/policies/nominatim/).
-- **Accessibility.** Planned (feature 08):
+  - The engine backs off on 403, 429 and 503. It obeys `Retry-After` on 429 and 503.
+  - The server sends at most 1 geocode request per second, as the Nominatim policy requires (https://operations.osmfoundation.org/policies/nominatim/).
+- **Accessibility.** Built (feature 08):
   - Every control has a label.
   - Icon buttons have `aria-label`.
   - The job status region is `aria-live="polite"`.
@@ -367,7 +367,7 @@ stateDiagram-v2
 ## Environments & config
 
 - **Environments.** One environment: the user's machine, or a LAN server or container. The project has no hosted deployment. Releases are the deploy target: GitHub Releases and `ghcr.io/crank-git/atak-map-downloader`.
-- **Configuration.** Configuration is through flags today, and no code reads an environment variable. Planned environment variables:
+- **Configuration.** Configuration is through flags and two environment variables (built):
 
 | Name | Feature | Meaning |
 |---|---|---|
