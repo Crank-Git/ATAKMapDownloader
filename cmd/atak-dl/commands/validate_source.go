@@ -2,7 +2,7 @@ package commands
 
 import (
 	"fmt"
-	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -21,7 +21,10 @@ func NewValidateSourceCmd() *cobra.Command {
 
 func runValidateSource(cmd *cobra.Command, _ []string) error {
 	parser := getParser(cmd)
-	source := sourceFlag(cmd, parser)
+	source, err := sourceFlag(cmd, parser)
+	if err != nil {
+		return err
+	}
 	sourceName := source.Name
 
 	errors := parser.ValidateSource(source)
@@ -42,10 +45,5 @@ func runValidateSource(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "✗ Source '%s' has validation errors:\n", sourceName)
-	for _, e := range errors {
-		fmt.Fprintf(os.Stderr, "  - %s\n", e)
-	}
-	os.Exit(1)
-	return nil
+	return specError(cmd, "✗ Source '"+sourceName+"' has validation errors:\n  - "+strings.Join(errors, "\n  - "))
 }

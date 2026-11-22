@@ -47,8 +47,8 @@ func (h *WebHandler) findWebSource(w http.ResponseWriter, name string) (*xmlpars
 
 // sourceFlag returns the map source of the --source flag of cmd.
 // It prints the deprecation warning of a v0.1 name on stderr.
-// It ends the process through exitErr when no map source has the name or upstream removed it.
-func sourceFlag(cmd *cobra.Command, parser *xmlparser.XMLParser) *xmlparser.MapSource {
+// It returns an error when no map source has the name or upstream removed it.
+func sourceFlag(cmd *cobra.Command, parser *xmlparser.XMLParser) (*xmlparser.MapSource, error) {
 	// Every caller defines --source as a string flag, so GetString cannot fail.
 	name, _ := cmd.Flags().GetString("source")
 	source, warning, err := findSource(parser, name)
@@ -56,10 +56,10 @@ func sourceFlag(cmd *cobra.Command, parser *xmlparser.XMLParser) *xmlparser.MapS
 		cmd.PrintErrln("Warning: " + warning)
 	}
 	if err != nil {
-		exitErr("Source '" + name + "': " + err.Error())
+		return nil, specError(cmd, "Source '"+name+"': "+err.Error())
 	}
 	if source == nil {
-		exitErr("Source '" + name + "' not found")
+		return nil, specError(cmd, "Source '"+name+"' not found")
 	}
-	return source
+	return source, nil
 }

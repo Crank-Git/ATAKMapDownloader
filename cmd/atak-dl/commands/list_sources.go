@@ -1,9 +1,9 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
@@ -78,32 +78,38 @@ func getParser(cmd *cobra.Command) *xmlparser.XMLParser {
 	return xmlparser.NewWithSnapshot(snapshot.FS(), dir)
 }
 
-func exitErr(msg string) {
-	fmt.Fprintln(os.Stderr, msg)
-	os.Exit(1)
+// specError prints msg to stderr as the whole error output, and returns an error with exit code 1.
+// The spec names each msg verbatim, so cobra adds no "Error: " prefix and no usage text.
+func specError(cmd *cobra.Command, msg string) error {
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	if _, err := fmt.Fprintln(cmd.ErrOrStderr(), msg); err != nil {
+		return fmt.Errorf("print the error: %w", err)
+	}
+	return errors.New(msg)
 }
 
 // parseBBox returns the bounds and the four values of a min_lat,min_lon,max_lat,max_lon string.
-// It ends the process through exitErr when the string does not hold four valid values.
-func parseBBox(bboxStr string) (*tilecalc.GeographicBounds, [4]float64) {
+// It returns an error when the string does not hold four valid values.
+func parseBBox(bboxStr string) (*tilecalc.GeographicBounds, [4]float64, error) {
+	var coords [4]float64
 	parts := strings.Split(bboxStr, ",")
 	if len(parts) != 4 {
-		exitErr("Bounding box must have 4 values: min_lat,min_lon,max_lat,max_lon")
+		return nil, coords, errors.New("bounding box must have 4 values: min_lat,min_lon,max_lat,max_lon")
 	}
-	var coords [4]float64
 	for i, p := range parts {
 		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
 		if err != nil {
-			exitErr("Invalid bbox value: " + p)
+			return nil, coords, fmt.Errorf("invalid bbox value %q: %w", p, err)
 		}
 		coords[i] = v
 	}
 
 	bounds, err := tilecalc.NewGeographicBounds(coords[0], coords[2], coords[1], coords[3])
 	if err != nil {
-		exitErr(err.Error())
+		return nil, coords, fmt.Errorf("invalid bbox: %w", err)
 	}
-	return bounds, coords
+	return bounds, coords, nil
 }
 
 // zoomLevelsBetween returns the zoom levels from minZoom to maxZoom, both included.

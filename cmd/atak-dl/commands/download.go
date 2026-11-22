@@ -43,7 +43,7 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().String("source", "", "Map source name (required)")
 	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required, except with --area or --resume --output)")
 	cmd.Flags().String("area", "", "GeoJSON, KML or KMZ file of the areas, in place of --bbox")
-	cmd.Flags().Float64("buffer", 0, "Buffer in metres for each line of the --area file with no buffer_m property")
+	cmd.Flags().Float64("buffer", 0, "Buffer in meters for each line of the --area file with no buffer_m property")
 	cmd.Flags().Int("min-zoom", 1, "Minimum zoom level")
 	cmd.Flags().Int("max-zoom", 15, "Maximum zoom level")
 	cmd.Flags().String("format", output.MBTiles, "Output format: "+strings.Join(output.Formats, ", "))
@@ -68,7 +68,10 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 
 func runDownload(cmd *cobra.Command, userAgent string) error {
 	parser := getParser(cmd)
-	source := sourceFlag(cmd, parser)
+	source, err := sourceFlag(cmd, parser)
+	if err != nil {
+		return err
+	}
 
 	format, pkg, err := outputFlags(cmd, source)
 	if err != nil {
@@ -193,7 +196,10 @@ func downloadAreas(cmd *cobra.Command, path string) ([]tilecalc.JobArea, error) 
 		if areaFile != "" {
 			return readAreaFile(cmd, areaFile, minZoom, maxZoom)
 		}
-		bounds, _ := parseBBox(bboxStr)
+		bounds, _, err := parseBBox(bboxStr)
+		if err != nil {
+			return nil, err
+		}
 		b := orb.Bound{Min: orb.Point{bounds.MinLon, bounds.MinLat}, Max: orb.Point{bounds.MaxLon, bounds.MaxLat}}
 		return []tilecalc.JobArea{{Area: tilecalc.Area{Kind: tilecalc.AreaBounds, Geometry: b}, MinZoom: minZoom, MaxZoom: maxZoom}}, nil
 	}

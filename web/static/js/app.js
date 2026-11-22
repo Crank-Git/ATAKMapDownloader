@@ -1,4 +1,4 @@
-// ATAK Tile Downloader web application. It runs jobs through the job API and follows them over SSE.
+// ATAK Map Downloader web application. It runs jobs through the job API and follows them over SSE.
 
 // The icons are inline SVG constants with no server or user text, so innerHTML is safe for them (FR-offline-web-ui-4).
 const ICON_DOWNLOAD = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';

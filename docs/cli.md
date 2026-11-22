@@ -40,6 +40,13 @@ This page lists the flags of `atak-dl`, the progress output of `download` and it
 | `download` | `--include-source` | `false` | With `--data-package`, add the source file of the map source to the zip. `POST /api/jobs` accepts `include_source`. |
 | `download` | `--package-name` | - | With `--data-package`, the package name (required). The command trims the spaces around the name. It then holds 1 to 64 characters of `A-Z`, `a-z`, `0-9`, space, `_` and `-`. Each space becomes `_` in the file name. Another name fails with `invalid_package_name`. `POST /api/jobs` accepts `package_name`, and returns 400 `invalid_package_name` for a name that is not valid. |
 | `estimate` | `--area`, `--buffer` | - | The same as for `download`. A feature with no zoom property gets the zoom range of `--zoom` or `--zoom-range`, and one of the two is then required. The command prints the tile count of each area and the unique tile count. |
+| `estimate` | `--zoom` | `0` | One zoom level. A value above 0 overrides `--zoom-range` and `--max-tiles`. |
+| `estimate` | `--zoom-range` | - | Zoom range as `min-max`, for example `10-12`. A value that is not `min-max` fails with exit code 1. The command removes each zoom level outside the zoom range of the map source and prints a warning. If no zoom level is left, it prints `No valid zoom levels for this source` and exits with code 1. |
+| `estimate` | `--max-tiles` | `10000` | Tile cap of the automatic zoom level. With no `--zoom`, no `--zoom-range` and no `--area`, the command selects the highest zoom level from 1 to 18 that has at most this tile count, and never a level below 1. It prints `Auto-selected zoom level: <zoom>`. |
+| `list-sources` | `--skipped` | `false` | List the source files that did not load, one line each: `path  reason  detail`. With no skipped source file, the command prints `No skipped source files.` |
+| `tile-info` | `--lat` | - | Latitude of the coordinate (required). |
+| `tile-info` | `--lon` | - | Longitude of the coordinate (required). |
+| `tile-info` | `--zoom` | - | Zoom level (required). The command prints the tile coordinates, the tile bounds and the resolution at the coordinate. It also prints the tile URL of the first three map sources that have this zoom level. |
 
 ## Progress and exit codes
 

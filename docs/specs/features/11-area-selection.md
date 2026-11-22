@@ -45,7 +45,7 @@ This feature adds polygons, GeoJSON and KML import, and route buffers. It also l
 - FR-area-selection-12 — The CLI detects the file type from the extension: `.geojson` and `.json` are GeoJSON, `.kml` is KML and `.kmz` is zipped KML.
 - FR-area-selection-13 — For a GeoJSON Feature, the properties `min_zoom`, `max_zoom` and `buffer_m` set the area's values when they are present.
 - FR-area-selection-14 — For a feature with no zoom properties, the CLI uses `--min-zoom` and `--max-zoom`.
-- FR-area-selection-15 — `--buffer <metres>` sets `buffer_m` for every line feature that has no `buffer_m` property.
+- FR-area-selection-15 — `--buffer <meters>` sets `buffer_m` for every line feature that has no `buffer_m` property.
 - FR-area-selection-16 — `--area` and `--bbox` cannot be used together. The CLI exits with code 1 if both are present.
 - FR-area-selection-17 — The `estimate` command accepts `--area` with the same rules.
 - FR-area-selection-18 — The CLI ignores Point features and prints a warning with their count.
@@ -53,7 +53,7 @@ This feature adds polygons, GeoJSON and KML import, and route buffers. It also l
 ### Web UI
 
 - FR-area-selection-19 — The area toolbar offers Rectangle, Polygon, Route and Import.
-- FR-area-selection-20 — The Route tool draws a line and asks for the buffer in metres. The default is 500.
+- FR-area-selection-20 — The Route tool draws a line and asks for the buffer in meters. The default is 500.
 - FR-area-selection-21 — Import accepts a `.geojson`, `.json`, `.kml` or `.kmz` file by file picker or by drop.
 - FR-area-selection-22 — The area list shows each area with its kind, name, zoom range and tile count, and a **Remove** button.
 - FR-area-selection-23 — The user edits an area's zoom range in the area list.
@@ -135,7 +135,7 @@ Regions: the area toolbar, the import drop zone, the area list and the shaded ti
 ## Behaviour rules
 
 - `tilecalc` tests a tile against the polygon with Web Mercator coordinates at each zoom level.
-- The buffer uses metres on the ground at the line's latitude. Accuracy within 5% is enough.
+- The buffer uses meters on the ground at the line's latitude. Accuracy within 5% is enough.
 - Areas are processed in list order. Each tile is downloaded once, at the first area that selects it.
 - A KML `Placemark` with a `Polygon` becomes a `polygon` area, and one with a `LineString` becomes a `route_buffer` area. The Placemark `name` becomes the area name.
 - An imported file is at most 5 MiB.

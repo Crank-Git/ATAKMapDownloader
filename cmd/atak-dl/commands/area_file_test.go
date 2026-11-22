@@ -24,10 +24,10 @@ func areaFixture(name string) string {
 	return filepath.Join("..", "..", "..", "testdata", "areas", name)
 }
 
-// tileEastOfTrail returns the tile at zoom level z that holds the point metres east of the middle of the Summit trail in trail.kml.
-func tileEastOfTrail(z int, metres float64) testtiles.Tile {
+// tileEastOfTrail returns the tile at zoom level z that holds the point meters east of the middle of the Summit trail in trail.kml.
+func tileEastOfTrail(z int, meters float64) testtiles.Tile {
 	const lat, lon = 46.81, -121.70
-	dLon := metres / (111320 * math.Cos(lat*math.Pi/180))
+	dLon := meters / (111320 * math.Cos(lat*math.Pi/180))
 	x, y := tilecalc.NewTileCalculator().LatLonToTile(lat, lon+dLon, z)
 	return testtiles.Tile{Z: z, X: x, Y: y}
 }

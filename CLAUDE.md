@@ -2,7 +2,7 @@
 
 ATAK Map Downloader (`atak-dl`) is one Go binary. It reads MOBAC source files, downloads the tiles of one map source over an area and a zoom range, and writes an output file that ATAK imports for offline use. It has a CLI and an embedded web UI (`atak-dl serve`).
 
-Current state: v0.1 as built in February 2026. The roadmap is Epics 0–8 in the spec. Epic 0 (Foundation) is not built yet, so CI, lint config and the CGO-free build do not exist until it lands.
+Current state: v0.2.0 is released. The roadmap is Epics 0–8 in the spec, and every epic is built. The SQLite driver is the pure-Go `modernc.org/sqlite` (ADR 0005), so the binary builds with `CGO_ENABLED=0`.
 
 Design lives in `docs/specs/`. Read `docs/specs/spec.md` and the relevant `docs/specs/features/*.md` before you build a feature. Use the words in the `## Terms` table of `docs/specs/spec.md`. Decisions are in `docs/adr/`. External facts (environment variable names, secrets by name, third-party policies) are in `docs/external.md`.
 
@@ -12,6 +12,8 @@ Design lives in `docs/specs/`. Read `docs/specs/spec.md` and the relevant `docs/
 |---|---|
 | `cmd/atak-dl/` | `main.go` and one file per cobra command in `commands/` |
 | `internal/xmlparser/` | The source file parser and `MapSource` |
+| `internal/areafile/` | The GeoJSON, KML and KMZ area file parser |
+| `internal/sourcesync/` | The `sources sync` command that downloads ATAK-Maps releases |
 | `internal/tilecalc/` | Web Mercator tile math |
 | `internal/download/` | The download engine |
 | `internal/mbtiles/` | The MBTiles writer |
@@ -27,30 +29,29 @@ Design lives in `docs/specs/`. Read `docs/specs/spec.md` and the relevant `docs/
 
 ## Commands
 
-- Build: `go build -o atak-dl ./cmd/atak-dl`. After Epic 0, build with `CGO_ENABLED=0`.
+- Build: `CGO_ENABLED=0 go build -o atak-dl ./cmd/atak-dl`
 - Test: `go test -race ./...`
 - Vet: `go vet ./...`
 - Format: `gofmt -l .` must print nothing. Use `gofmt -w <file>` to fix a file.
-- Lint (after Epic 0): `go tool golangci-lint run`
-- Smoke (after Epic 0): `./scripts/smoke.sh`
+- Lint: `go tool golangci-lint run`
+- Smoke: `./scripts/smoke.sh`
 - Run the web UI: `./atak-dl serve`, then open http://localhost:5000.
 - Regenerate the spec site after a spec edit: `python3 docs/specs/render-spec.py`
 
-Note: on macOS 27 the CGO link step of `mattn/go-sqlite3` fails. Until Epic 0 replaces the driver, `go build` and `go test` for packages that import `internal/mbtiles` can fail on this machine. Packages `tilecalc` and `xmlparser` test without CGO.
+Note: on macOS 27 the CGO link step of `go tool golangci-lint run` fails with `tapi error: malformed file`. On this machine, run `CGO_ENABLED=0 go tool golangci-lint run`.
 
 ## Conventions
 
 - Go standard layout and naming. Keep the existing package boundaries.
 - Wrap errors with `%w`. Error strings are lower case.
 - Log with `log/slog`.
-- Tests are table-driven. No test calls a real tile server or Nominatim. Use the test tile server (`internal/testtiles`, Epic 0).
+- Tests are table-driven. No test calls a real tile server or Nominatim. Use the test tile server (`internal/testtiles`).
 - Commit subjects are imperative and in sentence case, with no prefix (for example "Add context.Background() rather than nil").
 - Write prose and code comments in STE. See `.claude/rules/ste.md`. `README.md` is the one exception: it uses the voice of the maintainer, in US English.
 
 ## Branches
 
 - `branch_model: dev-and-live`. Batches merge into `develop`. A release merges `develop` into `main` and pushes a `v*` tag.
-- Epic 0 creates `develop`. Until then, `main` is the only branch.
 
 ## Filing gate
 

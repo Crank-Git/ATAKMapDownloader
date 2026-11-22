@@ -7,8 +7,8 @@ allowed-tools: Bash, Read
 
 # Run ATAK Map Downloader
 
-1. Build the binary: `go build -o atak-dl ./cmd/atak-dl`. After Epic 0, prefix the command with `CGO_ENABLED=0`.
-2. If the build fails at the CGO link step, the machine has the macOS 27 linker problem. Use the existing `./atak-dl` binary and say so in your report.
+1. Build the binary: `CGO_ENABLED=0 go build -o atak-dl ./cmd/atak-dl`.
+2. Check the serve flags: `./atak-dl serve --help` lists `--addr`.
 3. Start the server on the port you were given, or on 5000: `./atak-dl serve --addr 127.0.0.1:<port>`. Run it in the background.
 4. Check that the server is up: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:<port>/` returns `200`.
 5. Check that the source catalog loaded: `curl -s http://127.0.0.1:<port>/api/sources` returns a non-empty JSON array.

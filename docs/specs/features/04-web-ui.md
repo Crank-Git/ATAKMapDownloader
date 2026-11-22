@@ -477,7 +477,7 @@ Known defects and the planned feature that repairs each:
 
 - [ ] `atak-dl serve` prints `Open http://localhost:5000 in your browser` and serves the
       page at that address.
-- [ ] `GET /` returns HTML whose `<title>` is `ATAK Tile Downloader`.
+- [ ] `GET /` returns HTML whose `<title>` is `ATAK Map Downloader`.
 - [ ] No response carries an `Access-Control-Allow-Origin` header.
 - [ ] A `POST /api/jobs` with `Sec-Fetch-Site: cross-site` returns 403 with code
       `cross_origin`.
