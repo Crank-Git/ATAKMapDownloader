@@ -66,6 +66,18 @@ This file describes the behavior that exists today.
   for one coordinate as JSON.
 - FR-area-estimate-20 — If `source` names an old map source, `POST /api/estimate` returns
   the estimate for the new name and the deprecation warning in `warning` (FR-source-sync-16).
+- FR-area-estimate-21 — The `tile-info` command rejects a `--lat` value outside -85.0511 to
+  85.0511 with exit code 1. Web Mercator shows no latitude outside this range.
+- FR-area-estimate-22 — The `tile-info` command rejects a `--lon` value outside -180 to 180
+  with exit code 1.
+- FR-area-estimate-23 — The `tile-info` command rejects a `--zoom` value outside 0 to 25
+  with exit code 1. 25 is the highest zoom level of an area (`tilecalc.MaxZoomLevel`).
+- FR-area-estimate-24 — The project rejects bounds whose latitudes are all outside
+  -85.0511 to 85.0511. Bounds that cross the limit stay valid, and FR-area-estimate-5 clamps them.
+- FR-area-estimate-25 — `POST /api/tile-info` returns 400 `invalid_coordinate` for a `lat`
+  outside -85.0511 to 85.0511 or a `lon` outside -180 to 180.
+- FR-area-estimate-26 — `POST /api/tile-info` returns 400 `zoom_out_of_range` for a `zoom`
+  outside 0 to 25.
 
 ## User flows
 
@@ -187,8 +199,9 @@ None on disk. The calculations are pure functions in `internal/tilecalc`.
 | | `--zoom` | 0 | One zoom level when greater than 0 |
 | | `--zoom-range` | — | `min-max` |
 | | `--max-tiles` | 10000 | Tile budget for auto zoom |
-| `tile-info` | `--lat`, `--lon` | — | Required |
-| | `--zoom` | 10 | Marked required |
+| `tile-info` | `--lat` | — | Required. From -85.0511 to 85.0511 |
+| | `--lon` | — | Required. From -180 to 180 |
+| | `--zoom` | 10 | Marked required. From 0 to 25 |
 
 ### HTTP
 
@@ -209,6 +222,8 @@ and `Content-Type: application/json` (#74).
 `POST /api/tile-info` (`web.go:348-374`). Request: `{"lat", "lon", "zoom"}`. A `zoom` of 0
 becomes 10. Response:
 `{"tile_x", "tile_y", "zoom", "bounds": [west, south, east, north], "coordinate": [lat, lon]}`.
+A `lat` or `lon` outside its range returns 400 `invalid_coordinate`, and a `zoom` outside 0 to 25
+returns 400 `zoom_out_of_range` (FR-area-estimate-25, FR-area-estimate-26).
 The web UI does not call this route.
 
 ### Module contract
@@ -231,7 +246,8 @@ What the code handles:
 
 - Inverted or out-of-range bounds give a clear error in the CLI and a 400 response from
   `/api/estimate`.
-- Latitudes beyond the Web Mercator limit are clamped, not rejected.
+- A latitude beyond the Web Mercator limit is clamped when the bounds cross the limit.
+  Bounds wholly beyond the limit are rejected (FR-area-estimate-24).
 
 What the code does not handle:
 
@@ -261,6 +277,12 @@ Known defects and the planned feature that repairs each:
       prints a `min_lat` error and exits with code 1.
 - [ ] `atak-dl tile-info --lat=40.7589 --lon=-73.9851 --zoom=15` prints
       `Tile coordinates: (9649, 12314)`.
+- [ ] `atak-dl estimate --source="OpenTopoMap" --bbox=86,0,89,1 --zoom=5` prints
+      `Error: invalid bbox: latitude 86 to 89 is outside the Web Mercator range -85.0511 to 85.0511`
+      and exits with code 1.
+- [ ] `POST /api/tile-info` with `{"lat": 85.0512, "lon": 0, "zoom": 3}` returns 400 `invalid_coordinate`.
+- [ ] `atak-dl tile-info --lat=85.0512 --lon=0 --zoom=10` prints
+      `Error: --lat 85.0512 is outside the range -85.0511 to 85.0511` and exits with code 1.
 - [ ] `go test ./internal/tilecalc/` passes, including the NYC zoom 10 tile `(301, 385)`.
 - [ ] `POST /api/estimate` with inverted bounds returns status 400.
 - [ ] `POST /api/estimate` with `min_zoom` 12 and `max_zoom` 10 returns

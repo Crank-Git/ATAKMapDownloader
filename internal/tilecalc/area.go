@@ -53,8 +53,8 @@ type Area struct {
 // It returns ErrAntimeridian when a position or an edge crosses 180°, and
 // ErrSelfIntersection when the edges of one polygon cross or touch.
 // It also returns an error for an unknown kind, a geometry of the wrong type,
-// a latitude outside -90 to 90, too few positions, a BufferM outside 10 to 50,000,
-// or more than MaxAreaVertices vertices.
+// a latitude outside -90 to 90, an area wholly outside the Web Mercator latitudes,
+// too few positions, a BufferM outside 10 to 50,000, or more than MaxAreaVertices vertices.
 func (a Area) Validate() error {
 	if n := a.Vertices(); n > MaxAreaVertices {
 		return fmt.Errorf("the area has %d vertices, and an area holds at most %d", n, MaxAreaVertices)
@@ -67,7 +67,11 @@ func (a Area) Validate() error {
 		if !ok {
 			return fmt.Errorf("a polygon area needs a Polygon or MultiPolygon geometry, not %T", a.Geometry)
 		}
-		return validatePolygons(polygons)
+		if err := validatePolygons(polygons); err != nil {
+			return err
+		}
+		b := a.Geometry.Bound()
+		return checkWebMercator(b.Min[1], b.Max[1])
 	case AreaRouteBuffer:
 		lines, ok := areaLines(a.Geometry)
 		if !ok {
@@ -84,7 +88,9 @@ func (a Area) Validate() error {
 				return err
 			}
 		}
-		return nil
+		// The buffer can reach into the Web Mercator latitudes from a line outside them, so the check uses the buffered rectangle.
+		b := JobBound([]JobArea{{Area: a}})
+		return checkWebMercator(b.Min[1], b.Max[1])
 	default:
 		return fmt.Errorf("unknown area kind %q: use bounds, polygon or route_buffer", a.Kind)
 	}

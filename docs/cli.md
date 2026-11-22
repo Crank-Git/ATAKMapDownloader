@@ -44,9 +44,9 @@ This page lists the flags of `atak-dl`, the progress output of `download` and it
 | `estimate` | `--zoom-range` | - | Zoom range as `min-max`, for example `10-12`. A value that is not `min-max` fails with exit code 1. The command removes each zoom level outside the zoom range of the map source and prints a warning. If no zoom level is left, it prints `No valid zoom levels for this source` and exits with code 1. |
 | `estimate` | `--max-tiles` | `10000` | Tile cap of the automatic zoom level. With no `--zoom`, no `--zoom-range` and no `--area`, the command selects the highest zoom level from 1 to 18 that has at most this tile count, and never a level below 1. It prints `Auto-selected zoom level: <zoom>`. |
 | `list-sources` | `--skipped` | `false` | List the source files that did not load, one line each: `path  reason  detail`. With no skipped source file, the command prints `No skipped source files.` |
-| `tile-info` | `--lat` | - | Latitude of the coordinate (required). |
-| `tile-info` | `--lon` | - | Longitude of the coordinate (required). |
-| `tile-info` | `--zoom` | - | Zoom level (required). The command prints the tile coordinates, the tile bounds and the resolution at the coordinate. It also prints the tile URL of the first three map sources that have this zoom level. |
+| `tile-info` | `--lat` | - | Latitude of the coordinate (required), from -85.0511 to 85.0511. A value outside this range fails with exit code 1. |
+| `tile-info` | `--lon` | - | Longitude of the coordinate (required), from -180 to 180. A value outside this range fails with exit code 1. |
+| `tile-info` | `--zoom` | - | Zoom level (required), from 0 to 25. A value outside this range fails with exit code 1. The command prints the tile coordinates, the tile bounds and the resolution at the coordinate. It also prints the tile URL of the first three map sources that have this zoom level. |
 
 ## Progress and exit codes
 

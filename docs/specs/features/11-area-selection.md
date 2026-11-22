@@ -30,6 +30,7 @@ This feature adds polygons, GeoJSON and KML import, and route buffers. It also l
 - FR-area-selection-5 — A job holds 1 to 20 areas.
 - FR-area-selection-30 — An area holds at most 20,000 vertices. The API returns 400 `invalid_area` above the cap, and the CLI exits with code 1.
 - FR-area-selection-31 — A job holds at most 50,000 vertices over all its areas. The API and the CLI reject a larger job as in FR-area-selection-30.
+- FR-area-selection-32 — The API and the CLI reject an area whose latitudes are all outside -85.0511 to 85.0511, with error code `invalid_area`. The latitudes of a `route_buffer` area include its buffer. An area that crosses the limit stays valid.
 
 ### Tile selection
 
@@ -167,6 +168,7 @@ Regions: the area toolbar, the import drop zone, the area list and the shaded ti
 
 - A triangle polygon at zoom level 10 selects fewer tiles than its bounding rectangle, and every selected tile intersects the triangle.
 - Two overlapping areas produce a unique count lower than the sum of their counts, and the engine requests each shared tile once.
+- An area file with a polygon from latitude 85.0512 to 86 fails with `invalid_area`, and a polygon from 85.0511 to 86 is accepted.
 - `atak-dl download --area trail.kml --buffer 300` downloads only tiles within about 300 m of the line. The test checks a tile 1 km away, which is not requested.
 - `--area` together with `--bbox` exits with code 1.
 - A GeoJSON Feature with `"max_zoom": 16` uses zoom level 16 for that area, whatever `--max-zoom` is.

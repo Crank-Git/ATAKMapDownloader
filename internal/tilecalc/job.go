@@ -16,6 +16,9 @@ const MaxJobVertices = 50_000
 // MaxZoomLevel is the highest zoom level of an area. It is the limit of ValidateZoomRange.
 const MaxZoomLevel = 25
 
+// MaxLatitude is the highest latitude in degrees that Web Mercator shows. LatLonToTile clamps to it.
+const MaxLatitude = 85.0511
+
 // JobArea is one area of a job, with its own zoom range (FR-area-selection-4).
 // Name is the label of the area in the estimate, and it can be empty.
 type JobArea struct {
