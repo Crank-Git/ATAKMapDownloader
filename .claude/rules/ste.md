@@ -12,6 +12,8 @@ paths:
 
 Every spec file, issue body, PR body, comment, manual page and **code comment** in this project uses Simplified Technical English. The controlled vocabulary is the `## Terms` table in `docs/specs/spec.md`. Read it before you write a domain word. If you need a word that is not in the table, add it to the table.
 
+`README.md` is the one exception. It uses the voice of the maintainer, in US English, and does not follow this standard. Every other Markdown file, including each page in `docs/`, keeps this standard.
+
 ## What must not be rewritten
 
 Reproduce these verbatim: quotes from a person, error messages, log and command output, test names, `file:line` references, code, config, commands, JSON, paths, identifiers, label names, third-party product names, API field names, and UI copy inside mockups.
