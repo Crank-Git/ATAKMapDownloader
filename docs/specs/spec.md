@@ -150,7 +150,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | Source sync and WMS | [features/09-source-sync.md](features/09-source-sync.md) | Epic 5: Source sync and WMS | built | — |
 | Output formats | [features/10-output-formats.md](features/10-output-formats.md) | Epic 6: Output formats | built | 03-export-options |
 | Area selection | [features/11-area-selection.md](features/11-area-selection.md) | Epic 7: Area selection | built | 02-area-tools |
-| Team server | [features/12-team-server.md](features/12-team-server.md) | Epic 8: Team server | planned | 05-jobs |
+| Team server | [features/12-team-server.md](features/12-team-server.md) | Epic 8: Team server | built | 05-jobs |
 
 ## Architecture & stack
 
