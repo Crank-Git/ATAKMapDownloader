@@ -45,7 +45,7 @@ Note: on macOS 27 the CGO link step of `mattn/go-sqlite3` fails. Until Epic 0 re
 - Log with `log/slog`.
 - Tests are table-driven. No test calls a real tile server or Nominatim. Use the test tile server (`internal/testtiles`, Epic 0).
 - Commit subjects are imperative and in sentence case, with no prefix (for example "Add context.Background() rather than nil").
-- Write prose and code comments in STE. See `.claude/rules/ste.md`.
+- Write prose and code comments in STE. See `.claude/rules/ste.md`. `README.md` is the one exception: it uses the voice of the maintainer, in US English.
 
 ## Branches
 

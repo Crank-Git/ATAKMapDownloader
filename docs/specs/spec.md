@@ -6,7 +6,7 @@ status: approved
 spec_version: 2
 created: 2026-11-21
 approved: 2026-11-21
-html_generated: 2026-11-21
+html_generated: 2026-11-22
 branch_model: dev-and-live
 dev_branch: develop
 visibility: public
@@ -426,7 +426,7 @@ After Epic 3, issue-flow may build Epics 4, 5 and 6 in parallel.
 
 Reconciliation of the existing documentation against the code (Phase 1):
 
-- **Resolved — README cross-compile.** The README told users to cross-compile with `GOOS`/`GOARCH`, and the `mattn/go-sqlite3` driver needed CGO. #63 replaced the driver, and the README now shows `CGO_ENABLED=0` builds (`README.md:65-77`).
+- **Resolved — README cross-compile.** The README told users to cross-compile with `GOOS`/`GOARCH`, and the `mattn/go-sqlite3` driver needed CGO. #63 replaced the driver, and the README now shows `CGO_ENABLED=0` builds (`README.md:145-153`).
 - **Resolved — "1:1 functionality matching the Python version".** No Python code is in this repo, and behavior differs: WMS is skipped, and the defaults for failure tolerance and size per tile are different. The user retired the claim, and Epic 0 removed it from the README (#71).
 - **Resolved — "30+ map sources".** The snapshot holds 53 source files, and 52 load, including 5 WMS files (#41). `list-sources --skipped` reports the other 1, a multi-layer file, with reason `parse_error` (#37, #38).
 - **Contradicted — "MBTiles output".** The output file has a `.sqlite` extension and lacks the `center` key that the MBTiles 1.3 spec recommends (https://github.com/mapbox/mbtiles-spec/blob/master/1.3/spec.md). ATAK loads it through its "momap" path, not its "mbtiles" path.
@@ -587,3 +587,4 @@ FR coverage (each sub-issue and the requirements it quotes):
 - 2026-11-21: WMS map sources merged into `develop` (#142). Epic 5 is complete. Decisions:
   - The maintainer chose option 1 for FR-source-sync-20. The engine requests `EPSG:3857`, and if the source file declares another CRS, it reads GetCapabilities one time for each map source. A server that does not list `EPSG:3857` stops the job with `unsupported_crs` (#41).
   - `unsupported_crs` is a job error only, and it is no longer a skip reason (#41).
+- 2026-11-22: The maintainer exempted `README.md` from STE. The README uses the voice of the maintainer, in US English. Every other Markdown file keeps STE (`.claude/rules/ste.md`). The flag table, the exit codes and the map source rules moved from the README to `docs/cli.md` and `docs/sources.md`. FR-foundation-23 and FR-foundation-24 still hold.

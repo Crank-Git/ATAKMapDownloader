@@ -2,7 +2,7 @@
 
 This page tells a server operator how to run the project on a LAN host in Docker, so that a team shares one server (FR-team-server-31).
 
-The image is `ghcr.io/crank-git/atak-map-downloader`. Replace `<tag>` with a release tag, for example `v1.0.0`.
+The image is `ghcr.io/crank-git/atak-map-downloader`. Replace `<tag>` with a release tag, for example `v0.2.0`.
 
 ## What the image runs
 
@@ -119,7 +119,7 @@ curl http://<host>:5000/healthz
 ```
 
 ```json
-{"status":"ok","version":"1.0.0"}
+{"status":"ok","version":"0.2.0"}
 ```
 
 The image has no shell and no `curl`, so the Dockerfile has no `HEALTHCHECK`. Point a monitor outside the container at `/healthz`.
