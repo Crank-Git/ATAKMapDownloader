@@ -13,7 +13,7 @@
   "planReview": false,
   "reviewWipLimit": 2,
   "review": { "when": "never" },
-  "releaseTag": { "allowed": "v0.2.0-rc.1", "note": "Maintainer approved one pre-release tag push to verify #9 after Epic 0 merges." },
+  "releaseTag": { "allowed": null, "note": "No tag push is approved. The one approval (v0.2.0-rc.1, to verify #9) is spent, and v0.2.0 is released. The maintainer approves each next tag." },
   "practices": {
     "tdd": "tests first for every logic change; the new tests fail on the pre-patch code",
     "tests": "table-driven where more than two cases share one shape; go test -race ./... green",
