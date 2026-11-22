@@ -45,12 +45,18 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 		return errors.New("--bbox or --area is required")
 	}
 
-	source := sourceFlag(cmd, parser)
+	source, err := sourceFlag(cmd, parser)
+	if err != nil {
+		return err
+	}
 	sourceName := source.Name
 	if areaFile != "" {
 		return estimateAreaFile(cmd, areaFile, source)
 	}
-	bounds, coords := parseBBox(bboxStr)
+	bounds, coords, err := parseBBox(bboxStr)
+	if err != nil {
+		return err
+	}
 
 	zoomLevels, err := estimateZoomLevels(cmd, calc, bounds)
 	if err != nil {
@@ -67,7 +73,7 @@ func runEstimate(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	if len(valid) == 0 {
-		exitErr("No valid zoom levels for this source")
+		return specError(cmd, "No valid zoom levels for this source")
 	}
 
 	fmt.Printf("\nDownload Estimate for '%s'\n", sourceName)
