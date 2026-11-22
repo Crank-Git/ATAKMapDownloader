@@ -64,6 +64,15 @@ type GeographicBounds struct {
 	MinLon, MaxLon float64
 }
 
+// checkWebMercator returns an error when every latitude from minLat to maxLat is outside -MaxLatitude to MaxLatitude (FR-area-estimate-24).
+// A range that crosses the limit is valid, because LatLonToTile clamps it (FR-area-estimate-5).
+func checkWebMercator(minLat, maxLat float64) error {
+	if minLat > MaxLatitude || maxLat < -MaxLatitude {
+		return fmt.Errorf("latitude %g to %g is outside the Web Mercator range %g to %g", minLat, maxLat, -MaxLatitude, MaxLatitude)
+	}
+	return nil
+}
+
 // NewGeographicBounds creates and validates geographic bounds.
 func NewGeographicBounds(minLat, maxLat, minLon, maxLon float64) (*GeographicBounds, error) {
 	if minLat >= maxLat {
@@ -77,6 +86,9 @@ func NewGeographicBounds(minLat, maxLat, minLon, maxLon float64) (*GeographicBou
 	}
 	if minLon < -180 || maxLon > 180 {
 		return nil, fmt.Errorf("longitude must be between -180 and 180 degrees")
+	}
+	if err := checkWebMercator(minLat, maxLat); err != nil {
+		return nil, err
 	}
 	return &GeographicBounds{MinLat: minLat, MaxLat: maxLat, MinLon: minLon, MaxLon: maxLon}, nil
 }

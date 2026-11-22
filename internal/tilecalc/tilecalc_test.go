@@ -3,6 +3,7 @@ package tilecalc
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -141,5 +142,38 @@ func TestTileSizeKBFollowsTheTileType(t *testing.T) {
 		if got := TileSizeKB(tt.tileType); got != tt.want {
 			t.Errorf("TileSizeKB(%q) = %v, want %v", tt.tileType, got, tt.want)
 		}
+	}
+}
+
+func TestNewGeographicBoundsRejectsBoundsWhollyOutsideWebMercator(t *testing.T) {
+	tests := []struct {
+		name           string
+		minLat, maxLat float64
+		wantErr        bool
+	}{
+		{"accepts bounds that start at the north limit", 85.0511, 86, false},
+		{"rejects bounds that start just above the north limit", 85.0512, 86, true},
+		{"accepts bounds that end at the south limit", -86, -85.0511, false},
+		{"rejects bounds that end just below the south limit", -86, -85.0512, true},
+		{"accepts bounds that cross the north limit", 80, 89, false},
+		{"rejects bounds from 86 to 89", 86, 89, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewGeographicBounds(tt.minLat, tt.maxLat, 0, 1)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("NewGeographicBounds(%g, %g) error = %v, want an error: %t", tt.minLat, tt.maxLat, err, tt.wantErr)
+			}
+			if err != nil && !strings.Contains(err.Error(), "outside the Web Mercator range -85.0511 to 85.0511") {
+				t.Errorf("error = %q, want the Web Mercator range", err)
+			}
+		})
+	}
+}
+
+func TestTileBoundsToGeographicAcceptsTheTopTile(t *testing.T) {
+	// The north edge of tile row 0 is 85.05113 degrees, above MaxLatitude, and the tile is in Web Mercator.
+	if gb := NewTileCalculator().TileBoundsToGeographic(&TileBounds{MinX: 0, MaxX: 0, MinY: 0, MaxY: 0, Zoom: 3}); gb == nil {
+		t.Fatal("TileBoundsToGeographic of tile row 0 = nil, want the tile bounds")
 	}
 }
