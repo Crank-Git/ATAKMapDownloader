@@ -17,7 +17,7 @@
   "practices": {
     "tdd": "tests first for every logic change; the new tests fail on the pre-patch code",
     "tests": "table-driven where more than two cases share one shape; go test -race ./... green",
-    "e2e": "scripts/smoke.sh once Epic 0 lands it",
+    "e2e": "scripts/smoke.sh; CI runs it on every pull request to develop or main",
     "coverage": null,
     "commitStyle": "imperative, sentence case, no prefix",
     "docs": "STE for comments, docstrings, test names and PR bodies (.claude/rules/ste.md)"
