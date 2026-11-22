@@ -139,7 +139,7 @@ sequenceDiagram
 
 ## Behaviour rules
 
-- WMS tile bounds come from `tilecalc` for the tile at zoom level z, column x and row y, in EPSG:3857 metres.
+- WMS tile bounds come from `tilecalc` for the tile at zoom level z, column x and row y, in EPSG:3857 meters.
 - The WMS `BBOX` axis order for 1.3.0 with EPSG:3857 is `minx,miny,maxx,maxy`. OGC WMS 1.3.0 § 6.7.4 orders `BBOX` by the axes of the CRS, and EPSG:3857 has easting first.
 - WMS 1.1.1 names the CRS parameter `SRS`. WMS 1.3.0 names it `CRS`.
 - The GetCapabilities request obeys the policy table like a tile request. The engine does not reproject.

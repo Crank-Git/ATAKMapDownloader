@@ -69,7 +69,7 @@ The project exists because ATAK users often work with no network. Examples are s
 | zoom range | noun | A minimum and a maximum zoom level, both included. | levels |
 | bounds | noun | A geographic rectangle: minimum and maximum latitude and longitude. The `--bbox` flag name stays as it is. | bbox (in prose), extent, box |
 | area | noun | The region that a job covers: bounds, a polygon or a route buffer (feature 11). | AOI, region, selection |
-| route buffer | noun | An area made from a line and a distance in metres on each side of it (feature 11). | corridor |
+| route buffer | noun | An area made from a line and a distance in meters on each side of it (feature 11). | corridor |
 | vertex | noun | One position of a polygon ring or of a line. An area holds at most 20,000 (feature 11). | node, corner |
 | estimate | noun | A prediction of the tile count, file size and time for an area and a zoom range. The `estimate` command name stays as it is. | quote, calculation |
 | preview | noun | A grid of sample tiles from a map source, shown on the map over the area. | thumbnail |

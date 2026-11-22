@@ -53,7 +53,7 @@ This file describes the behavior that exists today.
 - FR-area-estimate-13 — The `estimate` command uses the size per tile of the map source's
   tile type: `jpg` 18 KB, `png` 25 KB, and any other type 20 KB.
 - FR-area-estimate-14 — The `estimate` command prints the tile count, the size and the
-  resolution in metres per pixel for each zoom level.
+  resolution in meters per pixel for each zoom level.
 - FR-area-estimate-15 — `POST /api/estimate` uses the size per tile of the tile type of the
   named map source.
 - FR-area-estimate-16 — `POST /api/estimate` swaps the minimum and the maximum zoom level

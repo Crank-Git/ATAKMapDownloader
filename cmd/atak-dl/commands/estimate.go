@@ -25,7 +25,7 @@ func NewEstimateCmd() *cobra.Command {
 	cmd.Flags().String("source", "", "Map source name (required)")
 	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required, except with --area)")
 	cmd.Flags().String("area", "", "GeoJSON, KML or KMZ file of the areas, in place of --bbox")
-	cmd.Flags().Float64("buffer", 0, "Buffer in metres for each line of the --area file with no buffer_m property")
+	cmd.Flags().Float64("buffer", 0, "Buffer in meters for each line of the --area file with no buffer_m property")
 	cmd.Flags().Int("zoom", 0, "Single zoom level")
 	cmd.Flags().String("zoom-range", "", "Zoom range as min-max")
 	cmd.Flags().Int("max-tiles", 10000, "Maximum tiles for auto zoom")

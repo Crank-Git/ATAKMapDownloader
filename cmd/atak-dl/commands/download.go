@@ -43,7 +43,7 @@ func NewDownloadCmd(userAgent string) *cobra.Command {
 	cmd.Flags().String("source", "", "Map source name (required)")
 	cmd.Flags().String("bbox", "", "Bounding box as min_lat,min_lon,max_lat,max_lon (required, except with --area or --resume --output)")
 	cmd.Flags().String("area", "", "GeoJSON, KML or KMZ file of the areas, in place of --bbox")
-	cmd.Flags().Float64("buffer", 0, "Buffer in metres for each line of the --area file with no buffer_m property")
+	cmd.Flags().Float64("buffer", 0, "Buffer in meters for each line of the --area file with no buffer_m property")
 	cmd.Flags().Int("min-zoom", 1, "Minimum zoom level")
 	cmd.Flags().Int("max-zoom", 15, "Maximum zoom level")
 	cmd.Flags().String("format", output.MBTiles, "Output format: "+strings.Join(output.Formats, ", "))
